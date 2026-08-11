@@ -179,10 +179,12 @@ m2_txs_response_seen=0
 while true; do
   now=$(date +%s)
 
-  if [[ "${ATTACH_TO_EXISTING}" -eq 0 && ! kill -0 "${official_pid}" 2>/dev/null ]]; then
-    echo "official node died during interop run" >&2
-    cat "${OFFICIAL_LOG_FILE}" >&2
-    exit 1
+  if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
+    if ! kill -0 "${official_pid}" 2>/dev/null; then
+      echo "official node died during interop run" >&2
+      cat "${OFFICIAL_LOG_FILE}" >&2
+      exit 1
+    fi
   fi
 
   if ! kill -0 "${rust_pid}" 2>/dev/null; then
