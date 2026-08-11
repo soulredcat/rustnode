@@ -86,6 +86,9 @@ make check
 # Build and smoke-test the isolated official Scala node
 make official-smoke
 
+# WARNING: default local official-node P2P port is 19974 (shifted from Java default 19973) to avoid collision.
+# If you run Java and Rust on the same host, align OFFICIAL_NODE_P2P_PORT, RUST_INTEROP_PEER_PORT, and RUST_INTEROP_PEER_ADDRESS first.
+
 # Run the pure-Rust M1 bootstrap peer smoke (no Java / no JVM dependencies)
 make rust-interop-m1
 

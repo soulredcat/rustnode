@@ -146,6 +146,9 @@ write_manifest
 if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "WARNING: ${PEER_ADDRESS} already has a listening process." >&2
+    if [[ "${PEER_PORT}" -eq 19973 ]]; then
+      echo "Peringatan: 19973 biasanya dipakai oleh node Java default; port interop sekarang dimulai dari 19974." >&2
+    fi
     echo "Jika Java node Anda sedang jalan di port ini, gunakan ATTACH mode agar tidak bentrok." >&2
     echo "Lanjutkan hanya dengan membunuh proses yang dipakai port itu atau pindah ke port lain dengan RUST_INTEROP_PEER_ADDRESS." >&2
     exit 1
