@@ -14,10 +14,10 @@ Last updated: `2026-08-11`
 ```text
 Current milestone: M1 — official P2P handshake and Ping/Pong
 Current active gate: M2 — Request and decode real network data
-Next implementation task: M2 data requests and synchronization request primitives
+Next implementation task: complete sync request chains and add real-data validation tests
 ```
 
-M0 is complete. No task beyond M1 should begin until the official Scala node accepts the Rust handshake.
+M0 is complete. M1 exit gate is satisfied for bootstrap and interoperability smoke; M2 is now active and in progress.
 
 ---
 
@@ -239,7 +239,7 @@ M1 exit gate complete. M2 is now the next blocked milestone.
 
 ## M2 — Request and decode real network data
 
-**Status:** `BLOCKED` by M1.
+**Status:** `IN PROGRESS` by M2.
 
 Planned sequence:
 
@@ -249,7 +249,14 @@ Planned sequence:
 4. new header/block announcements;
 5. transaction inventory/request/response.
 
-Exit condition: Rust requests and decodes real headers and blocks from the official node while clearly labeling them `decoded`, not yet `validated`.
+**Planned sequence:**
+
+1. chain state/inventory (decode-and-log);
+2. header request/response (initial probe);
+3. block request/response and announcement decode;
+4. transaction inventory/request/response decode.
+
+**Exit condition:** Rust sends real sync requests and decodes headers/blocks/transactions and announces as `decoded`, not yet `validated`.
 
 ---
 

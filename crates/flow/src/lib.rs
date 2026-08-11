@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 //! Alephium networking, synchronization, validation, and BlockFlow ownership.
 //!
-//! The first implementation slice contains only M1 networking: connect, handshake,
-//! and Ping/Pong liveness for direct official-node interoperability.
+//! This phase includes M1 bootstrap plus M2 message dispatch and decoding
+//! with a minimal sync probe (initial InvRequest, optional HeadersRequest).
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -17,16 +17,30 @@ use alephium_protocol::message::{
     NetworkMagic,
 };
 use alephium_protocol::message::payload::{
-    decode_hello_payload, decode_ping_payload, decode_pong_payload, encode_hello_payload,
-    encode_ping_payload, encode_pong_payload, Hello, InterBrokerInfo, Ping, Pong, RequestId,
-    HELLO_CODE, PING_CODE, PONG_CODE,
+    decode_blocks_and_uncles_by_heights_request_payload,
+    decode_blocks_and_uncles_by_heights_response_payload, decode_blocks_request_payload,
+    decode_blocks_response_payload, decode_chain_state_payload, decode_headers_by_heights_request_payload,
+    decode_headers_by_heights_response_payload, decode_headers_request_payload, decode_headers_response_payload,
+    decode_hello_payload, decode_inv_request_payload, decode_inv_response_payload,
+    decode_new_block_hash_payload, decode_new_block_payload, decode_new_header_payload, decode_new_inv_payload,
+    decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload, decode_txs_request_payload,
+    decode_txs_response_payload, encode_headers_request_payload, encode_hello_payload,
+    encode_inv_request_payload, encode_ping_payload, encode_pong_payload,
+    BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE, BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE,
+    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HELLO_CODE, HEADERS_BY_HEIGHTS_REQUEST_CODE,
+    HEADERS_BY_HEIGHTS_RESPONSE_CODE, HEADERS_REQUEST_CODE, HEADERS_RESPONSE_CODE,
+    INV_REQUEST_CODE, INV_RESPONSE_CODE, NEW_BLOCK_CODE, NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE, NEW_INV_CODE,
+    NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE, TXS_REQUEST_CODE, TXS_RESPONSE_CODE,
+    BlocksAndUnclesByHeightsRequest, BlocksAndUnclesByHeightsResponse, BlocksRequest, BlocksResponse,
+    ChainState, HeadersByHeightsRequest, HeadersByHeightsResponse, HeadersRequest, HeadersResponse, Hello,
+    InterBrokerInfo, InvRequest, InvResponse, NewBlock, NewBlockHash, NewHeader, NewInv, NewTxHashes,
+    Ping, Pong, RequestId, TxsRequest, TxsResponse, CliqueId,
 };
-use alephium_protocol::message::payload::CliqueId;
 use alephium_serde::Error as SerdeError;
 
 /// Current implementation status.
 pub const STATUS: &str =
-    "Minimal M1 handshake and Ping/Pong stack implemented for outbound bootstrap.";
+    "M1 bootstrap complete; M2 request/response decoding and sync probe enabled in flow.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionState {
@@ -42,6 +56,8 @@ struct Session {
     outstanding_ping: Option<u32>,
     ping_deadline: Option<Instant>,
     next_ping_at: Instant,
+    sent_inv_request: bool,
+    sent_headers_request: bool,
 }
 
 #[derive(Debug)]
@@ -83,7 +99,7 @@ impl From<SerdeError> for FlowError {
     }
 }
 
-/// Start an outbound M1 bootstrap session and keep it alive until remote close or local failure.
+/// Start an outbound M1/M2 bootstrap session and keep it alive until remote close or local failure.
 pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
     let mut stream = TcpStream::connect(&config.peer_address)?;
     stream.set_nodelay(true)?;
@@ -95,6 +111,8 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         outstanding_ping: None,
         ping_deadline: None,
         next_ping_at: Instant::now() + config.ping_interval,
+        sent_inv_request: false,
+        sent_headers_request: false,
     };
 
     send_hello(&mut stream, config)?;
@@ -164,7 +182,7 @@ fn process_inbound(
         let payload_len = payload.len();
 
         match raw.payload_code {
-            HELLO_CODE => handle_hello(config, session, payload)?,
+            HELLO_CODE => handle_hello(stream, config, session, payload)?,
             PING_CODE => {
                 let ping = decode_ping_payload(payload)?.finish(payload_len)?;
                 handle_ping(stream, config, session, ping)?;
@@ -173,11 +191,84 @@ fn process_inbound(
                 let pong = decode_pong_payload(payload)?.finish(payload_len)?;
                 handle_pong(session, pong)?;
             }
+            CHAIN_STATE_CODE => {
+                let chain_state = decode_chain_state_payload(payload)?.finish(payload_len)?;
+                handle_chain_state(chain_state);
+            }
+            BLOCKS_REQUEST_CODE => {
+                let request = decode_blocks_request_payload(payload)?.finish(payload_len)?;
+                handle_blocks_request(request);
+            }
+            BLOCKS_RESPONSE_CODE => {
+                let response = decode_blocks_response_payload(payload)?.finish(payload_len)?;
+                handle_blocks_response(response);
+            }
+            HEADERS_REQUEST_CODE => {
+                let request = decode_headers_request_payload(payload)?.finish(payload_len)?;
+                handle_headers_request(request);
+            }
+            HEADERS_RESPONSE_CODE => {
+                let response = decode_headers_response_payload(payload)?.finish(payload_len)?;
+                handle_headers_response(response);
+            }
+            INV_REQUEST_CODE => {
+                let request = decode_inv_request_payload(payload)?.finish(payload_len)?;
+                handle_inv_request(request);
+            }
+            INV_RESPONSE_CODE => {
+                let response = decode_inv_response_payload(payload)?.finish(payload_len)?;
+                handle_inv_response(stream, config, session, response)?;
+            }
+            NEW_BLOCK_CODE => {
+                let block = decode_new_block_payload(payload)?.finish(payload_len)?;
+                handle_new_block(block);
+            }
+            NEW_HEADER_CODE => {
+                let header = decode_new_header_payload(payload)?.finish(payload_len)?;
+                handle_new_header(header);
+            }
+            NEW_INV_CODE => {
+                let new_inv = decode_new_inv_payload(payload)?.finish(payload_len)?;
+                handle_new_inv(new_inv);
+            }
+            NEW_BLOCK_HASH_CODE => {
+                let block_hash = decode_new_block_hash_payload(payload)?.finish(payload_len)?;
+                handle_new_block_hash(block_hash);
+            }
+            NEW_TX_HASHES_CODE => {
+                let hashes = decode_new_txhashes_payload(payload)?.finish(payload_len)?;
+                handle_new_txhashes(hashes);
+            }
+            TXS_REQUEST_CODE => {
+                let request = decode_txs_request_payload(payload)?.finish(payload_len)?;
+                handle_txs_request(request);
+            }
+            TXS_RESPONSE_CODE => {
+                let response = decode_txs_response_payload(payload)?.finish(payload_len)?;
+                handle_txs_response(response);
+            }
+            HEADERS_BY_HEIGHTS_REQUEST_CODE => {
+                let request = decode_headers_by_heights_request_payload(payload)?.finish(payload_len)?;
+                handle_headers_by_heights_request(request);
+            }
+            HEADERS_BY_HEIGHTS_RESPONSE_CODE => {
+                let response =
+                    decode_headers_by_heights_response_payload(payload)?.finish(payload_len)?;
+                handle_headers_by_heights_response(response);
+            }
+            BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE => {
+                let request =
+                    decode_blocks_and_uncles_by_heights_request_payload(payload)?.finish(payload_len)?;
+                handle_blocks_and_uncles_by_heights_request(request);
+            }
+            BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE => {
+                let response =
+                    decode_blocks_and_uncles_by_heights_response_payload(payload)?.finish(payload_len)?;
+                handle_blocks_and_uncles_by_heights_response(response);
+            }
             unsupported => match session.state {
                 SessionState::Established => {
-                    println!(
-                        "received unsupported payload code {unsupported} in Established state"
-                    );
+                    println!("received unsupported payload code {unsupported} in Established state");
                     Ok(())
                 }
                 _ => Err(FlowError::Protocol(format!(
@@ -190,7 +281,12 @@ fn process_inbound(
     }
 }
 
-fn handle_hello(config: &NodeConfig, session: &mut Session, payload: &[u8]) -> Result<(), FlowError> {
+fn handle_hello(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    payload: &[u8],
+) -> Result<(), FlowError> {
     if session.state != SessionState::HelloSent {
         return Err(FlowError::Protocol(format!(
             "unexpected hello in {:?} state",
@@ -204,7 +300,206 @@ fn handle_hello(config: &NodeConfig, session: &mut Session, payload: &[u8]) -> R
         hello.client_id, hello.broker_info.broker_num, hello.broker_info.broker_id
     );
     session.state = SessionState::Established;
+    send_inv_request(stream, config, session)?;
     Ok(())
+}
+
+fn send_inv_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+) -> Result<(), FlowError> {
+    if session.sent_inv_request {
+        return Ok(());
+    }
+
+    let request = InvRequest {
+        id: RequestId {
+            value: next_request_id(&mut session.next_request_id),
+        },
+        locators: vec![Vec::new()],
+    };
+    let payload = encode_inv_request_payload(&request).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode initial InvRequest payload: {error}"))
+    })?;
+    send_payload(stream, config, INV_REQUEST_CODE, &payload)?;
+    session.sent_inv_request = true;
+    println!("sent InvRequest id={} as initial sync probe", request.id.value);
+    Ok(())
+}
+
+fn maybe_send_headers_probe(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    response: &InvResponse,
+) -> Result<(), FlowError> {
+    if session.sent_headers_request {
+        return Ok(());
+    }
+
+    let Some(locator) = response.hashes.iter().find_map(|chain| chain.first().copied()) else {
+        return Ok(());
+    };
+
+    let request = HeadersRequest {
+        id: RequestId {
+            value: next_request_id(&mut session.next_request_id),
+        },
+        locators: vec![locator],
+    };
+    let payload = encode_headers_request_payload(&request).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode probe HeadersRequest: {error}"))
+    })?;
+    send_payload(stream, config, HEADERS_REQUEST_CODE, &payload)?;
+    session.sent_headers_request = true;
+    println!("sent HeadersRequest id={} with 1 locator", request.id.value);
+    Ok(())
+}
+
+fn handle_chain_state(chain_state: ChainState) {
+    println!("received ChainState with {} tip(s)", chain_state.tips.len());
+}
+
+fn handle_blocks_request(request: BlocksRequest) {
+    println!(
+        "received BlocksRequest id={} locators={}",
+        request.id.value,
+        request.locators.len()
+    );
+}
+
+fn handle_blocks_response(response: BlocksResponse) {
+    println!(
+        "received BlocksResponse id={} blocks={}",
+        response.id.value,
+        response.blocks.len()
+    );
+}
+
+fn handle_headers_request(request: HeadersRequest) {
+    println!(
+        "received HeadersRequest id={} locators={}",
+        request.id.value,
+        request.locators.len()
+    );
+}
+
+fn handle_headers_response(response: HeadersResponse) {
+    println!(
+        "received HeadersResponse id={} headers={}",
+        response.id.value,
+        response.headers.len()
+    );
+}
+
+fn handle_inv_request(request: InvRequest) {
+    let count: usize = request.locators.iter().map(|chain| chain.len()).sum();
+    println!(
+        "received InvRequest id={} chains={} hashes={}",
+        request.id.value,
+        request.locators.len(),
+        count
+    );
+}
+
+fn handle_inv_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    response: InvResponse,
+) -> Result<(), FlowError> {
+    let count: usize = response.hashes.iter().map(|chain| chain.len()).sum();
+    println!(
+        "received InvResponse id={} chains={} hashes={}",
+        response.id.value,
+        response.hashes.len(),
+        count
+    );
+
+    maybe_send_headers_probe(stream, config, session, &response)
+}
+
+fn handle_new_block(block: NewBlock) {
+    println!("received NewBlock with {} bytes", block.bytes.len());
+}
+
+fn handle_new_header(header: NewHeader) {
+    println!("received NewHeader with {} bytes", header.bytes.len());
+}
+
+fn handle_new_inv(new_inv: NewInv) {
+    let total: usize = new_inv.hashes.iter().map(|chain| chain.len()).sum();
+    println!(
+        "received NewInv with {} chain(s), {} hashes",
+        new_inv.hashes.len(),
+        total
+    );
+}
+
+fn handle_new_block_hash(block_hash: NewBlockHash) {
+    println!("received NewBlockHash bytes {}", block_hash.hash.bytes.len());
+}
+
+fn handle_new_txhashes(new_tx_hashes: NewTxHashes) {
+    let chain_count = new_tx_hashes.hashes.len();
+    let tx_count: usize = new_tx_hashes
+        .hashes
+        .iter()
+        .map(|(_, txs)| txs.len())
+        .sum();
+    println!("received NewTxHashes chains={} txs={}", chain_count, tx_count);
+}
+
+fn handle_txs_request(request: TxsRequest) {
+    let chain_count = request.hashes.len();
+    let tx_count: usize = request.hashes.iter().map(|(_, txs)| txs.len()).sum();
+    println!(
+        "received TxsRequest id={} chains={} txs={}",
+        request.id.value,
+        chain_count,
+        tx_count
+    );
+}
+
+fn handle_txs_response(response: TxsResponse) {
+    println!(
+        "received TxsResponse id={} txs={}",
+        response.id.value,
+        response.txs.len()
+    );
+}
+
+fn handle_headers_by_heights_request(request: HeadersByHeightsRequest) {
+    println!(
+        "received HeadersByHeightsRequest id={} chains={}",
+        request.id.value,
+        request.data.len()
+    );
+}
+
+fn handle_headers_by_heights_response(response: HeadersByHeightsResponse) {
+    println!(
+        "received HeadersByHeightsResponse id={} headers={}",
+        response.id.value,
+        response.headers.len()
+    );
+}
+
+fn handle_blocks_and_uncles_by_heights_request(request: BlocksAndUnclesByHeightsRequest) {
+    println!(
+        "received BlocksAndUnclesByHeightsRequest id={} chains={}",
+        request.id.value,
+        request.data.len()
+    );
+}
+
+fn handle_blocks_and_uncles_by_heights_response(response: BlocksAndUnclesByHeightsResponse) {
+    println!(
+        "received BlocksAndUnclesByHeightsResponse id={} blocks={}",
+        response.id.value,
+        response.blocks.len()
+    );
 }
 
 fn handle_ping(

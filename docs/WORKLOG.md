@@ -230,3 +230,21 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 
 - Rust handshake path still uses deterministic fixture values on first run.
 - restart behavior is now backed by file persistence; identity is re-used unless storage is missing or corrupted.
+
+## 2026-08-11 — M2 data message decode and minimal sync probe
+
+**Task:** start M2 by decoding real official-node sync payloads and issuing a bootstrap probe.
+
+**Changed:**
+
+- fixed broken payload export list in `crates/protocol/src/message/mod.rs` (`BlockState?` placeholder removed);
+- corrected vector-decoder cursor progression in `decode_length_prefixed_bytes_vector`;
+- expanded `crates/flow/src/lib.rs` to:
+  - decode/handle M2 payload classes (chain state, headers/blocks/txs inventories and responses, announcements);
+  - send `InvRequest` after successful `Hello`;
+  - send a follow-up `HeadersRequest` from first `InvResponse` locator;
+  - keep established-state handling resilient for unsupported payload codes.
+
+**Notes:**
+
+- this is intended as an interoperability-first M2 bootstrap, not final sync validation/parsing.
