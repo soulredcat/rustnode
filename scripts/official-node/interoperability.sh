@@ -91,16 +91,23 @@ trap cleanup EXIT INT TERM
 
 write_manifest() {
   local official_start_command="attached to existing peer at ${PEER_ADDRESS}"
+  local official_commit="unknown"
+  local rust_commit="unknown"
 
   if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
     official_start_command="${ROOT_DIR}/scripts/official-node/run.sh"
   fi
 
+  if command -v git >/dev/null 2>&1; then
+    official_commit="$(git -C "${ROOT_DIR}/.upstream/alephium" rev-parse HEAD 2>/dev/null || echo unknown)"
+    rust_commit="$(git -C "${ROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+  fi
+
   cat > "${RUST_MANIFEST_FILE}" <<EOF
 run_id: ${RANDOM}
 date_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-official_commit_or_release: $(git -C "${ROOT_DIR}/.upstream/alephium" rev-parse HEAD 2>/dev/null || echo unknown)
-rust_commit: $(git -C "${ROOT_DIR}" rev-parse HEAD)
+official_commit_or_release: ${official_commit}
+rust_commit: ${rust_commit}
 rust_build_command: cargo build -p alephium-app
 rust_start_command: cargo run -p alephium-app -- ${PEER_ADDRESS}
 official_start_command: ${official_start_command}
