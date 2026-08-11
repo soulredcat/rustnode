@@ -673,7 +673,7 @@ pub fn decode_txs_response_payload(input: &[u8]) -> DecodeResult<'_, TxsResponse
 }
 
 pub fn encode_chain_state_payload(state: &ChainState) -> Result<Vec<u8>, Error> {
-    let mut encoded = encode_chain_tips(&state.tips)?;
+    let encoded = encode_chain_tips(&state.tips)?;
     Ok(encoded)
 }
 

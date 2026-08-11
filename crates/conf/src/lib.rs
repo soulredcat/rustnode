@@ -198,7 +198,7 @@ fn write_node_identity(path: &Path, identity: NodeIdentity) -> Result<(), NodeId
     Ok(())
 }
 
-fn set_restrictive_permissions(path: &Path) -> io::Result<()> {
+fn set_restrictive_permissions(_path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         let permissions = fs::Permissions::from_mode(0o600);
@@ -282,10 +282,7 @@ impl NodeConfig {
         self
     }
 
-    pub fn with_node_identity_path(
-        mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<Self, NodeIdentityError> {
+    pub fn with_node_identity_path(self, path: impl AsRef<Path>) -> Result<Self, NodeIdentityError> {
         let identity = load_or_create_node_identity_at(path)?;
         Ok(self.with_node_identity(identity))
     }

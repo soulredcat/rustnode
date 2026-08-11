@@ -19,7 +19,7 @@ fn main() {
                 println!("  alephium-node-rs [peer-address]");
                 println!("  alephium-node-rs --peer <peer-address>");
                 println!("  alephium-node-rs --help");
-                println!("");
+                println!();
                 println!("Options:");
                 println!("  --peer <addr>   override peer address (default: {DEFAULT_PEER_ADDRESS})");
                 return;
