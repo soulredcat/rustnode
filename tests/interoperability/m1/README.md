@@ -20,6 +20,13 @@ make official-interop-m1
 make official-interop-m2
 ```
 
+Jika official node Anda sudah running di peer yang sama dan Anda tidak ingin script men-start/kill proses JVM, gunakan:
+
+```bash
+RUST_INTEROP_ATTACH_TO_EXISTING=1 make official-interop-m1
+RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
+```
+
 For a pure-Rust connectivity smoke (no official JVM node), use:
 
 ```bash
@@ -35,6 +42,7 @@ Environment variables:
 - `RUST_INTEROP_DURATION_SECONDS` (default `120`)
 - `OFFICIAL_NODE_STATE_DIR` / `RUST_INTEROP_DIR` / `ALEPHIUM_UPSTREAM_DIR`
 - `OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS` (default `180`)
+- `RUST_INTEROP_ATTACH_TO_EXISTING` (`1` to connect to already-running official peer and skip lifecycle management)
 
 The command runs:
 
