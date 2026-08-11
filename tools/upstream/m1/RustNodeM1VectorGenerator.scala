@@ -78,8 +78,13 @@ object RustNodeM1VectorGenerator {
     }
   }
 
-  private def p2pName(clientId: String): String =
-    P2PVersion.fromClientId(clientId).fold("none")(_.toString)
+  private def p2pName(clientId: String): String = {
+    P2PVersion.fromClientId(clientId) match {
+      case Some(P2PV1) => "p2p-v1"
+      case Some(P2PV2) => "p2p-v2"
+      case None        => "none"
+    }
+  }
 
   private def releaseName(clientId: String): String =
     ReleaseVersion.fromClientId(clientId).fold("none")(_.toString)
@@ -205,9 +210,9 @@ object RustNodeM1VectorGenerator {
       }).mkString("\n") + "\n"
     write(output.resolve("client-id-parsing.tsv"), clientTable)
 
-    val wrongMagic     = mutate(helloFrame, 0)
-    val wrongChecksum  = mutate(helloFrame, networkConfig.magicBytes.length)
-    val negativeLength = replaceOuterLength(helloFrame, -1)
+    val wrongMagic      = mutate(helloFrame, 0)
+    val wrongChecksum   = mutate(helloFrame, networkConfig.magicBytes.length)
+    val negativeLength  = replaceOuterLength(helloFrame, -1)
     val excessiveLength = replaceOuterLength(helloFrame, Int.MaxValue)
 
     val invalidPayloadData = headerBytes ++ CompactInteger.Signed.encode(99)
