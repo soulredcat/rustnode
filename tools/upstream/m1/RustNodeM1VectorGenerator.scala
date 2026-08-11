@@ -28,11 +28,11 @@ object RustNodeM1VectorGenerator {
   }
 
   private object FixtureNetworkConfig extends NetworkConfig {
-    override val networkId: NetworkId                    = NetworkId.AlephiumDevNet
-    override val noPreMineProof: ByteString               = ByteString.empty
-    override val lemanHardForkTimestamp: TimeStamp        = TimeStamp.zero
-    override val rhoneHardForkTimestamp: TimeStamp        = TimeStamp.zero
-    override val danubeHardForkTimestamp: TimeStamp       = TimeStamp.zero
+    override val networkId: NetworkId              = NetworkId.AlephiumDevNet
+    override val noPreMineProof: ByteString         = ByteString.empty
+    override val lemanHardForkTimestamp: TimeStamp  = TimeStamp.zero
+    override val rhoneHardForkTimestamp: TimeStamp  = TimeStamp.zero
+    override val danubeHardForkTimestamp: TimeStamp = TimeStamp.zero
   }
 
   private implicit val groupConfig: GroupConfig     = FixtureGroupConfig
@@ -56,9 +56,10 @@ object RustNodeM1VectorGenerator {
   }
 
   private def replaceOuterLength(value: ByteString, length: Int): ByteString = {
-    val bytes  = value.toArray
-    val offset = networkConfig.magicBytes.length + Checksum.length
-    val encoded = Bytes.from(length).toArray
+    val bytes          = value.toArray
+    val checksumLength = Checksum.calcAndSerialize(ByteString.empty).length
+    val offset         = networkConfig.magicBytes.length + checksumLength
+    val encoded        = Bytes.from(length).toArray
     System.arraycopy(encoded, 0, bytes, offset, encoded.length)
     ByteString.fromArrayUnsafe(bytes)
   }
@@ -164,8 +165,9 @@ object RustNodeM1VectorGenerator {
       Int.MaxValue
     )
     val signedTable =
-      ("decimal\thex" +: signedValues.map(value => s"$value\t${hex(CompactInteger.Signed.encode(value))}"))
-        .mkString("\n") + "\n"
+      ("decimal\thex" +: signedValues.map(value =>
+        s"$value\t${hex(CompactInteger.Signed.encode(value))}"
+      )).mkString("\n") + "\n"
     write(output.resolve("compact-signed-int.tsv"), signedTable)
 
     val unsignedRawValues = Seq(
@@ -203,8 +205,8 @@ object RustNodeM1VectorGenerator {
       }).mkString("\n") + "\n"
     write(output.resolve("client-id-parsing.tsv"), clientTable)
 
-    val wrongMagic    = mutate(helloFrame, 0)
-    val wrongChecksum = mutate(helloFrame, networkConfig.magicBytes.length)
+    val wrongMagic     = mutate(helloFrame, 0)
+    val wrongChecksum  = mutate(helloFrame, networkConfig.magicBytes.length)
     val negativeLength = replaceOuterLength(helloFrame, -1)
     val excessiveLength = replaceOuterLength(helloFrame, Int.MaxValue)
 
