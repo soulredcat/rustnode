@@ -399,8 +399,8 @@ fn send_headers_request(
 }
 
 fn handle_chain_state(
-    stream: &mut TcpStream,
-    config: &NodeConfig,
+    _stream: &mut TcpStream,
+    _config: &NodeConfig,
     session: &mut Session,
     chain_state: ChainState,
 ) -> Result<(), FlowError> {

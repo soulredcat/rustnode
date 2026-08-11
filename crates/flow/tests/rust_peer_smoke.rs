@@ -227,6 +227,7 @@ fn base_config() -> NodeConfig {
     NodeConfig::local().with_node_identity(NodeIdentity::fixture())
 }
 
+#[allow(dead_code)]
 fn mock_peer(
     stream: TcpStream,
     config: NodeConfig,
