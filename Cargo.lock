@@ -15,6 +15,7 @@ dependencies = [
 name = "alephium-conf"
 version = "0.0.1"
 dependencies = [
+ "alephium-crypto",
  "alephium-util",
 ]
 

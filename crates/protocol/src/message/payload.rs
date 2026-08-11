@@ -500,7 +500,7 @@ pub fn decode_blocks_request_payload(input: &[u8]) -> DecodeResult<'_, BlocksReq
 
 pub fn encode_blocks_response_payload(response: &BlocksResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_length_prefixed_bytes_vector(&response.blocks)?);
+    encoded.extend_from_slice(&encode_byte_vector(&response.blocks)?);
     Ok(encoded)
 }
 
@@ -534,7 +534,7 @@ pub fn decode_headers_request_payload(input: &[u8]) -> DecodeResult<'_, HeadersR
 
 pub fn encode_headers_response_payload(response: &HeadersResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_length_prefixed_bytes_vector(&response.headers)?);
+    encoded.extend_from_slice(&encode_byte_vector(&response.headers)?);
     Ok(encoded)
 }
 
@@ -657,7 +657,7 @@ pub fn decode_txs_request_payload(input: &[u8]) -> DecodeResult<'_, TxsRequest> 
 
 pub fn encode_txs_response_payload(response: &TxsResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_length_prefixed_bytes_vector(&response.txs)?);
+    encoded.extend_from_slice(&encode_byte_vector(&response.txs)?);
     Ok(encoded)
 }
 
@@ -835,14 +835,10 @@ fn decode_block_height_range(input: &[u8]) -> DecodeResult<'_, BlockHeightRange>
     let range = BlockHeightRange {
         from: from.value,
         to: to.value,
-        step,
+        step: step.value,
     };
     range.validate()?;
-    Ok(step.map(|step| BlockHeightRange {
-        from: from.value,
-        to: to.value,
-        step,
-    }))
+    Ok(Staging::new(range, step.rest))
 }
 
 fn encode_weight(weight: &[u8]) -> Result<Vec<u8>, Error> {
@@ -902,10 +898,10 @@ fn decode_chain_tip(input: &[u8]) -> DecodeResult<'_, ChainTip> {
     let tip = ChainTip {
         hash: hash.value,
         height: height.value,
-        weight: weight.value,
+        weight: weight.value.clone(),
     };
     tip.validate()?;
-    Ok(weight.map(|_| tip))
+    Ok(Staging::new(tip, weight.rest))
 }
 
 fn encode_chain_tips(tips: &[ChainTip]) -> Result<Vec<u8>, Error> {
@@ -1086,7 +1082,7 @@ fn decode_length_prefixed_bytes_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec
                 limit: MAX_TX_VECTOR_ITEMS,
             });
         }
-        let staged = fixed::take(item_len.rest, item_len.value)?;
+        let staged = fixed::take(rest, item_len)?;
         let bytes = staged.value.to_vec();
         items.push(bytes);
         rest = staged.rest;
