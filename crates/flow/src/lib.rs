@@ -210,7 +210,7 @@ fn process_inbound(
             }
             CHAIN_STATE_CODE => {
                 let chain_state = decode_chain_state_payload(payload)?.finish(payload_len)?;
-                handle_chain_state(session, chain_state);
+                handle_chain_state(stream, config, session, chain_state)?;
             }
             BLOCKS_REQUEST_CODE => {
                 let request = decode_blocks_request_payload(payload)?.finish(payload_len)?;
@@ -365,6 +365,15 @@ fn maybe_send_headers_probe(
         return Ok(());
     };
 
+    send_headers_request(stream, config, session, locator)
+}
+
+fn send_headers_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    locator: BlockHash,
+) -> Result<(), FlowError> {
     let request = HeadersRequest {
         id: RequestId {
             value: next_request_id(&mut session.next_request_id),
@@ -381,13 +390,26 @@ fn maybe_send_headers_probe(
     Ok(())
 }
 
-fn handle_chain_state(session: &mut Session, chain_state: ChainState) {
+fn handle_chain_state(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    chain_state: ChainState,
+) -> Result<(), FlowError> {
     println!("received ChainState with {} tip(s)", chain_state.tips.len());
     session.chain_state_tips = chain_state
         .tips
         .into_iter()
         .map(|tip| tip.hash)
         .collect();
+
+    if !session.sent_headers_request {
+        if let Some(locator) = session.chain_state_tips.first().copied() {
+            send_headers_request(stream, config, session, locator)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_blocks_request(request: BlocksRequest) {
