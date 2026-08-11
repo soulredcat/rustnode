@@ -13,7 +13,9 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alephium_conf::NodeConfig;
-use alephium_crypto::{hash_blake2b_256, sign, PrivateKey, PublicKey};
+use alephium_crypto::{
+    hash_blake2b_256, hash_blake3_double, sign, PrivateKey, PublicKey,
+};
 use alephium_protocol::message::{
     decode_frame_prefix, decode_raw_message_data, encode_frame, encode_raw_message_data, FrameDecode,
     NetworkMagic,
@@ -197,7 +199,7 @@ impl SyncState {
         for bytes in headers {
             self.headers_seen += 1;
             let hash = BlockHash {
-                bytes: hash_blake2b_256(bytes),
+                bytes: hash_blake3_double(bytes),
             };
             self.recent_header_hashes.push(hash);
             if self.recent_header_hashes.len() > 128 {
@@ -1048,7 +1050,7 @@ fn handle_new_header(
     session.sync_state.record_headers(&[header.bytes.clone()]);
     persist_sync_state(session);
     let locators = vec![BlockHash {
-        bytes: hash_blake2b_256(&header.bytes),
+        bytes: hash_blake3_double(&header.bytes),
     }];
     if let Err(error) = send_blocks_request(stream, config, session, locators) {
         eprintln!("failed to request block for NewHeader: {error}");

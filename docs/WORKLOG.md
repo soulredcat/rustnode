@@ -376,3 +376,19 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 - added explicit warning output when selected port is one of Java-typical ports (`19973`, `19974`, `19975`) with a direct recommendation to use `19985` or explicit `RUST_INTEROP_*` overrides.
 
 **Outcome:** default runtime/devnet port for local runs is now `127.0.0.1:19985`, with clearer collision warning text so Java peer remains untouched when attach/managed interop is used.
+
+## 2026-08-11 — M3 header-hash parity partial alignment (Blake3)
+
+**Task:** align header hash construction with upstream semantics where supported by current Rust path.
+
+**Implementation details:**
+
+- `crates/crypto/Cargo.toml`: added `blake3 = "1"` for protocol-hash primitives.
+- `crates/crypto/src/lib.rs`:
+  - added `hash_blake3(bytes)` and `hash_blake3_double(bytes)`;
+  - added unit test `blake3_double_hash_matches_composition`.
+- `crates/flow/src/lib.rs`:
+  - changed `SyncState::record_headers` to compute `BlockHash` entries with `hash_blake3_double`;
+  - changed `handle_new_header` locator calculation for `send_blocks_request` to the same `hash_blake3_double`.
+
+**Outcome:** sync-state header paths now use double-BLAKE3 for header bytes instead of legacy BLAKE2b-256. Block/transaction dedupe remains on the existing bytes hash path and is still pending against full protocol canonicalization requirements.
