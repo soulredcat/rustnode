@@ -1,0 +1,6 @@
+client_id	release	p2p_version
+rust-alephium/v4.0.0/linux/p2p-v1	v4.0.0	p2p-v1
+rust-alephium/v4.0.0/linux	v4.0.0	p2p-v1
+rust-alephium/v4.0.0/linux/p2p-v2	v4.0.0	p2p-v2
+rust-alephium/not-a-version/linux/p2p-v1	none	p2p-v1
+invalid	none	none

@@ -1,0 +1,13 @@
+name	result
+hello-valid	ok:Hello
+ping-valid	ok:Ping
+pong-valid	ok:Pong
+wrong-magic	error:org.alephium.serde.SerdeError$WrongFormat: Wrong magic bytes
+wrong-checksum	error:org.alephium.serde.SerdeError$WrongFormat: Wrong checksum: expected cd445fce, got cc445fce
+negative-length	error:org.alephium.serde.SerdeError$WrongFormat: Negative length: -1
+excessive-length	error:org.alephium.serde.SerdeError$NotEnoughBytes: Too few bytes: expected 2147483647, got 147
+invalid-payload-code	error:org.alephium.serde.SerdeError$WrongFormat: Invalid code 99
+pong-trailing-byte	error:org.alephium.serde.SerdeError$WrongFormat: Too many bytes: expected 2, got 3
+hello-invalid-signature	error:org.alephium.serde.SerdeError$Validation: Invalid HandShake: Hello(rust-alephium/v4.0.0/linux/p2p-v1,TimeStamp(1700000000000ms),InterBrokerInfo(CliqueId(hex"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),0,1),SecP256K1Signature(hex"a225dee43d6a1d7b83bd2facf74adb75702ffaf6869af95adb38dacf67dff58868fdbf6ca63f1c92f32e33f0d8589983c06c1cfc1a0c3e66eac3f4aa4c08b778"))
+hello-zero-timestamp	error:org.alephium.serde.SerdeError$Validation: Invalid HandShake: Hello(rust-alephium/v4.0.0/linux/p2p-v1,TimeStamp(0ms),InterBrokerInfo(CliqueId(hex"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),0,1),SecP256K1Signature(hex"a325dee43d6a1d7b83bd2facf74adb75702ffaf6869af95adb38dacf67dff58868fdbf6ca63f1c92f32e33f0d8589983c06c1cfc1a0c3e66eac3f4aa4c08b778"))
+hello-invalid-broker	error:org.alephium.serde.SerdeError$Validation: BrokerInfo - invalid id: 1
