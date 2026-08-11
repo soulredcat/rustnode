@@ -1,0 +1,50 @@
+name: official-node-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "docs/LOCAL_OFFICIAL_NODE.md"
+      - ".github/workflows/official-node-smoke.yml"
+  pull_request:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "docs/LOCAL_OFFICIAL_NODE.md"
+      - ".github/workflows/official-node-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1.5.7
+
+      - name: Versions
+        run: |
+          java -version
+          sbt --script-version
+
+      - name: Build and start pinned official node
+        run: ./scripts/official-node/smoke.sh

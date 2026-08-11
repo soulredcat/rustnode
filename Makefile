@@ -1,4 +1,4 @@
-.PHONY: check fmt check-build clippy test run upstream
+.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke
 
 check: fmt check-build clippy test
 
@@ -19,3 +19,12 @@ run:
 
 upstream:
 	./scripts/fetch-upstream.sh
+
+official-build:
+	./scripts/official-node/build.sh
+
+official-run:
+	./scripts/official-node/run.sh
+
+official-smoke:
+	./scripts/official-node/smoke.sh

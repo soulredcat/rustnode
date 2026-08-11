@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+STATE_DIR="${OFFICIAL_NODE_STATE_DIR:-${ROOT_DIR}/.local/official-node}"
+LOG_FILE="${STATE_DIR}/official-node.log"
+PID_FILE="${STATE_DIR}/official-node.pid"
+P2P_HOST="127.0.0.1"
+P2P_PORT="19973"
+STARTUP_TIMEOUT_SECONDS="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
+
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for the smoke readiness probe" >&2; exit 1; }
+
+"${ROOT_DIR}/scripts/official-node/build.sh"
+
+mkdir -p "${STATE_DIR}"
+OFFICIAL_NODE_RESET=1 "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
+
+cleanup() {
+  if [[ -f "${PID_FILE}" ]]; then
+    pid="$(cat "${PID_FILE}")"
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      for _ in $(seq 1 20); do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 0.25
+      done
+      kill -9 "${pid}" 2>/dev/null || true
+    fi
+    rm -f "${PID_FILE}"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+: > "${LOG_FILE}"
+(
+  "${ROOT_DIR}/scripts/official-node/run.sh"
+) >"${LOG_FILE}" 2>&1 &
+pid=$!
+printf '%s\n' "${pid}" > "${PID_FILE}"
+
+ready=0
+for _ in $(seq 1 "${STARTUP_TIMEOUT_SECONDS}"); do
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    echo "official node exited before opening P2P port" >&2
+    cat "${LOG_FILE}" >&2
+    exit 1
+  fi
+
+  if python3 - "${P2P_HOST}" "${P2P_PORT}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(0.5)
+    sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
+PY
+  then
+    ready=1
+    break
+  fi
+
+  sleep 1
+done
+
+if [[ "${ready}" -ne 1 ]]; then
+  echo "official node did not open ${P2P_HOST}:${P2P_PORT} within ${STARTUP_TIMEOUT_SECONDS}s" >&2
+  cat "${LOG_FILE}" >&2
+  exit 1
+fi
+
+sleep 3
+if ! kill -0 "${pid}" 2>/dev/null; then
+  echo "official node exited immediately after readiness" >&2
+  cat "${LOG_FILE}" >&2
+  exit 1
+fi
+
+echo "Official Alephium node is listening on ${P2P_HOST}:${P2P_PORT}"
+tail -n 80 "${LOG_FILE}"
