@@ -49,6 +49,7 @@ enum MockEvent {
 enum InvPayloadKind {
     Empty,
     NonEmpty,
+    NoChainState,
 }
 
 #[test]
@@ -223,6 +224,92 @@ fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
     );
 }
 
+#[test]
+fn full_rust_mock_peer_empty_inv_response_without_chain_state_uses_empty_locator_fallback() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock peer");
+    let listener_addr = listener.local_addr().expect("peer address");
+
+    let (tx, rx) = mpsc::channel::<MockEvent>();
+
+    let server = thread::spawn({
+        let config = base_config();
+        move || {
+            let (stream, _) = listener.accept().expect("mock peer accepted");
+            mock_peer_with_inv_behavior(
+                stream,
+                config,
+                tx,
+                InvPayloadKind::NoChainState,
+            )
+            .expect("mock peer completed");
+        }
+    });
+
+    let mut client_config = base_config().with_node_identity(NodeIdentity::fixture());
+    client_config.peer_address = listener_addr.to_string();
+    client_config.ping_interval = Duration::from_millis(20);
+    client_config.ping_timeout = Duration::from_millis(300);
+
+    let client = thread::spawn(move || run(&client_config));
+
+    let result = client.join().expect("client thread should not panic");
+    server.join().expect("server thread should not panic");
+
+    let mut events = HashSet::new();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(25)) {
+            Ok(event) => {
+                println!("interop event (no-chain-state): {:?}", event);
+                events.insert(event);
+                if event == MockEvent::Completed {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    assert!(!events.contains(&MockEvent::ChainStateSent), "no chain state should be sent");
+    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
+    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        events.contains(&MockEvent::InvRequestReceived),
+        "client should send InvRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::HeadersRequestReceived),
+        "client should send HeadersRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::BlocksRequestReceived),
+        "client should send BlocksRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::TxsRequestReceived),
+        "client should send TxsRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::HeadersResponseSent),
+        "server should send HeadersResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::BlocksResponseSent),
+        "server should send BlocksResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::TxsResponseSent),
+        "server should send TxsResponse"
+    );
+    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
+    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+
+    assert!(
+        result.is_err(),
+        "mock peer closes socket after probe exchange, expected client termination"
+    );
+}
+
 fn base_config() -> NodeConfig {
     NodeConfig::local().with_node_identity(NodeIdentity::fixture())
 }
@@ -246,7 +333,9 @@ fn mock_peer_with_inv_behavior(
     stream.set_read_timeout(Some(Duration::from_millis(150)))?;
     let magic = NetworkMagic::new(config.network_magic);
 
-    send_chain_state(&mut stream, magic, config.max_frame_data, &events)?;
+    if !matches!(inv_kind, InvPayloadKind::NoChainState) {
+        send_chain_state(&mut stream, magic, config.max_frame_data, &events)?;
+    }
     send_payload(
         &mut stream,
         magic,
@@ -258,12 +347,13 @@ fn mock_peer_with_inv_behavior(
     )?;
 
     let expected_locator = match inv_kind {
-        InvPayloadKind::Empty => BlockHash {
+        InvPayloadKind::NoChainState => None,
+        InvPayloadKind::Empty => Some(BlockHash {
             bytes: [0xAB_u8; 32],
-        },
-        InvPayloadKind::NonEmpty => BlockHash {
+        }),
+        InvPayloadKind::NonEmpty => Some(BlockHash {
             bytes: [0x11_u8; 32],
-        },
+        }),
     };
 
     let mut inbound = Vec::new();
@@ -298,20 +388,24 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer consumes InvRequest fully");
                     println!("mock peer received InvRequest id={}", request.id.value);
                     match inv_kind {
-                        InvPayloadKind::Empty => send_inv_response_empty(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &request.id,
-                            &events,
-                        )?,
-                        InvPayloadKind::NonEmpty => send_inv_response(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &request.id,
-                            &events,
-                        )?,
+                        InvPayloadKind::Empty | InvPayloadKind::NoChainState => {
+                            send_inv_response_empty(
+                                &mut stream,
+                                magic,
+                                config.max_frame_data,
+                                &request.id,
+                                &events,
+                            )?;
+                        }
+                        InvPayloadKind::NonEmpty => {
+                            send_inv_response(
+                                &mut stream,
+                                magic,
+                                config.max_frame_data,
+                                &request.id,
+                                &events,
+                            )?;
+                        }
                     }
                     events.send(MockEvent::InvRequestReceived).ok();
                     saw_inv_request = true;
@@ -321,9 +415,20 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes HeadersRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes HeadersRequest fully");
-                    let locator = request.locators.first().copied().expect("HeadersRequest locator");
-                    assert_ne!(locator, BlockHash { bytes: [0x00_u8; 32] });
-                    assert_eq!(locator, expected_locator);
+                    match (request.locators.is_empty(), expected_locator) {
+                        (true, None) => {}
+                        (true, Some(_)) => panic!("expected non-empty HeadersRequest locator"),
+                        (false, None) => panic!("expected empty HeadersRequest locator"),
+                        (false, Some(locator)) => {
+                            let actual = request
+                                .locators
+                                .first()
+                                .copied()
+                                .expect("HeadersRequest locator");
+                            assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                            assert_eq!(actual, locator);
+                        }
+                    }
                     println!("mock peer received HeadersRequest id={}", request.id.value);
                     send_headers_response(
                         &mut stream,
@@ -340,8 +445,20 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes BlocksRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes BlocksRequest fully");
-                    let locator = request.locators.first().copied().expect("BlocksRequest locator");
-                    assert_ne!(locator, BlockHash { bytes: [0x00_u8; 32] });
+                    match (request.locators.is_empty(), expected_locator) {
+                        (true, None) => {}
+                        (true, Some(_)) => panic!("expected non-empty BlocksRequest locator"),
+                        (false, None) => panic!("expected empty BlocksRequest locator"),
+                        (false, Some(locator)) => {
+                            let actual = request
+                                .locators
+                                .first()
+                                .copied()
+                                .expect("BlocksRequest locator");
+                            assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                            assert_eq!(actual, locator);
+                        }
+                    }
                     println!("mock peer received BlocksRequest id={}", request.id.value);
                     send_blocks_response(
                         &mut stream,
@@ -389,10 +506,10 @@ fn mock_peer_with_inv_behavior(
                 }
                 _ => {}
             }
-        }
 
-        if saw_inv_request && saw_headers_request && saw_blocks_request && saw_txs_request && saw_ping {
-            break;
+            if saw_inv_request && saw_headers_request && saw_blocks_request && saw_txs_request && saw_ping {
+                break;
+            }
         }
     }
 
