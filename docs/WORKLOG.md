@@ -329,7 +329,7 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 
 **Task:** make M2 mock-peer interoperability checks robust to announcement follow-up locators and fallback path.
 
-**Implementation commit:** this turn (local), pending final hash after push.
+**Implementation commit:** 51c5672
 
 **Changes:**
 
