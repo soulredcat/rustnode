@@ -30,7 +30,7 @@ pub fn encode_bytes(value: &[u8], max_len: usize) -> Result<Vec<u8>, Error> {
     Ok(encoded)
 }
 
-pub fn decode_bytes(input: &[u8], max_len: usize) -> DecodeResult<'_, &[u8]> {
+pub fn decode_bytes<'a>(input: &'a [u8], max_len: usize) -> DecodeResult<'a, &'a [u8]> {
     let staged_len = decode_non_negative_len(input, "byte string")?;
     let length = staged_len.value;
 
