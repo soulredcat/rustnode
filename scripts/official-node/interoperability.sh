@@ -53,6 +53,11 @@ PY
     return
   fi
 
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -NonInteractive -Command "try { (New-Object System.Net.Sockets.TcpClient('$host',$port)).Dispose(); exit 0 } catch { exit 1 }"
+    return
+  fi
+
   if (exec 9<>"/dev/tcp/${host}/${port}") >/dev/null 2>&1; then
     exec 9>&-
     exec 9<&-
