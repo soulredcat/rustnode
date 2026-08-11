@@ -1439,8 +1439,8 @@ fn now_millis() -> Result<i64, FlowError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        compact, extract_block_hash, hash_blake2b_256, hash_blake3_double, SyncState, HASH_BYTES,
-        HEADER_TARGET_BYTES, NONCE_BYTES,
+        compact, extract_block_hash, hash_blake2b_256, hash_blake3_double, header_locator_from_response,
+        SyncState, HASH_BYTES, HEADER_TARGET_BYTES, NONCE_BYTES,
     };
 
     #[test]
@@ -1471,5 +1471,40 @@ mod tests {
         assert_eq!(state.blocks_seen, 1);
         assert_eq!(state.recent_block_hashes, vec![hash_blake2b_256(&block[0])]);
         assert!(state.observed_blocks.contains(&hash_blake2b_256(&block[0])));
+    }
+
+    #[test]
+    fn header_locator_from_response_prefers_first_valid_hash() {
+        let mut header = Vec::new();
+        header.resize(NONCE_BYTES, 0x11);
+        header.extend_from_slice(&[0x00]);
+        header.extend_from_slice(&compact::encode_i32(2));
+        for _ in 0..2 {
+            header.extend_from_slice(&[0x22_u8; HASH_BYTES]);
+        }
+        header.extend_from_slice(&[0x33_u8; HASH_BYTES]);
+        header.extend_from_slice(&[0x44_u8; HASH_BYTES]);
+        header.extend_from_slice(&0x0000_0001_6974_0000_i64.to_be_bytes());
+        header.resize(header.len() + HEADER_TARGET_BYTES, 0x55);
+
+        let mut second = header.clone();
+        second[1] = 0xAA;
+
+        let locator = header_locator_from_response(&[header.clone(), second], 2).unwrap();
+        assert_eq!(
+            locator.bytes,
+            extract_block_hash(&header, 2).unwrap_or_else(|_| hash_blake3_double(&header))
+        );
+    }
+
+    #[test]
+    fn header_locator_from_response_ignores_invalid_headers() {
+        let headers = vec![vec![0x99_u8; 2], vec![0x77_u8; 3]];
+        assert_eq!(header_locator_from_response(&headers, 2), None);
+    }
+
+    #[test]
+    fn header_locator_from_response_empty_payloads_none() {
+        assert_eq!(header_locator_from_response(&[], 2), None);
     }
 }
