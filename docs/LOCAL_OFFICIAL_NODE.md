@@ -62,7 +62,7 @@ The command:
 3. creates an isolated home under `.local/official-node/home`;
 4. copies `config/official-node/user.conf` with mode `0600`;
 5. starts the official JAR;
-6. waits for `127.0.0.1:19974`;
+6. waits for `127.0.0.1:${OFFICIAL_NODE_P2P_PORT:-19974}`;
 7. verifies the process remains alive after readiness;
 8. prints recent logs;
 9. shuts the process down through a cleanup trap.
@@ -123,6 +123,8 @@ Important choices:
 - P2P v2 is disabled until Rust implements and verifies it;
 - the official ping interval is reduced to five seconds for M1 liveness tests.
 
+`OFFICIAL_NODE_P2P_PORT` overrides the copied runtime config’s P2P bind/internal/coordinator address values.
+
 Do not change the runtime copy manually. Change the committed source config, document the reason, then rerun the smoke workflow.
 
 ## Logs
@@ -145,7 +147,7 @@ Do not point malformed-frame tests at public mainnet or testnet peers.
 
 WARNING: the default P2P port for this devnet harness is `19974` to avoid collision with the common Java node
 peer port `19973`. If you need to run multiple nodes on one host, set
-`RUST_INTEROP_PEER_ADDRESS`, update `config/official-node/user.conf`, and keep all peers on loopback.
+`RUST_INTEROP_PEER_ADDRESS` / `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT`, keep all peers on loopback, and avoid killing unrelated production processes.
 
 Do not expose ports `19974`, `12973`, or `10973` beyond loopback for this harness.
 
