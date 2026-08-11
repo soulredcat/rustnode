@@ -127,9 +127,7 @@ pub fn decode_frame_prefix<'a>(
     );
 
     if data_len < 0 {
-        return Err(Error::wrong_format(format!(
-            "negative length: {data_len}"
-        )));
+        return Err(Error::wrong_format(format!("negative length: {data_len}")));
     }
 
     let data_len = data_len as usize;
@@ -173,16 +171,11 @@ pub fn decode_frame_exact<'a>(
             Err(Error::not_enough_bytes(required_total, input.len()))
         }
         FrameDecode::Complete(frame) if frame.consumed == input.len() => Ok(frame),
-        FrameDecode::Complete(frame) => {
-            Err(Error::redundant_bytes(frame.consumed, input.len()))
-        }
+        FrameDecode::Complete(frame) => Err(Error::redundant_bytes(frame.consumed, input.len())),
     }
 }
 
-pub fn encode_raw_message_data(
-    payload_code: i32,
-    payload_body: &[u8],
-) -> Result<Vec<u8>, Error> {
+pub fn encode_raw_message_data(payload_code: i32, payload_body: &[u8]) -> Result<Vec<u8>, Error> {
     validate_payload_code(payload_code)?;
 
     let wire_version = compact::encode_i32(CURRENT_WIRE_VERSION);
