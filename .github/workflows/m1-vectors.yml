@@ -1,0 +1,61 @@
+name: m1-vectors
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "UPSTREAM.toml"
+      - "tools/upstream/m1/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/generate-m1-vectors.sh"
+      - "tests/vectors/m1/**"
+      - ".github/workflows/m1-vectors.yml"
+  pull_request:
+    paths:
+      - "UPSTREAM.toml"
+      - "tools/upstream/m1/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/generate-m1-vectors.sh"
+      - "tests/vectors/m1/**"
+      - ".github/workflows/m1-vectors.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fetch pinned official source
+        run: ./scripts/fetch-upstream.sh
+
+      - name: Set up Java
+        uses: actions/setup-java@v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+          cache-dependency-path: |
+            .upstream/alephium/**/*.sbt
+            .upstream/alephium/project/build.properties
+            .upstream/alephium/project/**/*.scala
+            .upstream/alephium/project/**/*.sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1.5.7
+
+      - name: Generate vectors from official Scala code
+        run: ./scripts/generate-m1-vectors.sh
+
+      - name: Upload generated fixtures
+        uses: actions/upload-artifact@v7
+        with:
+          name: m1-official-scala-vectors
+          path: tests/vectors/m1/generated
+          if-no-files-found: error
+          retention-days: 14

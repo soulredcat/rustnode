@@ -1,4 +1,4 @@
-.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke
+.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke m1-vectors
 
 check: fmt check-build clippy test
 
@@ -28,3 +28,6 @@ official-run:
 
 official-smoke:
 	./scripts/official-node/smoke.sh
+
+m1-vectors:
+	./scripts/generate-m1-vectors.sh
