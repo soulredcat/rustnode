@@ -57,9 +57,14 @@ fn unsigned_compact_encoding_matches_official_scala_vectors() {
         let decimal = columns.next().expect("unsigned decimal column");
         let _raw_i32 = columns.next().expect("raw i32 column");
         let expected_hex = columns.next().expect("hex column");
-        assert!(columns.next().is_none(), "unexpected unsigned fixture column");
+        assert!(
+            columns.next().is_none(),
+            "unexpected unsigned fixture column"
+        );
 
-        let value = decimal.parse::<u32>().expect("unsigned fixture must fit u32");
+        let value = decimal
+            .parse::<u32>()
+            .expect("unsigned fixture must fit u32");
         let expected = decode_hex(expected_hex);
 
         assert_eq!(compact::encode_u32(value), expected, "value {value}");

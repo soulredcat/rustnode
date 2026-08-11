@@ -35,9 +35,11 @@ impl<'a, T> Staging<'a, T> {
         if self.rest.is_empty() {
             Ok(self.value)
         } else {
-            let consumed = total_input_len.checked_sub(self.rest.len()).ok_or_else(|| {
-                Error::wrong_format("staging suffix is longer than the declared input")
-            })?;
+            let consumed = total_input_len
+                .checked_sub(self.rest.len())
+                .ok_or_else(|| {
+                    Error::wrong_format("staging suffix is longer than the declared input")
+                })?;
             Err(Error::redundant_bytes(consumed, total_input_len))
         }
     }
@@ -52,11 +54,8 @@ mod tests {
 
     #[test]
     fn staged_products_preserve_order_and_suffix() {
-        let first = fixed::decode_i32_be(&[0, 0, 0, 1, 0, 0, 0, 2, 0xaa])
-            .expect("first field");
-        let product = first
-            .and_then(fixed::decode_i32_be)
-            .expect("second field");
+        let first = fixed::decode_i32_be(&[0, 0, 0, 1, 0, 0, 0, 2, 0xaa]).expect("first field");
+        let product = first.and_then(fixed::decode_i32_be).expect("second field");
         assert_eq!(product.value, (1, 2));
         assert_eq!(product.rest, &[0xaa]);
     }

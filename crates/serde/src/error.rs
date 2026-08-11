@@ -47,10 +47,16 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotEnoughBytes { expected, actual } => {
-                write!(formatter, "too few bytes: expected {expected}, got {actual}")
+                write!(
+                    formatter,
+                    "too few bytes: expected {expected}, got {actual}"
+                )
             }
             Self::RedundantBytes { expected, actual } => {
-                write!(formatter, "too many bytes: expected {expected}, got {actual}")
+                write!(
+                    formatter,
+                    "too many bytes: expected {expected}, got {actual}"
+                )
             }
             Self::WrongFormat { message } | Self::Validation { message } => {
                 formatter.write_str(message)
@@ -59,7 +65,10 @@ impl fmt::Display for Error {
                 write!(formatter, "declared size {declared} exceeds limit {limit}")
             }
             Self::LengthOutOfRange { length } => {
-                write!(formatter, "length {length} cannot be represented as a signed 32-bit value")
+                write!(
+                    formatter,
+                    "length {length} cannot be represented as a signed 32-bit value"
+                )
             }
         }
     }

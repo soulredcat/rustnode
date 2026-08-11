@@ -79,9 +79,7 @@ pub fn decode_u32(input: &[u8]) -> DecodeResult<'_, u32> {
     let (mode, body, rest) = split_mode(input)?;
     let value = match mode {
         Mode::Fixed(FixedMode::Single) => u32::from(body[0]),
-        Mode::Fixed(FixedMode::Two) => {
-            (u32::from(body[0] & VALUE_MASK) << 8) | u32::from(body[1])
-        }
+        Mode::Fixed(FixedMode::Two) => (u32::from(body[0] & VALUE_MASK) << 8) | u32::from(body[1]),
         Mode::Fixed(FixedMode::Four) => {
             (u32::from(body[0] & VALUE_MASK) << 24)
                 | (u32::from(body[1]) << 16)
@@ -135,10 +133,7 @@ fn encode_negative_i32(value: i32) -> Vec<u8> {
     if value >= -SIGNED_ONE_BOUND {
         vec![(value ^ SINGLE_NEGATIVE_PREFIX) as u8]
     } else if value >= -SIGNED_TWO_BOUND {
-        vec![
-            ((value >> 8) ^ TWO_NEGATIVE_PREFIX) as u8,
-            value as u8,
-        ]
+        vec![((value >> 8) ^ TWO_NEGATIVE_PREFIX) as u8, value as u8]
     } else if value >= -SIGNED_FOUR_BOUND {
         vec![
             ((value >> 24) ^ FOUR_NEGATIVE_PREFIX) as u8,
@@ -183,9 +178,7 @@ fn decode_fixed_i32(mode: FixedMode, body: &[u8]) -> i32 {
 fn decode_positive_i32(mode: FixedMode, body: &[u8]) -> i32 {
     match mode {
         FixedMode::Single => i32::from(body[0]),
-        FixedMode::Two => {
-            (i32::from(body[0] & VALUE_MASK) << 8) | i32::from(body[1])
-        }
+        FixedMode::Two => (i32::from(body[0] & VALUE_MASK) << 8) | i32::from(body[1]),
         FixedMode::Four => {
             (i32::from(body[0] & VALUE_MASK) << 24)
                 | (i32::from(body[1]) << 16)
@@ -200,9 +193,7 @@ fn decode_negative_i32(mode: FixedMode, body: &[u8]) -> i32 {
 
     match mode {
         FixedMode::Single => i32::from(body[0]) | NEGATIVE_MODE_MASK,
-        FixedMode::Two => {
-            ((i32::from(body[0]) | NEGATIVE_MODE_MASK) << 8) | i32::from(body[1])
-        }
+        FixedMode::Two => ((i32::from(body[0]) | NEGATIVE_MODE_MASK) << 8) | i32::from(body[1]),
         FixedMode::Four => {
             ((i32::from(body[0]) | NEGATIVE_MODE_MASK) << 24)
                 | (i32::from(body[1]) << 16)

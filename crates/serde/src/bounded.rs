@@ -1,4 +1,4 @@
-use crate::{compact, DecodeResult, Error, Staging};
+use crate::{DecodeResult, Error, Staging, compact};
 
 fn encode_len(length: usize) -> Result<Vec<u8>, Error> {
     let length = i32::try_from(length).map_err(|_| Error::LengthOutOfRange { length })?;
@@ -98,9 +98,7 @@ pub fn decode_vec<'a, T>(
     let count = staged_len.value;
 
     if count > staged_len.rest.len() {
-        return Err(Error::validation(format!(
-            "malicious vector size: {count}"
-        )));
+        return Err(Error::validation(format!("malicious vector size: {count}")));
     }
     if count > max_items {
         return Err(Error::LimitExceeded {
@@ -122,9 +120,7 @@ pub fn decode_vec<'a, T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        decode_bytes, decode_string, decode_vec, encode_bytes, encode_string, encode_vec,
-    };
+    use super::{decode_bytes, decode_string, decode_vec, encode_bytes, encode_string, encode_vec};
     use crate::{Error, fixed};
 
     #[test]
@@ -164,7 +160,9 @@ mod tests {
     fn bounded_string_validates_utf8() {
         let encoded = encode_string("alephium", 8).expect("fixture must encode");
         assert_eq!(
-            decode_string(&encoded, 8).expect("fixture must decode").value,
+            decode_string(&encoded, 8)
+                .expect("fixture must decode")
+                .value,
             "alephium"
         );
         assert!(matches!(

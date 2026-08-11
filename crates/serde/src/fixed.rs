@@ -54,8 +54,7 @@ mod tests {
         assert_eq!(i32_value.value, 0x0102_0304);
         assert_eq!(i32_value.rest, &[0xaa]);
 
-        let i64_value =
-            decode_i64_be(&[1, 2, 3, 4, 5, 6, 7, 8, 0xbb]).expect("valid i64");
+        let i64_value = decode_i64_be(&[1, 2, 3, 4, 5, 6, 7, 8, 0xbb]).expect("valid i64");
         assert_eq!(i64_value.value, 0x0102_0304_0506_0708);
         assert_eq!(i64_value.rest, &[0xbb]);
     }
