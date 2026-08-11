@@ -5,13 +5,15 @@
 //! with a minimal sync probe (initial InvRequest, optional HeadersRequest).
 
 use std::error::Error as StdError;
+use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alephium_conf::NodeConfig;
-use alephium_crypto::{sign, PrivateKey, PublicKey};
+use alephium_crypto::{hash_blake2b_256, sign, PrivateKey, PublicKey};
 use alephium_protocol::message::{
     decode_frame_prefix, decode_raw_message_data, encode_frame, encode_raw_message_data, FrameDecode,
     NetworkMagic,
@@ -43,7 +45,189 @@ use alephium_serde::Error as SerdeError;
 
 /// Current implementation status.
 pub const STATUS: &str =
-    "M1 bootstrap complete; M2 request/response decoding and sync probe enabled in flow.";
+    "M1 bootstrap complete; M2 request/response decoding and sync state wallet scaffold enabled.";
+
+const SYNC_STATE_FILE: &str = ".local/rustnode/sync-state.txt";
+
+#[derive(Debug, Clone, Copy)]
+pub struct WalletView {
+    pub headers_seen: usize,
+    pub blocks_seen: usize,
+    pub txs_seen: usize,
+}
+
+impl fmt::Display for WalletView {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "wallet view: headers={} blocks={} txs={} (balance preview unavailable)",
+            self.headers_seen, self.blocks_seen, self.txs_seen
+        )
+    }
+}
+
+impl From<SyncState> for WalletView {
+    fn from(state: SyncState) -> Self {
+        state.wallet_view()
+    }
+}
+
+#[derive(Debug)]
+struct SyncState {
+    pub headers_seen: usize,
+    pub blocks_seen: usize,
+    pub txs_seen: usize,
+    pub observed_txs: HashSet<[u8; 32]>,
+    pub recent_header_hashes: Vec<BlockHash>,
+    pub recent_tx_hashes: Vec<[u8; 32]>,
+}
+
+impl Default for SyncState {
+    fn default() -> Self {
+        Self {
+            headers_seen: 0,
+            blocks_seen: 0,
+            txs_seen: 0,
+            observed_txs: HashSet::new(),
+            recent_header_hashes: Vec::new(),
+            recent_tx_hashes: Vec::new(),
+        }
+    }
+}
+
+impl SyncState {
+    fn sync_state_path() -> PathBuf {
+        PathBuf::from(SYNC_STATE_FILE)
+    }
+
+    fn load() -> io::Result<Self> {
+        let path = Self::sync_state_path();
+        let mut state = Self::default();
+
+        if !path.exists() {
+            return Ok(state);
+        }
+
+        let mut contents = String::new();
+        std::fs::File::open(&path)?.read_to_string(&mut contents)?;
+
+        for line in contents.lines() {
+            if let Some(value) = line.strip_prefix("headers_seen=") {
+                state.headers_seen = value.parse().unwrap_or_default();
+            } else if let Some(value) = line.strip_prefix("blocks_seen=") {
+                state.blocks_seen = value.parse().unwrap_or_default();
+            } else if let Some(value) = line.strip_prefix("txs_seen=") {
+                state.txs_seen = value.parse().unwrap_or_default();
+            } else if let Some(value) = line.strip_prefix("tx_hashes=") {
+                for token in value.split(',') {
+                    if token.is_empty() {
+                        continue;
+                    }
+                    let mut bytes = [0_u8; 32];
+                    let decoded = decode_hex_32(token)?;
+                    bytes.copy_from_slice(&decoded);
+                    state.observed_txs.insert(bytes);
+                    state.recent_tx_hashes.push(bytes);
+                }
+            }
+        }
+
+        Ok(state)
+    }
+
+    fn save(&self) -> io::Result<()> {
+        if let Some(parent) = Self::sync_state_path().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut lines = Vec::with_capacity(4);
+        lines.push(format!("headers_seen={}", self.headers_seen));
+        lines.push(format!("blocks_seen={}", self.blocks_seen));
+        lines.push(format!("txs_seen={}", self.txs_seen));
+        if self.recent_tx_hashes.is_empty() {
+            lines.push("tx_hashes=".to_owned());
+        } else {
+            let encoded = self
+                .recent_tx_hashes
+                .iter()
+                .map(encode_hex)
+                .collect::<Vec<_>>()
+                .join(",");
+            lines.push(format!("tx_hashes={encoded}"));
+        }
+
+        std::fs::write(Self::sync_state_path(), lines.join("\n"))
+    }
+
+    fn record_headers(&mut self, headers: &[Vec<u8>]) {
+        for bytes in headers {
+            self.headers_seen += 1;
+            let hash = BlockHash {
+                bytes: hash_blake2b_256(bytes),
+            };
+            self.recent_header_hashes.push(hash);
+            if self.recent_header_hashes.len() > 128 {
+                self.recent_header_hashes.remove(0);
+            }
+        }
+    }
+
+    fn record_blocks(&mut self, blocks: &[Vec<u8>]) {
+        self.blocks_seen += blocks.len();
+        let _ = blocks;
+    }
+
+    fn record_txs(&mut self, txs: &[Vec<u8>]) {
+        for tx in txs {
+            let hash = hash_blake2b_256(tx);
+            if self.observed_txs.insert(hash) {
+                self.txs_seen += 1;
+                self.recent_tx_hashes.push(hash);
+                if self.recent_tx_hashes.len() > 128 {
+                    let removed = self.recent_tx_hashes.remove(0);
+                    self.observed_txs.remove(&removed);
+                }
+            }
+        }
+    }
+
+    fn wallet_view(&self) -> WalletView {
+        WalletView {
+            headers_seen: self.headers_seen,
+            blocks_seen: self.blocks_seen,
+            txs_seen: self.txs_seen,
+        }
+    }
+}
+
+fn encode_hex(bytes: &[u8; 32]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
+}
+
+fn decode_hex_32(input: &str) -> io::Result<[u8; 32]> {
+    if input.len() != 64 || !input.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(io::Error::other("invalid tx hash hex length"));
+    }
+
+    let mut bytes = [0_u8; 32];
+    for index in 0..32 {
+        let start = index * 2;
+        bytes[index] = u8::from_str_radix(&input[start..start + 2], 16).map_err(|error| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("invalid hex byte: {error}"))
+        })?;
+    }
+    Ok(bytes)
+}
+
+pub fn load_wallet_snapshot() -> Result<WalletView, FlowError> {
+    SyncState::load()
+        .map_err(FlowError::Io)
+        .map(WalletView::from)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionState {
@@ -64,6 +248,7 @@ struct Session {
     outstanding_blocks_request: Option<u32>,
     outstanding_txs_request: Option<u32>,
     chain_state_tips: Vec<BlockHash>,
+    sync_state: SyncState,
     sent_inv_request: bool,
     sent_headers_request: bool,
     sent_blocks_request: bool,
@@ -121,13 +306,14 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         state: SessionState::Connecting,
         next_request_id: 1,
         outstanding_ping: None,
-        ping_deadline: None,
+    ping_deadline: None,
         next_ping_at: Instant::now() + config.ping_interval,
         outstanding_inv_request: None,
         outstanding_headers_request: None,
         outstanding_blocks_request: None,
         outstanding_txs_request: None,
         chain_state_tips: Vec::new(),
+        sync_state: SyncState::load().unwrap_or_default(),
         sent_inv_request: false,
         sent_headers_request: false,
         sent_blocks_request: false,
@@ -423,6 +609,7 @@ fn handle_chain_state(
         .into_iter()
         .map(|tip| tip.hash)
         .collect();
+    persist_sync_state(session);
 
     if session.headers_probe_pending
         && !session.sent_headers_request
@@ -478,6 +665,8 @@ fn handle_blocks_response(
         response.id.value,
         response.blocks.len()
     );
+    session.sync_state.record_blocks(&response.blocks);
+    persist_sync_state(session);
     maybe_send_txs_request(stream, config, session)?;
     Ok(())
 }
@@ -524,6 +713,8 @@ fn handle_headers_response(
         response.id.value,
         response.headers.len()
     );
+    session.sync_state.record_headers(&response.headers);
+    persist_sync_state(session);
     maybe_send_blocks_request(stream, config, session, &response)?;
     Ok(())
 }
@@ -700,6 +891,14 @@ fn handle_txs_response(session: &mut Session, response: TxsResponse) {
         response.id.value,
         response.txs.len()
     );
+    session.sync_state.record_txs(&response.txs);
+    persist_sync_state(session);
+}
+
+fn persist_sync_state(session: &Session) {
+    if let Err(error) = session.sync_state.save() {
+        eprintln!("flow sync-state persistence failed: {error}");
+    }
 }
 
 fn handle_headers_by_heights_request(request: HeadersByHeightsRequest) {

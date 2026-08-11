@@ -22,6 +22,7 @@ fn print_usage() {
     println!("  --watch                   keep retrying and reconnect when peer is unavailable");
     println!("  --watch-interval <secs>   delay between retries in watch mode (default: 5)");
     println!("  --watch-attempts <n>      max watch attempts before exiting (default: unlimited)");
+    println!("  --wallet-status           print persisted local sync/wallet snapshot and exit");
 }
 
 fn run_with_retry(
@@ -55,6 +56,7 @@ fn run_with_retry(
 fn main() {
     let mut peer_address = DEFAULT_PEER_ADDRESS.to_owned();
     let mut watch_mode = false;
+    let mut print_wallet = false;
     let mut watch_interval = Duration::from_secs(5);
     let mut watch_attempts: Option<usize> = None;
 
@@ -125,6 +127,9 @@ fn main() {
                     }
                 }
             }
+            "--wallet-status" => {
+                print_wallet = true;
+            }
             arg if arg.starts_with("-") => {
                 eprintln!("unknown option: {arg}");
                 eprintln!("run --help for usage");
@@ -137,6 +142,19 @@ fn main() {
     }
 
     let identity_path = resolve_node_identity_path();
+    if print_wallet {
+        match alephium_flow::load_wallet_snapshot() {
+            Ok(snapshot) => {
+                println!("{snapshot}");
+            }
+            Err(error) => {
+                eprintln!("unable to load wallet snapshot: {error}");
+                process::exit(2);
+            }
+        }
+        return;
+    }
+
     let config = match NodeConfig::with_peer_address(peer_address).with_node_identity_path(identity_path) {
         Ok(config) => config,
         Err(error) => {
