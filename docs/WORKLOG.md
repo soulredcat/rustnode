@@ -96,4 +96,59 @@ test "$(git -C .upstream/alephium rev-parse HEAD)" = \
 
 **Result:** CI now proves each build can acquire the exact official compatibility baseline. It does not silently build against upstream `master`.
 
-**Exact next task:** `M0-004` — create and verify `docs/LOCAL_OFFICIAL_NODE.md`, including isolated configuration, startup readiness, P2P endpoint, shutdown, and cleanup.
+## 2026-08-11 — M0-004 official-node harness verified
+
+**Task:** `M0-004`.
+
+**Harness commit:** `c168d2bfef5d1a7d624f54697dedd18dd1006ce3`.
+
+**Workflow-order fix:** `88796ffae76abe76abf69d7f38936ffd7aa71da7`.
+
+**GitHub Actions:** run `31460207593`, conclusion `success`.
+
+**Environment and evidence:**
+
+```text
+OS: Ubuntu 24.04
+Java: Temurin 17.0.19
+Official sbt build: 1.11.5
+Official source: 63bcf6998508025f9538f3377629fe9e66df6c53
+Official assembly: alephium-4.6.0+5-63bcf699-SNAPSHOT.jar
+Network: local devnet, network ID 2
+P2P: 127.0.0.1:19973
+Bootstrap peers: none
+```
+
+**Result:** the pinned official Scala application built successfully and opened the loopback P2P listener. M0 is complete. This proves the local official-peer test harness, not Rust P2P interoperability.
+
+## 2026-08-11 — M1-001 official wire research and vector generator
+
+**Task:** `M1-001` (`IN PROGRESS`).
+
+**Source mapping commit:** `21318d449b7651288e14f7ab15b942e3d038362e`.
+
+**Initial generator commit:** `07b637976bb99c3b760f2f614a9aedaae5ca0efc`.
+
+**Added:**
+
+- `docs/M1_WIRE_REFERENCE.md`;
+- exact upstream ownership mapping for envelope, checksum, compact integers, timestamp, request ID, broker/clique identity, client ID, and networking state;
+- reproducible Scala vector generator under `tools/upstream/m1/`;
+- generator script, artifact workflow, deterministic test identity, malformed fixtures, and truncation table;
+- copy-paste AI session prompt plus issue/PR compatibility templates.
+
+**First generator run:** `31460717852`, conclusion `failure`.
+
+**Exact failure:** generator referenced a non-public/nonexistent `Checksum.length`; the official companion exposes only package-private `checksumLength`.
+
+**Fix:** commit `bfebbaccaed3edff1e1ee5760bd3647cb2b88acb` now derives the width from `Checksum.calcAndSerialize(ByteString.empty).length`, keeping the generator dependent on official behavior rather than duplicating an inaccessible constant.
+
+**Known status:** Rust message codec and P2P remain unimplemented. M1-002 must not start until official generated vectors are reviewed and committed.
+
+**Exact next task:**
+
+1. make the corrected M1 vector workflow green;
+2. download/review the generated artifact;
+3. commit vectors plus checksums;
+4. mark M1-001 `DONE` only after reproducibility evidence;
+5. begin M1-002 against those vectors.
