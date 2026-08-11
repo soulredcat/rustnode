@@ -307,7 +307,7 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 
 **Task:** harden M2 evidence capture so request/response coverage and ChainState presence are validated and optional announcement coverage can be enforced.
 
-**Implementation commits:** this local continuation branch (pending final commit at handoff)
+**Implementation commits:** 9449176
 
 **Changes:**
 
