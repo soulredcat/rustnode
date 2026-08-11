@@ -13,7 +13,7 @@ Last updated: `2026-08-11`
 
 ```text
 Current milestone: M0 — repository bootstrap
-Current active gate: M0-002 — CI/build verification
+Current active gate: M0-004 — reproducible local official-node environment
 Next protocol task after M0: M1-001 — freeze official M1 behavior and vectors
 ```
 
@@ -40,11 +40,11 @@ No task beyond M1 should begin until the official Scala node accepts the Rust ha
 
 **Acceptance:** files exist and contain no claim that P2P/full-node functionality is implemented.
 
-**Evidence:** repository tree and this commit.
+**Evidence:** commit `ea22de1e5c3557c65d57910329de1619dc7aac51`.
 
 ### M0-002 — Prove bootstrap workspace is green
 
-**Status:** `IN PROGRESS`
+**Status:** `DONE`
 
 **Required commands:**
 
@@ -61,11 +61,15 @@ cargo test --workspace
 - GitHub Actions `ci` job is green;
 - actual toolchain version and command output are recorded in `docs/WORKLOG.md`.
 
-**Constraint:** do not mark done solely because the scaffold looks syntactically correct.
+**Evidence:**
+
+- fix commit: `be4dbc86aa31cd26af65712697df6ca269c01fcd`;
+- successful GitHub Actions run: `31459463053`;
+- CI toolchain: `rustc 1.97.1 (8bab26f4f 2026-07-14)`.
 
 ### M0-003 — Verify pinned upstream acquisition
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Command:**
 
@@ -79,9 +83,14 @@ cargo test --workspace
 - `git -C .upstream/alephium rev-parse HEAD` equals `63bcf6998508025f9538f3377629fe9e66df6c53`;
 - result recorded in `docs/WORKLOG.md`.
 
+**Evidence:**
+
+- CI integration commit: `940e58f00e2c1f9c43f5c2e51002cfc12a1e518c`;
+- successful GitHub Actions run: `31459708994`.
+
 ### M0-004 — Create a reproducible local official-node interoperability environment
 
-**Status:** `OPEN`
+**Status:** `IN PROGRESS`
 
 **Scope:**
 
@@ -103,7 +112,7 @@ M0 is complete only when M0-001 through M0-004 are `DONE`.
 
 ## M1 — Official P2P handshake and Ping/Pong
 
-Read `docs/M1_P2P_INTEROP.md` before starting.
+Read `docs/M1_P2P_INTEROP.md` and `docs/M1_WIRE_REFERENCE.md` before starting.
 
 ### M1-001 — Freeze official M1 behavior and create Scala-derived vectors
 
@@ -116,9 +125,11 @@ Read `docs/M1_P2P_INTEROP.md` before starting.
 - `protocol/.../message/Header.scala`;
 - `protocol/.../message/Payload.scala`;
 - `protocol/.../message/P2PVersion.scala`;
+- `protocol/.../message/RequestId.scala`;
 - `protocol/.../model/ReleaseVersion.scala`;
 - `protocol/.../model/BrokerInfo.scala`;
 - `protocol/.../model/CliqueInfo.scala`;
+- `protocol/.../model/CliqueId.scala`;
 - relevant protocol and flow tests listed in `docs/UPSTREAM_MAPPING.md`.
 
 **Deliverables:**

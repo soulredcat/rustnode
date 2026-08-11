@@ -45,16 +45,55 @@ This file records completed work, failed attempts, commands, and the exact next 
 **Commands run:**
 
 - Runtime compilation was not available in the authoring environment; Rust toolchain was not installed there.
-- Therefore `M0-002` remains open until CI and/or a local Rust environment proves all commands green.
+- Therefore `M0-002` remained open until GitHub Actions verified the scaffold.
 
-**Known uncertainty:** scaffold syntax is intentionally simple, but it is not considered verified until the required Cargo commands pass.
+**Known uncertainty:** scaffold syntax was intentionally simple, but was not considered verified until the required Cargo commands passed.
 
 **Repository note:** an intermediate README-only branch history was discarded while attaching the complete Git tree to `main`; the retained `main` content is the complete M0-001 tree above.
 
-**Exact next task:**
+## 2026-08-11 — M0-002 green Rust workspace
 
-1. inspect the GitHub Actions `ci` result triggered by this worklog commit;
-2. run the four commands in `M0-002` locally;
-3. fix any scaffold issue;
-4. record toolchain/version/output here;
-5. mark `M0-002` done only after green evidence.
+**Task:** `M0-002`.
+
+**Fix commit:** `be4dbc86aa31cd26af65712697df6ca269c01fcd`.
+
+**GitHub Actions:** run `31459463053`, conclusion `success`.
+
+**Toolchain:**
+
+```text
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+```
+
+**Commands verified by CI:**
+
+```bash
+cargo fmt --all -- --check
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+**Failure handled before success:** the first run detected a rustfmt-only difference in `crates/util/src/lib.rs`. The source was formatted and the checkout action was upgraded from v4 to v7 so the workflow uses the current Node 24 action runtime.
+
+**Result:** minimum workspace compiles, lints, and tests successfully. This does not imply any Alephium protocol implementation exists.
+
+## 2026-08-11 — M0-003 pinned upstream verified
+
+**Task:** `M0-003`.
+
+**CI integration commit:** `940e58f00e2c1f9c43f5c2e51002cfc12a1e518c`.
+
+**GitHub Actions:** run `31459708994`, conclusion `success`.
+
+**Command verified:**
+
+```bash
+./scripts/fetch-upstream.sh
+test "$(git -C .upstream/alephium rev-parse HEAD)" = \
+  "63bcf6998508025f9538f3377629fe9e66df6c53"
+```
+
+**Result:** CI now proves each build can acquire the exact official compatibility baseline. It does not silently build against upstream `master`.
+
+**Exact next task:** `M0-004` — create and verify `docs/LOCAL_OFFICIAL_NODE.md`, including isolated configuration, startup readiness, P2P endpoint, shutdown, and cleanup.

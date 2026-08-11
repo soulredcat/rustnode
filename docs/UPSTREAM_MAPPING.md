@@ -12,6 +12,7 @@ This document maps official Scala ownership to Rust crates and records implement
 Status meanings:
 
 - `NOT STARTED`
+- `SOURCE LOCATED`
 - `PARTIAL`
 - `VECTOR LOCKED`
 - `IMPLEMENTED`
@@ -39,37 +40,47 @@ Status meanings:
 
 ## Milestone M1 source inventory
 
+### Fixed-width utilities and compact serde
+
+| Official path | Behavior to extract | Rust target | Status |
+|---|---|---|---|
+| `util/src/main/scala/org/alephium/util/Bytes.scala` | big-endian fixed `Int`/`Long`; conversions used by envelope and timestamp | `crates/util` | `SOURCE LOCATED` |
+| `util/src/main/scala/org/alephium/util/DjbHash.scala` | wrapping 32-bit DJB checksum input calculation | `crates/util` | `SOURCE LOCATED` |
+| `util/src/main/scala/org/alephium/util/TimeStamp.scala` | non-negative millisecond timestamp model | `crates/util` | `SOURCE LOCATED` |
+| `serde/src/main/scala/org/alephium/serde/Serde.scala` | Int/U32/bytes/vector/timestamp ownership and validation | `crates/serde` | `SOURCE LOCATED` |
+| `serde/src/main/scala/org/alephium/serde/CompactInteger.scala` | exact compact signed/unsigned encoding | `crates/serde` | `SOURCE LOCATED`; boundary vectors pending |
+| `serde/src/main/scala/org/alephium/serde/package.scala` | implicit codec ownership and extraction behavior | `crates/serde` | `SOURCE LOCATED` |
+
 ### Message envelope
 
 | Official path | Behavior to extract | Rust target | Status |
 |---|---|---|---|
-| `protocol/src/main/scala/org/alephium/protocol/message/Message.scala` | outer serialization order; header/payload composition; checksum/length use; trailing-byte behavior | `crates/protocol::message`, `crates/serde` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/message/MessageSerde.scala` | magic validation; length extraction; incremental frame boundaries; negative/incomplete length errors | `crates/serde` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/message/Header.scala` | wire header representation and serde | `crates/protocol::message` | `NOT STARTED` |
-| definition of `Checksum` under official `protocol` sources | exact checksum algorithm and serialized width/order | `crates/crypto` or `crates/protocol` after ownership review | `NOT LOCATED/LOCKED` |
-| definition of `WireVersion` under official `protocol` sources | current wire version and compatibility rules | `crates/protocol::message` | `NOT LOCATED/LOCKED` |
-| official network configuration files/classes | network magic bytes and selected group/network parameters | `crates/conf` | `NOT STARTED` |
-
-The checksum, wire version, and magic bytes must be located from source/tests and locked by vectors before implementation. Do not infer them from the envelope comment.
+| `protocol/src/main/scala/org/alephium/protocol/message/Message.scala` | outer serialization order; header/payload composition; checksum/length use; trailing-byte behavior | `crates/protocol::message`, `crates/serde` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/message/MessageSerde.scala` | magic validation; fixed four-byte length extraction; negative/incomplete length errors | `crates/serde` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/message/Header.scala` | wire header representation and exact-version validation | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/Checksum.scala` | four-byte DJB hash checksum serialized big-endian | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/WireVersion.scala` | wire-version wrapper/serde | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/package.scala` | current wire version and protocol crypto aliases | `crates/protocol`, `crates/crypto` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/config/NetworkConfig.scala` | derivation of network magic and hard-fork context | `crates/conf` | `SOURCE LOCATED`; canonical selected-network bytes pending |
 
 ### Payloads and handshake
 
 | Official path | Behavior to extract | Rust target | Status |
 |---|---|---|---|
-| `protocol/src/main/scala/org/alephium/protocol/message/Payload.scala` | payload code table; payload-specific serializers; `Hello`, `Ping`, `Pong`; handshake validation | `crates/protocol::message` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/message/P2PVersion.scala` | slash-separated client ID P2P version parsing | `crates/protocol::message` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/model/ReleaseVersion.scala` | release parsing and network/hard-fork minimum checks | `crates/protocol::model` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/model/BrokerInfo.scala` | broker/inter-broker structures, hash/serde/validation | `crates/protocol::model` | `NOT STARTED` |
-| `protocol/src/main/scala/org/alephium/protocol/model/CliqueInfo.scala` | clique identity/key-related structures | `crates/protocol::model`, `crates/crypto` | `NOT STARTED` |
-| official `RequestId` definition | request identifier width, generation, serde | `crates/protocol::message` | `NOT LOCATED/LOCKED` |
-| official `TimeStamp` definition | unit, width, comparisons, serde | `crates/util` | `NOT LOCATED/LOCKED` |
-| official signature schema/key types | exact algorithm, byte representation, sign/verify behavior | `crates/crypto` | `NOT LOCATED/LOCKED` |
+| `protocol/src/main/scala/org/alephium/protocol/message/Payload.scala` | code table; payload serializers; `Hello`, `Ping`, `Pong`; handshake validation | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/message/P2PVersion.scala` | slash-separated client ID P2P version parsing | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/message/RequestId.scala` | U32 request identifier and nonzero random generation | `crates/protocol::message` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/model/ReleaseVersion.scala` | release parsing and network/hard-fork minimum checks | `crates/protocol::model` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/model/BrokerInfo.scala` | broker/inter-broker structures, hash, serde, validation | `crates/protocol::model` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/model/CliqueInfo.scala` | local clique composition/configuration | `crates/conf`, `crates/protocol::model` | `SOURCE LOCATED` |
+| `protocol/src/main/scala/org/alephium/protocol/model/CliqueId.scala` | clique ID as protocol SecP256K1 public-key bytes | `crates/protocol::model`, `crates/crypto` | `SOURCE LOCATED` |
+| exact SecP256K1 key/signature definitions under `crypto` | byte formats, parsing, sign/verify behavior | `crates/crypto` | `NOT STARTED` |
 
 ### Networking state machine
 
 | Official path | Behavior to extract | Rust target | Status |
 |---|---|---|---|
-| `flow/src/main/scala/org/alephium/flow/network/broker/BrokerHandler.scala` | handshake state, release/P2P validation, exchange transition, ping/pong integration, disconnect behavior | `crates/flow::network` | `NOT STARTED` |
+| `flow/src/main/scala/org/alephium/flow/network/broker/BrokerHandler.scala` | handshake state, release/P2P validation, exchange transition, ping/pong integration, disconnect behavior | `crates/flow::network` | `SOURCE LOCATED` |
 | `flow/src/main/scala/org/alephium/flow/network/broker/ConnectionHandler.scala` | TCP buffering, frame decode loop, send/receive/error lifecycle | `crates/flow::network` | `NOT STARTED` |
 | `flow/src/main/scala/org/alephium/flow/network/broker/InboundBrokerHandler.scala` | inbound handshake composition/peer behavior | `crates/flow::network` | `NOT STARTED` |
 | `flow/src/main/scala/org/alephium/flow/network/broker/OutboundBrokerHandler.scala` | outbound handshake composition/peer behavior | `crates/flow::network` | `NOT STARTED` |
@@ -78,9 +89,9 @@ The checksum, wire version, and magic bytes must be located from source/tests an
 
 | Official path | Intended use | Status |
 |---|---|---|
+| `protocol/src/test/scala/org/alephium/protocol/message/MessageSpec.scala` | envelope, corruption, concatenation and truncation vectors | `SOURCE LOCATED` |
 | `protocol/src/test/scala/org/alephium/protocol/message/PayloadSpec.scala` | payload and handshake encode/decode/validation vectors | `NOT STARTED` |
-| locate official `MessageSpec`/message-serde tests | envelope, corruption and incremental decode vectors | `NOT LOCATED/LOCKED` |
-| `flow/src/test/scala/org/alephium/flow/network/broker/BrokerHandlerSpec.scala` | handshake and exchange state behavior | `NOT STARTED` |
+| `flow/src/test/scala/org/alephium/flow/network/broker/BrokerHandlerSpec.scala` | handshake and exchange state behavior | `SOURCE LOCATED` |
 | `flow/src/test/scala/org/alephium/flow/network/broker/ConnectionHandlerSpec.scala` | TCP/frame buffering and error behavior | `NOT STARTED` |
 | `flow/src/test/scala/org/alephium/flow/network/interclique/OutboundBrokerHandlerSpec.scala` | live/outbound handshake behavior | `NOT STARTED` |
 | `protocol/src/test/scala/org/alephium/protocol/model/CliqueInfoSpec.scala` | clique/broker identity vectors | `NOT STARTED` |
