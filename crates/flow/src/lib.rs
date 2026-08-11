@@ -926,7 +926,7 @@ fn maybe_send_txs_request(
 
     let fallback_tx_hashes: Vec<TransactionId> = session
         .sync_state
-        .recent_block_hashes
+        .recent_tx_hashes
         .iter()
         .rev()
         .take(16)

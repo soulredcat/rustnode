@@ -70,14 +70,8 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
         let config = base_config();
         move || {
             let (stream, _) = listener.accept().expect("mock peer accepted");
-            mock_peer_with_inv_behavior(
-                stream,
-                config,
-                tx,
-                InvPayloadKind::NonEmpty,
-                false,
-            )
-            .expect("mock peer completed");
+            mock_peer_with_inv_behavior(stream, config, tx, InvPayloadKind::NonEmpty, true)
+                .expect("mock peer completed");
         }
     });
 
@@ -260,14 +254,8 @@ fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
         let config = base_config();
         move || {
             let (stream, _) = listener.accept().expect("mock peer accepted");
-            mock_peer_with_inv_behavior(
-                stream,
-                config,
-                tx,
-                InvPayloadKind::Empty,
-                false,
-            )
-            .expect("mock peer completed");
+            mock_peer_with_inv_behavior(stream, config, tx, InvPayloadKind::Empty, true)
+                .expect("mock peer completed");
         }
     });
 
@@ -347,14 +335,8 @@ fn full_rust_mock_peer_empty_inv_response_without_chain_state_uses_empty_locator
         let config = base_config();
         move || {
             let (stream, _) = listener.accept().expect("mock peer accepted");
-            mock_peer_with_inv_behavior(
-                stream,
-                config,
-                tx,
-                InvPayloadKind::NoChainState,
-                false,
-            )
-            .expect("mock peer completed");
+            mock_peer_with_inv_behavior(stream, config, tx, InvPayloadKind::NoChainState, true)
+                .expect("mock peer completed");
         }
     });
 
