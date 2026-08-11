@@ -1,0 +1,100 @@
+name: Alephium compatibility task
+description: Reproduce one observable behavior from the pinned official Scala implementation
+title: "[TASK-ID] "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Compatibility baseline: `alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53`.
+        Read `AGENTS.md` and `TASKS.md` before implementation.
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      placeholder: M1-002
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Observable objective
+      description: State one result that can be tested against the official implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Completed dependencies
+      description: List prerequisite task IDs and their evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Exact upstream source and test paths
+      description: Use exact repository paths at the pinned commit. Do not list only module names.
+      placeholder: |
+        protocol/src/main/scala/.../File.scala
+        protocol/src/test/scala/.../FileSpec.scala
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior to reproduce
+      description: Inputs, canonical outputs, valid/invalid cases, limits, network/hard-fork context.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: Scala generator/vector, official logs, differential comparison, or replay evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: Deliverables
+      description: Rust files, tests, vectors, and documentation updates.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Explicitly out of scope
+      description: Prevent speculative implementation of related later work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: Required commands
+      value: |
+        make check
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: guardrails
+    attributes:
+      label: Guardrails
+      options:
+        - label: This task does not redesign or optimize the Alephium protocol.
+          required: true
+        - label: Expected wire/consensus values will come from official-source evidence, not Rust-only round trips.
+          required: true
+        - label: Peer-controlled memory and work will be bounded.
+          required: true
+        - label: TASKS.md and WORKLOG.md will be updated before completion.
+          required: true
