@@ -9,8 +9,6 @@ P2P_HOST="127.0.0.1"
 P2P_PORT="19973"
 STARTUP_TIMEOUT_SECONDS="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 
-command -v python3 >/dev/null 2>&1 || { echo "python3 is required for the smoke readiness probe" >&2; exit 1; }
-
 "${ROOT_DIR}/scripts/official-node/build.sh"
 
 mkdir -p "${STATE_DIR}"
@@ -32,6 +30,47 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+is_port_open() {
+  local host=$1
+  local port=$2
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${host}" "${port}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(0.5)
+    sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
+PY
+    return
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    python - "$host" "$port" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(0.5)
+    sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
+PY
+    return
+  fi
+
+  if (exec 9<>"/dev/tcp/${host}/${port}") >/dev/null 2>&1; then
+    exec 9>&-
+    exec 9<&-
+    return 0
+  fi
+
+  return 1
+}
+
 : > "${LOG_FILE}"
 (
   "${ROOT_DIR}/scripts/official-node/run.sh"
@@ -47,17 +86,7 @@ for _ in $(seq 1 "${STARTUP_TIMEOUT_SECONDS}"); do
     exit 1
   fi
 
-  if python3 - "${P2P_HOST}" "${P2P_PORT}" <<'PY'
-import socket
-import sys
-
-host = sys.argv[1]
-port = int(sys.argv[2])
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.settimeout(0.5)
-    sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
-PY
-  then
+  if is_port_open "${P2P_HOST}" "${P2P_PORT}"; then
     ready=1
     break
   fi

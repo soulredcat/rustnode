@@ -45,7 +45,7 @@ The official node is intentionally disconnected from mainnet/testnet discovery.
 - Java 17 or newer
 - sbt
 - Bash
-- Python 3 for the readiness probe
+- Python 3 for the readiness probe (optional; Bash `/dev/tcp` fallback is used when Python is unavailable)
 
 CI currently verifies Java 17 with the pinned official source.
 
