@@ -388,7 +388,7 @@ M2 must retain all M1 assertions. Header/block exchange does not excuse handshak
 ### M2 assertions (current smoke-level bar)
 
 - Rust sends `InvRequest` after successful Hello validation.
-- Rust receives `ChainState` (or uses deterministic fallback locator logic when locator is absent).
+- Rust receives `ChainState` or logs fallback header-locator behavior (`sending fallback HeadersRequest with empty locator`) when chain-state is absent.
 - Rust receives `InvResponse`, sends `HeadersRequest`, and observes at least one `HeadersResponse`.
 - Rust sends `BlocksRequest` and observes at least one `BlocksResponse`.
 - Rust sends `TxsRequest` and observes at least one `TxsResponse`.

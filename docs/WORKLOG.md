@@ -324,3 +324,22 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 
 **Open risk / next action:**
 - The environment may still not always emit announcement frames during the test window; keep announcement gating optional until evidence is consistently reproducible from official peer behavior.
+
+## 2026-08-11 — M2 mock-peer strictness fix and ChainState fallback acceptance
+
+**Task:** make M2 mock-peer interoperability checks robust to announcement follow-up locators and fallback path.
+
+**Implementation commit:** this turn (local), pending final hash after push.
+
+**Changes:**
+
+- `crates/flow/tests/rust_peer_smoke.rs`
+  - relaxes strict locator assertion for announcement scenarios (`send_announcements=true`):
+    - `HeadersRequest` and `BlocksRequest` no longer require matching the original inv locator after announcement follow-up messages are emitted.
+    - keeps deterministic assertions for primary probe path (no announcement follow-up).
+- `scripts/official-node/interoperability.sh`
+  - M2 chain-state assertion now accepts either `received ChainState` **or** fallback message `sending fallback HeadersRequest with empty locator`.
+- `docs/INTEROPERABILITY.md` and `tests/interoperability/m1/README.md`
+  - updated wording for chain-state/fallback acceptance.
+
+**Result:** `cargo test -p alephium-flow --test rust_peer_smoke` passes (4/4).

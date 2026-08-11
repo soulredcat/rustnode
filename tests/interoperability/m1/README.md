@@ -58,6 +58,7 @@ The command runs:
    - with `official-interop-m2`, also checks `received ChainState`, request markers for
      `InvRequest`, `HeadersRequest`, `BlocksRequest`, `TxsRequest`, and response markers
      `HeadersResponse`, `BlocksResponse`, `TxsResponse`.
+     If `ChainState` is absent, fallback headers request with empty locator is accepted as equivalent.
    - set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` to additionally require
      announcement markers `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`.
 5. process cleanup and output of `commands.txt` and log paths.

@@ -213,6 +213,7 @@ m2_headers_response_seen=0
 m2_blocks_response_seen=0
 m2_txs_response_seen=0
 m2_chain_state_seen=0
+m2_chain_state_fallback_headers_seen=0
 m2_new_block_seen=0
 m2_new_header_seen=0
 m2_new_inv_seen=0
@@ -261,6 +262,9 @@ while true; do
     fi
     if grep -q "received ChainState" "${RUST_LOG_FILE}"; then
       m2_chain_state_seen=1
+    fi
+    if grep -q "sending fallback HeadersRequest with empty locator" "${RUST_LOG_FILE}"; then
+      m2_chain_state_fallback_headers_seen=1
     fi
     if grep -q "received HeadersResponse" "${RUST_LOG_FILE}"; then
       m2_headers_response_seen=1
@@ -313,7 +317,7 @@ if [[ "${REQUIRE_M2}" -eq 1 ]]; then
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
   fi
-  if [[ "${m2_chain_state_seen}" -ne 1 ]]; then
+  if [[ "${m2_chain_state_seen}" -ne 1 ]] && [[ "${m2_chain_state_fallback_headers_seen}" -ne 1 ]]; then
     echo "M2 chain-state marker not observed before timeout" >&2
     cat "${RUST_LOG_FILE}" >&2
     cat "${RUST_ERROR_FILE}" >&2

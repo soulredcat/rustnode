@@ -49,6 +49,11 @@ Complete M2 acceptance evidence:
 - optionally run with `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` after announcement behavior is consistently reproducible;
 - document command/output evidence in `docs/WORKLOG.md` with concrete observed markers and exit status.
 
+Latest local execution state:
+
+- `cargo test -p alephium-flow --test rust_peer_smoke` now passes (4/4) after locator/fallback robustness fix in mock peer.
+- `make official-interop-m2` could not be executed in this shell (`make`/`sbt` unavailable). Continue on WSL/Linux runner with the CI workflow or local WSL.
+
 ## Known risks
 
 - The official serialization framework is custom; generic Rust serialization libraries must not define consensus/wire encoding.

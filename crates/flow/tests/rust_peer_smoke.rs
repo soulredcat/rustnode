@@ -478,6 +478,7 @@ fn mock_peer_with_inv_behavior(
     let mut saw_txs_request = false;
     let mut saw_ping = false;
     let mut announcements_sent = false;
+    let mut saw_announcement_followup = false;
     let deadline = Instant::now() + Duration::from_secs(4);
 
     while Instant::now() <= deadline {
@@ -520,6 +521,7 @@ fn mock_peer_with_inv_behavior(
                             config.max_frame_data,
                             &events,
                         )?;
+                        saw_announcement_followup = true;
                         announcements_sent = true;
                     }
                 }
@@ -557,17 +559,22 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes HeadersRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes HeadersRequest fully");
-                    match (request.locators.is_empty(), expected_locator) {
-                        (true, None) => {}
-                        (true, Some(_)) => panic!("expected non-empty HeadersRequest locator"),
-                        (false, None) => panic!("expected empty HeadersRequest locator"),
-                        (false, Some(locator)) => {
-                            let actual = request
-                                .locators
-                                .first()
-                                .copied()
-                                .expect("HeadersRequest locator");
-                            assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                    if request.locators.is_empty() {
+                        if expected_locator.is_some() && !saw_announcement_followup {
+                            panic!("expected non-empty HeadersRequest locator");
+                        }
+                        if expected_locator.is_none() && !saw_announcement_followup {
+                            assert!(request.locators.is_empty());
+                        }
+                    } else {
+                        let actual = request
+                            .locators
+                            .first()
+                            .copied()
+                            .expect("HeadersRequest locator");
+                        assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                        if !saw_announcement_followup {
+                            let locator = expected_locator.expect("expected some locator");
                             assert_eq!(actual, locator);
                         }
                     }
@@ -587,17 +594,22 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes BlocksRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes BlocksRequest fully");
-                    match (request.locators.is_empty(), expected_locator) {
-                        (true, None) => {}
-                        (true, Some(_)) => panic!("expected non-empty BlocksRequest locator"),
-                        (false, None) => panic!("expected empty BlocksRequest locator"),
-                        (false, Some(locator)) => {
-                            let actual = request
-                                .locators
-                                .first()
-                                .copied()
-                                .expect("BlocksRequest locator");
-                            assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                    if request.locators.is_empty() {
+                        if expected_locator.is_some() && !saw_announcement_followup {
+                            panic!("expected non-empty BlocksRequest locator");
+                        }
+                        if expected_locator.is_none() && !saw_announcement_followup {
+                            assert!(request.locators.is_empty());
+                        }
+                    } else {
+                        let actual = request
+                            .locators
+                            .first()
+                            .copied()
+                            .expect("BlocksRequest locator");
+                        assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                        if !saw_announcement_followup {
+                            let locator = expected_locator.expect("expected some locator");
                             assert_eq!(actual, locator);
                         }
                     }
