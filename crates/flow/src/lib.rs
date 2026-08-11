@@ -935,7 +935,7 @@ fn maybe_send_txs_request(
         .collect();
 
     if fallback_tx_hashes.is_empty() {
-        println!("TxsRequest skipped; no known tx or block hashes available for probe.");
+        println!("TxsRequest skipped; no known tx hashes available for request.");
         return Ok(());
     }
 
