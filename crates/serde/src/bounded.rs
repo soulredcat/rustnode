@@ -184,7 +184,7 @@ mod tests {
         })
         .expect("fixture must encode");
 
-        let decoded = decode_vec(&encoded, 3, |input| fixed::decode_i32_be(input))
+        let decoded = decode_vec(&encoded, 3, fixed::decode_i32_be)
             .expect("fixture must decode");
         assert_eq!(decoded.value, values);
         assert!(decoded.rest.is_empty());
