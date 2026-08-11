@@ -257,6 +257,15 @@ fn mock_peer_with_inv_behavior(
         MockEvent::HelloSent,
     )?;
 
+    let expected_locator = match inv_kind {
+        InvPayloadKind::Empty => BlockHash {
+            bytes: [0xAB_u8; 32],
+        },
+        InvPayloadKind::NonEmpty => BlockHash {
+            bytes: [0x11_u8; 32],
+        },
+    };
+
     let mut inbound = Vec::new();
     let mut read_buffer = [0_u8; 1024];
     let mut saw_inv_request = false;
@@ -312,6 +321,9 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes HeadersRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes HeadersRequest fully");
+                    let locator = request.locators.first().copied().expect("HeadersRequest locator");
+                    assert_ne!(locator, BlockHash { bytes: [0x00_u8; 32] });
+                    assert_eq!(locator, expected_locator);
                     println!("mock peer received HeadersRequest id={}", request.id.value);
                     send_headers_response(
                         &mut stream,
@@ -328,6 +340,8 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes BlocksRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes BlocksRequest fully");
+                    let locator = request.locators.first().copied().expect("BlocksRequest locator");
+                    assert_ne!(locator, BlockHash { bytes: [0x00_u8; 32] });
                     println!("mock peer received BlocksRequest id={}", request.id.value);
                     send_blocks_response(
                         &mut stream,
