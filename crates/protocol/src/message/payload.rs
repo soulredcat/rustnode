@@ -191,7 +191,7 @@ fn decode_handshake_client_id(input: &[u8]) -> DecodeResult<'_, String> {
 }
 
 fn split_signature(input: &[u8]) -> DecodeResult<'_, [u8; alephium_crypto::SIGNATURE_LENGTH]> {
-    let staged = fixed::take(&input, alephium_crypto::SIGNATURE_LENGTH)?;
+    let staged = fixed::take(input, alephium_crypto::SIGNATURE_LENGTH)?;
     let mut signature = [0u8; alephium_crypto::SIGNATURE_LENGTH];
     signature.copy_from_slice(staged.value);
     Ok(staged.map(|_| signature))

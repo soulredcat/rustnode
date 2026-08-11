@@ -28,7 +28,7 @@ pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v1";
 /// Deterministic identity fixture from the Scala vector generator.
 pub const PRIVATE_KEY_BYTES: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ];
 
 /// Deterministic fixture clique identity.
