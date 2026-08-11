@@ -241,6 +241,18 @@ impl SyncState {
         }
     }
 
+    fn record_announced_txs(&mut self, tx_hashes: &[[u8; 32]]) {
+        for tx_hash in tx_hashes {
+            if self.recent_tx_hashes.contains(tx_hash) {
+                continue;
+            }
+            self.recent_tx_hashes.push(*tx_hash);
+            if self.recent_tx_hashes.len() > 128 {
+                self.recent_tx_hashes.remove(0);
+            }
+        }
+    }
+
     fn wallet_view(&self) -> WalletView {
         WalletView {
             headers_seen: self.headers_seen,
@@ -1189,6 +1201,7 @@ fn handle_new_txhashes(
         .map(|(_, txs)| txs.len())
         .sum();
     println!("received NewTxHashes chains={} txs={}", chain_count, tx_count);
+    let mut announced_tx_hashes = Vec::new();
     let mut request_hashes = Vec::new();
     for (chain_index, txs) in new_tx_hashes.hashes {
         let mut chain_requests = Vec::new();
@@ -1198,11 +1211,16 @@ fn handle_new_txhashes(
                 continue;
             }
             seen.insert(tx.bytes);
+            announced_tx_hashes.push(tx.bytes);
             chain_requests.push(tx);
         }
         if !chain_requests.is_empty() {
             request_hashes.push((chain_index, chain_requests));
         }
+    }
+    if !announced_tx_hashes.is_empty() {
+        session.sync_state.record_announced_txs(&announced_tx_hashes);
+        persist_sync_state(session);
     }
     if let Err(error) = send_txs_request(stream, config, session, request_hashes) {
         eprintln!("failed to request txs from NewTxHashes: {error}");
