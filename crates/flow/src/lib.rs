@@ -783,16 +783,17 @@ fn send_blocks_request(
     session: &mut Session,
     locators: Vec<BlockHash>,
 ) -> Result<(), FlowError> {
+    if session.outstanding_blocks_request.is_some() {
+        return Ok(());
+    }
+
     let requestable: Vec<BlockHash> = locators
         .into_iter()
         .filter(|locator| locator.bytes != [0_u8; 32])
-        .filter(|locator| session.requested_block_hashes.insert(locator.bytes))
+        .filter(|locator| !session.requested_block_hashes.contains(&locator.bytes))
         .collect();
 
     if requestable.is_empty() {
-        return Ok(());
-    }
-    if session.outstanding_blocks_request.is_some() {
         return Ok(());
     }
 
@@ -806,6 +807,9 @@ fn send_blocks_request(
         FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
     })?;
     send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+    for locator in &request.locators {
+        session.requested_block_hashes.insert(locator.bytes);
+    }
     session.outstanding_blocks_request = Some(request.id.value);
     session.sent_blocks_request = true;
     println!(
@@ -882,6 +886,11 @@ fn send_txs_request(
         FlowError::Protocol(format!("failed to encode probe TxsRequest: {error}"))
     })?;
     send_payload(stream, config, TXS_REQUEST_CODE, &payload)?;
+    for (_, hashes) in &request.hashes {
+        for tx in hashes {
+            session.requested_tx_ids.insert(tx.bytes);
+        }
+    }
     session.outstanding_txs_request = Some(request.id.value);
     session.sent_txs_request = true;
     println!(
