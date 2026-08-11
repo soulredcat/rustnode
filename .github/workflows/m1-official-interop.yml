@@ -63,11 +63,12 @@ jobs:
           rustc --version
           sbt --script-version
 
-      - name: Run M1 interoperability harness
+      - name: Run interoperability harness (M2 assertion mode)
         env:
           RUST_INTEROP_DURATION_SECONDS: "45"
+          RUST_INTEROP_REQUIRE_M2: "1"
         run: |
-          make official-interop-m1
+          make official-interop-m2
 
       - name: Upload interoperability artifacts
         uses: actions/upload-artifact@v7

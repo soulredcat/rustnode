@@ -302,3 +302,25 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 - added `OFFICIAL_NODE_P2P_PORT` support in `scripts/official-node/prepare-home.sh` and wired it through runtime bootstrap scripts;
 - kept the interop default at `19974` and added Java-default collision warning + usage guidance;
 - updated interoperability docs with attach/port configuration guidance and refreshed `TASKS.md` consistency.
+
+## 2026-08-11 — M2 assertion quality and CI enforcement
+
+**Task:** harden M2 evidence capture so request/response coverage and ChainState presence are validated and optional announcement coverage can be enforced.
+
+**Implementation commits:** this local continuation branch (pending final commit at handoff)
+
+**Changes:**
+
+- `scripts/official-node/interoperability.sh` now tracks:
+  - `received ChainState`;
+  - `received HeadersResponse`, `received BlocksResponse`, `received TxsResponse`;
+  - optional announcement markers `received NewBlock`, `received NewHeader`, `received NewInv`, `received NewTxHashes` when `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1`;
+  - exits with explicit failures when required markers are missing under `RUST_INTEROP_REQUIRE_M2=1`.
+- `.github/workflows/m1-official-interop.yml` now executes:
+  - `RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATION_SECONDS=45 make official-interop-m2`
+- `docs/INTEROPERABILITY.md` and `tests/interoperability/m1/README.md` were updated to document:
+  - ChainState as part of M2 assertions,
+  - optional announcement marker gating via `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS`.
+
+**Open risk / next action:**
+- The environment may still not always emit announcement frames during the test window; keep announcement gating optional until evidence is consistently reproducible from official peer behavior.

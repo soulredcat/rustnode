@@ -19,6 +19,7 @@ PEER_PORT="${PEER_ADDRESS##*:}"
 DURATION_SECONDS="${RUST_INTEROP_DURATION_SECONDS:-120}"
 OFFICIAL_READY_TIMEOUT="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 REQUIRE_M2="${RUST_INTEROP_REQUIRE_M2:-0}"
+REQUIRE_M2_ANNOUNCEMENTS="${RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS:-0}"
 
 : > "${RUST_ERROR_FILE}"
 
@@ -211,6 +212,11 @@ m2_txs_request_seen=0
 m2_headers_response_seen=0
 m2_blocks_response_seen=0
 m2_txs_response_seen=0
+m2_chain_state_seen=0
+m2_new_block_seen=0
+m2_new_header_seen=0
+m2_new_inv_seen=0
+m2_new_txhashes_seen=0
 
 while true; do
   now=$(date +%s)
@@ -253,6 +259,9 @@ while true; do
     if grep -q "sent TxsRequest" "${RUST_LOG_FILE}"; then
       m2_txs_request_seen=1
     fi
+    if grep -q "received ChainState" "${RUST_LOG_FILE}"; then
+      m2_chain_state_seen=1
+    fi
     if grep -q "received HeadersResponse" "${RUST_LOG_FILE}"; then
       m2_headers_response_seen=1
     fi
@@ -261,6 +270,18 @@ while true; do
     fi
     if grep -q "received TxsResponse" "${RUST_LOG_FILE}"; then
       m2_txs_response_seen=1
+    fi
+    if grep -q "received NewBlock" "${RUST_LOG_FILE}"; then
+      m2_new_block_seen=1
+    fi
+    if grep -q "received NewHeader" "${RUST_LOG_FILE}"; then
+      m2_new_header_seen=1
+    fi
+    if grep -q "received NewInv" "${RUST_LOG_FILE}"; then
+      m2_new_inv_seen=1
+    fi
+    if grep -q "received NewTxHashes" "${RUST_LOG_FILE}"; then
+      m2_new_txhashes_seen=1
     fi
   fi
 
@@ -292,11 +313,26 @@ if [[ "${REQUIRE_M2}" -eq 1 ]]; then
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
   fi
+  if [[ "${m2_chain_state_seen}" -ne 1 ]]; then
+    echo "M2 chain-state marker not observed before timeout" >&2
+    cat "${RUST_LOG_FILE}" >&2
+    cat "${RUST_ERROR_FILE}" >&2
+    exit 1
+  fi
   if [[ "${m2_headers_response_seen}" -ne 1 || "${m2_blocks_response_seen}" -ne 1 || "${m2_txs_response_seen}" -ne 1 ]]; then
     echo "M2 response markers not all observed before timeout" >&2
     cat "${RUST_LOG_FILE}" >&2
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
+  fi
+
+  if [[ "${REQUIRE_M2_ANNOUNCEMENTS}" -eq 1 ]]; then
+    if [[ "${m2_new_block_seen}" -ne 1 || "${m2_new_header_seen}" -ne 1 || "${m2_new_inv_seen}" -ne 1 || "${m2_new_txhashes_seen}" -ne 1 ]]; then
+      echo "M2 announcement markers not all observed before timeout" >&2
+      cat "${RUST_LOG_FILE}" >&2
+      cat "${RUST_ERROR_FILE}" >&2
+      exit 1
+    fi
   fi
 fi
 

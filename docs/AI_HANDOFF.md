@@ -11,7 +11,7 @@ Read this file after `TASKS.md` and verify its claims against the repository and
 ```text
 Active milestone: M2 — Request and decode real network data
 Active task:      M2 — Request and decode real network data
-Task status:      IN PROGRESS (mock peer probe in place; official M2 evidence pending)
+Task status:      IN PROGRESS (M2 assertion coverage hardened; official M2 CI path enabled)
 Working branch:   main
 Pinned upstream:  alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53
 ```
@@ -45,8 +45,9 @@ Do not claim protocol milestones without local evidence attached in `docs/WORKLO
 Complete M2 acceptance evidence:
 
 - Add or run official-node interoperability evidence with M2 markers enabled;
-- confirm request/response probe behavior is stable over the soak period;
-- document results in `docs/WORKLOG.md` with command and observed output.
+- confirm request/response probe and ChainState behavior is stable over the soak period;
+- optionally run with `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` after announcement behavior is consistently reproducible;
+- document command/output evidence in `docs/WORKLOG.md` with concrete observed markers and exit status.
 
 ## Known risks
 

@@ -388,7 +388,10 @@ M2 must retain all M1 assertions. Header/block exchange does not excuse handshak
 ### M2 assertions (current smoke-level bar)
 
 - Rust sends `InvRequest` after successful Hello validation.
+- Rust receives `ChainState` (or uses deterministic fallback locator logic when locator is absent).
 - Rust receives `InvResponse`, sends `HeadersRequest`, and observes at least one `HeadersResponse`.
 - Rust sends `BlocksRequest` and observes at least one `BlocksResponse`.
 - Rust sends `TxsRequest` and observes at least one `TxsResponse`.
+- Optional stronger M2 checks (set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1`) require announcement coverage for
+  `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`.
 - No request sequence should suppress Ping/Pong liveness behavior.

@@ -46,6 +46,8 @@ to validate the Rust handshake + ping/pong and frame decode path without Java.
 - `OFFICIAL_NODE_STATE_DIR` / `RUST_INTEROP_DIR` / `ALEPHIUM_UPSTREAM_DIR`
 - `OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS` (default `180`)
 - `RUST_INTEROP_ATTACH_TO_EXISTING` (`1` to connect to already-running official peer and skip lifecycle management)
+- `RUST_INTEROP_REQUIRE_M2` (`1` to enable M2 request/response assertions)
+- `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS` (`1` to require announcement markers as well)
 
 The command runs:
 
@@ -53,7 +55,11 @@ The command runs:
 2. official node startup wait for port readiness;
 3. Rust flow run for the requested duration;
 4. marker checks for `received valid Hello` and `received matching pong`;
-   - with `official-interop-m2`, also checks `Inv/Headers/Blocks/Txs` request and response markers.
+   - with `official-interop-m2`, also checks `received ChainState`, request markers for
+     `InvRequest`, `HeadersRequest`, `BlocksRequest`, `TxsRequest`, and response markers
+     `HeadersResponse`, `BlocksResponse`, `TxsResponse`.
+   - set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` to additionally require
+     announcement markers `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`.
 5. process cleanup and output of `commands.txt` and log paths.
 
 To force M2 checks in a local run, set:
