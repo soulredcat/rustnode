@@ -8,9 +8,16 @@ The first release is a compatibility implementation. It is not a new protocol, n
 
 ## Current status
 
-**Milestone M0: repository bootstrap.**
+**Milestone M1: official P2P handshake and Ping/Pong.**
 
-The workspace and development control documents are being established. P2P interoperability, synchronization, validation, VM execution, and production use are not implemented yet.
+Completed foundation:
+
+- the minimum Rust workspace compiles, lints, and tests in CI;
+- CI fetches the exact pinned official Alephium source;
+- the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19973`;
+- project tasks, upstream mappings, AI rules, runbooks, and worklogs are committed.
+
+Current active work is freezing official M1 wire behavior into Scala-generated vectors. **Rust P2P framing, `Hello`, `Ping/Pong`, synchronization, validation, VM execution, and production use are not implemented yet.**
 
 Do not use this repository for mainnet funds, mining, signing, or consensus decisions.
 
@@ -23,8 +30,10 @@ Anyone—human or AI—working on this repository must read these files in order
 3. [`TASKS.md`](./TASKS.md) — current task, completed work, and acceptance criteria.
 4. [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module boundaries and compatibility architecture.
 5. [`docs/UPSTREAM_MAPPING.md`](./docs/UPSTREAM_MAPPING.md) — mapping from official Scala sources to Rust crates.
-6. [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md) — exact first interoperability milestone.
+6. the milestone/runbook documents referenced by the current task.
 7. [`docs/WORKLOG.md`](./docs/WORKLOG.md) — handoff record from previous work.
+
+For a copy-paste coding-agent assignment, use [`docs/AI_SESSION_PROMPT.md`](./docs/AI_SESSION_PROMPT.md).
 
 `TASKS.md` is the execution ledger. Do not silently work on a later milestone while an earlier compatibility gate remains open.
 
@@ -65,7 +74,7 @@ The Rust binary must eventually:
 
 See [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md) for the gate and required evidence.
 
-## Bootstrap commands
+## Development commands
 
 ```bash
 # Clone the pinned official source into .upstream/alephium
@@ -74,11 +83,17 @@ make upstream
 # Format, lint, compile, and test the current Rust workspace
 make check
 
+# Build and smoke-test the isolated official Scala node
+make official-smoke
+
+# Generate official Scala M1 fixtures
+make m1-vectors
+
 # Run the current Rust bootstrap binary
 make run
 ```
 
-Expected M0 output is only a status banner. It must not claim that P2P or full-node functionality exists.
+The current Rust binary prints an honest implementation-status banner. It does not yet connect to Alephium P2P.
 
 ## Non-negotiable initial rules
 
@@ -144,9 +159,9 @@ util
 ## Milestone order
 
 ```text
-M0  compiling repository bootstrap
+M0  compiling repository bootstrap                 DONE
  |
-M1  official P2P handshake and Ping/Pong
+M1  official P2P handshake and Ping/Pong           ACTIVE
  |
 M2  request and decode real headers/blocks
  |
@@ -185,9 +200,12 @@ A benchmark does not prove compatibility.
 - [`AGENTS.md`](./AGENTS.md)
 - [`TASKS.md`](./TASKS.md)
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md)
-- [`docs/UPSTREAM_MAPPING.md`](./docs/UPSTREAM_MAPPING.md)
-- [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md)
+- [`docs/AI_SESSION_PROMPT.md`](./docs/AI_SESSION_PROMPT.md)
 - [`docs/AI_TASK_TEMPLATE.md`](./docs/AI_TASK_TEMPLATE.md)
+- [`docs/UPSTREAM_MAPPING.md`](./docs/UPSTREAM_MAPPING.md)
+- [`docs/LOCAL_OFFICIAL_NODE.md`](./docs/LOCAL_OFFICIAL_NODE.md)
+- [`docs/M1_WIRE_REFERENCE.md`](./docs/M1_WIRE_REFERENCE.md)
+- [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md)
 - [`docs/WORKLOG.md`](./docs/WORKLOG.md)
 - [`tests/README.md`](./tests/README.md)
 
