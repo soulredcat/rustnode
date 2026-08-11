@@ -9,9 +9,40 @@ use alephium_flow::run;
 
 fn main() {
     let mut peer_address = DEFAULT_PEER_ADDRESS.to_owned();
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        peer_address = args[1].clone();
+
+    let mut args = std::env::args().skip(1).peekable();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--help" | "-h" => {
+                println!("Alephium Rust Node");
+                println!("Usage:");
+                println!("  alephium-node-rs [peer-address]");
+                println!("  alephium-node-rs --peer <peer-address>");
+                println!("  alephium-node-rs --help");
+                println!("");
+                println!("Options:");
+                println!("  --peer <addr>   override peer address (default: {DEFAULT_PEER_ADDRESS})");
+                return;
+            }
+            "--peer" => {
+                let Some(next) = args.next() else {
+                    eprintln!("--peer requires an argument: <host:port>");
+                    process::exit(2);
+                };
+                peer_address = next;
+            }
+            arg if arg.starts_with("--peer=") => {
+                peer_address = arg["--peer=".len()..].to_owned();
+            }
+            arg if arg.starts_with("-") => {
+                eprintln!("unknown option: {arg}");
+                eprintln!("run --help for usage");
+                process::exit(2);
+            }
+            arg => {
+                peer_address = arg.to_owned();
+            }
+        }
     }
 
     let identity_path = resolve_node_identity_path();
