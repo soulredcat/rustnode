@@ -32,6 +32,8 @@ This file records completed work, failed attempts, commands, and the exact next 
 
 **Task:** `M0-001`.
 
+**Implementation commit:** `ea22de1e5c3557c65d57910329de1619dc7aac51`.
+
 **Changed:**
 
 - added `AGENTS.md`, `TASKS.md`, contribution rules, upstream mapping, M1 runbook, and AI task template;
@@ -47,9 +49,11 @@ This file records completed work, failed attempts, commands, and the exact next 
 
 **Known uncertainty:** scaffold syntax is intentionally simple, but it is not considered verified until the required Cargo commands pass.
 
+**Repository note:** an intermediate README-only branch history was discarded while attaching the complete Git tree to `main`; the retained `main` content is the complete M0-001 tree above.
+
 **Exact next task:**
 
-1. inspect the GitHub Actions `ci` result;
+1. inspect the GitHub Actions `ci` result triggered by this worklog commit;
 2. run the four commands in `M0-002` locally;
 3. fix any scaffold issue;
 4. record toolchain/version/output here;
