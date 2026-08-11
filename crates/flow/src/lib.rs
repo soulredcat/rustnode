@@ -233,23 +233,7 @@ fn process_inbound(
                     payload.len(),
                     payload
                 );
-                let staged_response = decode_headers_response_payload(payload)?;
-                let response = if staged_response.rest.is_empty() {
-                    staged_response.value
-                } else if staged_response.rest.len() == 1 {
-                    eprintln!(
-                        "non-strict headers response decode: expected exact {}, got {}, allowing trailing 1 byte",
-                        payload_len.saturating_sub(staged_response.rest.len()),
-                        payload_len
-                    );
-                    staged_response.value
-                } else {
-                    return Err(SerdeError::redundant_bytes(
-                        payload_len.saturating_sub(staged_response.rest.len()),
-                        payload_len,
-                    )
-                    .into());
-                };
+                let response = decode_headers_response_payload(payload)?.finish(payload_len)?;
                 handle_headers_response(stream, config, session, response)?;
             }
             INV_REQUEST_CODE => {

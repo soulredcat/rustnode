@@ -1063,17 +1063,17 @@ fn decode_length_prefixed_bytes_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec
     let mut rest = staged_len.rest;
     let mut items = Vec::with_capacity(len);
     for _ in 0..len {
-        let item_len = compact::decode_i32(rest)?;
-        if item_len.value < 0 {
+        let staged_len = compact::decode_i32(rest)?;
+        if staged_len.value < 0 {
             return Err(Error::validation(format!(
                 "negative byte payload length: {}",
-                item_len.value
+                staged_len.value
             )));
         }
-        let item_len = usize::try_from(item_len.value).map_err(|_| {
+        let item_len = usize::try_from(staged_len.value).map_err(|_| {
             Error::validation(format!(
                 "invalid byte payload length conversion: {}",
-                item_len.value
+                staged_len.value
             ))
         })?;
         if item_len > MAX_TX_VECTOR_ITEMS {
@@ -1082,7 +1082,7 @@ fn decode_length_prefixed_bytes_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec
                 limit: MAX_TX_VECTOR_ITEMS,
             });
         }
-        let staged = fixed::take(rest, item_len)?;
+        let staged = fixed::take(staged_len.rest, item_len)?;
         let bytes = staged.value.to_vec();
         items.push(bytes);
         rest = staged.rest;
@@ -1339,5 +1339,49 @@ impl P2PVersion {
             },
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        encode_blocks_response_payload, encode_headers_response_payload, encode_txs_response_payload,
+        decode_blocks_response_payload, decode_headers_response_payload, decode_txs_response_payload,
+        BlocksResponse, HeadersResponse, RequestId, TxsResponse,
+    };
+
+    #[test]
+    fn response_payload_round_trips_are_exact() {
+        let headers_response = HeadersResponse {
+            id: RequestId { value: 2 },
+            headers: vec![vec![0x21_u8, 0x22_u8]],
+        };
+        let encoded_headers = encode_headers_response_payload(&headers_response)
+            .expect("encode headers response fixture");
+        let decoded_headers = decode_headers_response_payload(&encoded_headers)
+            .expect("decode headers response fixture");
+        assert_eq!(decoded_headers.rest, &[]);
+        assert_eq!(decoded_headers.value, headers_response);
+
+        let blocks_response = BlocksResponse {
+            id: RequestId { value: 3 },
+            blocks: vec![vec![0x31_u8, 0x32_u8]],
+        };
+        let encoded_blocks = encode_blocks_response_payload(&blocks_response)
+            .expect("encode blocks response fixture");
+        let decoded_blocks = decode_blocks_response_payload(&encoded_blocks)
+            .expect("decode blocks response fixture");
+        assert_eq!(decoded_blocks.rest, &[]);
+        assert_eq!(decoded_blocks.value, blocks_response);
+
+        let txs_response = TxsResponse {
+            id: RequestId { value: 4 },
+            txs: vec![vec![0x41_u8, 0x42_u8]],
+        };
+        let encoded_txs = encode_txs_response_payload(&txs_response).expect("encode txs response fixture");
+        let decoded_txs =
+            decode_txs_response_payload(&encoded_txs).expect("decode txs response fixture");
+        assert_eq!(decoded_txs.rest, &[]);
+        assert_eq!(decoded_txs.value, txs_response);
     }
 }
