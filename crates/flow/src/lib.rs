@@ -369,9 +369,6 @@ struct Session {
     requested_tx_ids: HashSet<[u8; 32]>,
     sync_state: SyncState,
     sent_inv_request: bool,
-    sent_headers_request: bool,
-    sent_blocks_request: bool,
-    sent_txs_request: bool,
     last_headers_locator: Option<BlockHash>,
 }
 
@@ -436,9 +433,6 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         requested_tx_ids: HashSet::new(),
         sync_state: SyncState::load().unwrap_or_default(),
         sent_inv_request: false,
-        sent_headers_request: false,
-        sent_blocks_request: false,
-        sent_txs_request: false,
         last_headers_locator: None,
     };
 
@@ -731,7 +725,6 @@ fn send_headers_request(
     })?;
     send_payload(stream, config, HEADERS_REQUEST_CODE, &payload)?;
     session.outstanding_headers_request = Some(request.id.value);
-    session.sent_headers_request = true;
     println!(
         "sent HeadersRequest id={} with {} locator(s)",
         request.id.value,
@@ -908,9 +901,8 @@ fn send_blocks_request(
         let payload = encode_blocks_request_payload(&request).map_err(|error| {
             FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
         })?;
-        send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
-        session.outstanding_blocks_request = Some(request.id.value);
-        session.sent_blocks_request = true;
+    send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+    session.outstanding_blocks_request = Some(request.id.value);
         println!("sent BlocksRequest id={} with 0 locator(s)", request.id.value);
         return Ok(());
     }
@@ -941,7 +933,6 @@ fn send_blocks_request(
         session.requested_block_hashes.insert(locator.bytes);
     }
     session.outstanding_blocks_request = Some(request.id.value);
-    session.sent_blocks_request = true;
     println!(
         "sent BlocksRequest id={} with {} locator(s)",
         request.id.value,
@@ -955,10 +946,6 @@ fn maybe_send_txs_request(
     config: &NodeConfig,
     session: &mut Session,
 ) -> Result<(), FlowError> {
-    if session.sent_txs_request {
-        return Ok(());
-    }
-
     let fallback_tx_hashes: Vec<TransactionId> = session
         .sync_state
         .recent_tx_hashes
@@ -1033,7 +1020,6 @@ fn send_txs_request(
         }
     }
     session.outstanding_txs_request = Some(request.id.value);
-    session.sent_txs_request = true;
     println!(
         "sent TxsRequest id={} chains={} txs={}",
         request.id.value,
