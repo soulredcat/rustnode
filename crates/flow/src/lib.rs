@@ -20,21 +20,24 @@ use alephium_protocol::message::payload::{
     decode_blocks_and_uncles_by_heights_request_payload,
     decode_blocks_and_uncles_by_heights_response_payload, decode_blocks_request_payload,
     decode_blocks_response_payload, decode_chain_state_payload, decode_headers_by_heights_request_payload,
-    decode_headers_by_heights_response_payload, decode_headers_request_payload, decode_headers_response_payload,
-    decode_hello_payload, decode_inv_request_payload, decode_inv_response_payload,
-    decode_new_block_hash_payload, decode_new_block_payload, decode_new_header_payload, decode_new_inv_payload,
-    decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload, decode_txs_request_payload,
-    decode_txs_response_payload, encode_headers_request_payload, encode_hello_payload,
-    encode_inv_request_payload, encode_ping_payload, encode_pong_payload,
+    decode_headers_by_heights_response_payload, decode_headers_request_payload,
+    decode_headers_response_payload, decode_hello_payload, decode_inv_request_payload,
+    decode_inv_response_payload, decode_new_block_hash_payload, decode_new_block_payload,
+    decode_new_header_payload, decode_new_inv_payload, decode_new_txhashes_payload, decode_ping_payload,
+    decode_pong_payload, decode_txs_request_payload, decode_txs_response_payload,
+    encode_blocks_request_payload, encode_headers_request_payload, encode_hello_payload,
+    encode_inv_request_payload, encode_ping_payload, encode_pong_payload, encode_txs_request_payload,
     BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE, BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE,
-    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HELLO_CODE, HEADERS_BY_HEIGHTS_REQUEST_CODE,
-    HEADERS_BY_HEIGHTS_RESPONSE_CODE, HEADERS_REQUEST_CODE, HEADERS_RESPONSE_CODE,
-    INV_REQUEST_CODE, INV_RESPONSE_CODE, NEW_BLOCK_CODE, NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE, NEW_INV_CODE,
-    NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE, TXS_REQUEST_CODE, TXS_RESPONSE_CODE,
+    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HELLO_CODE,
+    HEADERS_BY_HEIGHTS_REQUEST_CODE, HEADERS_BY_HEIGHTS_RESPONSE_CODE, HEADERS_REQUEST_CODE,
+    HEADERS_RESPONSE_CODE, INV_REQUEST_CODE, INV_RESPONSE_CODE, NEW_BLOCK_CODE, NEW_BLOCK_HASH_CODE,
+    NEW_HEADER_CODE, NEW_INV_CODE, NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE, TXS_REQUEST_CODE,
+    TXS_RESPONSE_CODE, BlockHash,
     BlocksAndUnclesByHeightsRequest, BlocksAndUnclesByHeightsResponse, BlocksRequest, BlocksResponse,
-    ChainState, HeadersByHeightsRequest, HeadersByHeightsResponse, HeadersRequest, HeadersResponse, Hello,
-    InterBrokerInfo, InvRequest, InvResponse, NewBlock, NewBlockHash, NewHeader, NewInv, NewTxHashes,
-    Ping, Pong, RequestId, TxsRequest, TxsResponse, CliqueId,
+    ChainIndex, ChainState, CliqueId, HeadersByHeightsRequest, HeadersByHeightsResponse,
+    HeadersRequest, HeadersResponse, Hello, InterBrokerInfo, InvRequest, InvResponse, NewBlock,
+    NewBlockHash, NewHeader, NewInv, NewTxHashes, Ping, Pong, RequestId, TxsRequest, TxsResponse,
+    TransactionId,
 };
 use alephium_serde::Error as SerdeError;
 
@@ -58,6 +61,8 @@ struct Session {
     next_ping_at: Instant,
     sent_inv_request: bool,
     sent_headers_request: bool,
+    sent_blocks_request: bool,
+    sent_txs_request: bool,
 }
 
 #[derive(Debug)]
@@ -113,6 +118,8 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         next_ping_at: Instant::now() + config.ping_interval,
         sent_inv_request: false,
         sent_headers_request: false,
+        sent_blocks_request: false,
+        sent_txs_request: false,
     };
 
     send_hello(&mut stream, config)?;
@@ -201,7 +208,7 @@ fn process_inbound(
             }
             BLOCKS_RESPONSE_CODE => {
                 let response = decode_blocks_response_payload(payload)?.finish(payload_len)?;
-                handle_blocks_response(response);
+                handle_blocks_response(stream, config, session, response)?;
             }
             HEADERS_REQUEST_CODE => {
                 let request = decode_headers_request_payload(payload)?.finish(payload_len)?;
@@ -209,6 +216,7 @@ fn process_inbound(
             }
             HEADERS_RESPONSE_CODE => {
                 let response = decode_headers_response_payload(payload)?.finish(payload_len)?;
+                maybe_send_blocks_request(stream, config, session, &response)?;
                 handle_headers_response(response);
             }
             INV_REQUEST_CODE => {
@@ -369,12 +377,19 @@ fn handle_blocks_request(request: BlocksRequest) {
     );
 }
 
-fn handle_blocks_response(response: BlocksResponse) {
+fn handle_blocks_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    response: BlocksResponse,
+) -> Result<(), FlowError> {
     println!(
         "received BlocksResponse id={} blocks={}",
         response.id.value,
         response.blocks.len()
     );
+    maybe_send_txs_request(stream, config, session)?;
+    Ok(())
 }
 
 fn handle_headers_request(request: HeadersRequest) {
@@ -391,6 +406,75 @@ fn handle_headers_response(response: HeadersResponse) {
         response.id.value,
         response.headers.len()
     );
+}
+
+fn maybe_send_blocks_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    response: &HeadersResponse,
+) -> Result<(), FlowError> {
+    if session.sent_blocks_request {
+        return Ok(());
+    }
+
+    if response.headers.is_empty() {
+        return Ok(());
+    }
+
+    let request = BlocksRequest {
+        id: RequestId {
+            value: next_request_id(&mut session.next_request_id),
+        },
+        locators: vec![BlockHash {
+            bytes: [0_u8; 32],
+        }],
+    };
+    let payload = encode_blocks_request_payload(&request).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
+    })?;
+    send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+    session.sent_blocks_request = true;
+    println!(
+        "sent BlocksRequest id={} with {} locator(s)",
+        request.id.value,
+        request.locators.len()
+    );
+    Ok(())
+}
+
+fn maybe_send_txs_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+) -> Result<(), FlowError> {
+    if session.sent_txs_request {
+        return Ok(());
+    }
+
+    let request = TxsRequest {
+        id: RequestId {
+            value: next_request_id(&mut session.next_request_id),
+        },
+        hashes: vec![(
+            ChainIndex { from: 0, to: 0 },
+            vec![TransactionId {
+                bytes: [0x02_u8; 32],
+            }],
+        )],
+    };
+    let payload = encode_txs_request_payload(&request).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode probe TxsRequest: {error}"))
+    })?;
+    send_payload(stream, config, TXS_REQUEST_CODE, &payload)?;
+    session.sent_txs_request = true;
+    println!(
+        "sent TxsRequest id={} chains={} txs={}",
+        request.id.value,
+        request.hashes.len(),
+        request.hashes.iter().map(|(_, txs)| txs.len()).sum::<usize>()
+    );
+    Ok(())
 }
 
 fn handle_inv_request(request: InvRequest) {

@@ -15,17 +15,31 @@ use alephium_protocol::message::{
     NetworkMagic,
 };
 use alephium_protocol::message::payload::{
-    decode_hello_payload, decode_inv_request_payload, decode_ping_payload, encode_hello_payload,
-    encode_inv_response_payload, encode_pong_payload, CliqueId, Hello, InvResponse, InterBrokerInfo,
-    HELLO_CODE, INV_REQUEST_CODE, INV_RESPONSE_CODE, PING_CODE, PONG_CODE, RequestId,
-    Pong as PongPayload,
+    decode_blocks_request_payload, decode_headers_request_payload, decode_hello_payload,
+    decode_inv_request_payload, decode_ping_payload, decode_txs_request_payload,
+    encode_blocks_response_payload, encode_chain_state_payload, encode_headers_response_payload,
+    encode_hello_payload, encode_inv_response_payload, encode_pong_payload,
+    encode_txs_response_payload, BlockHash, ChainState, ChainTip, CliqueId, HeadersResponse,
+    Hello, InterBrokerInfo, InvResponse, RequestId, TxsResponse,
+    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HEADERS_REQUEST_CODE,
+    HEADERS_RESPONSE_CODE, HELLO_CODE, INV_REQUEST_CODE, INV_RESPONSE_CODE, PING_CODE,
+    PONG_CODE, TXS_REQUEST_CODE, TXS_RESPONSE_CODE,
 };
+use alephium_protocol::message::payload::Pong as PongPayload;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum MockEvent {
+    ChainStateSent,
     HelloSent,
     HelloReceived,
     InvRequestReceived,
+    InvResponseSent,
+    HeadersRequestReceived,
+    BlocksRequestReceived,
+    TxsRequestReceived,
+    HeadersResponseSent,
+    BlocksResponseSent,
+    TxsResponseSent,
     PingReceived,
     PongSent,
     Completed,
@@ -70,23 +84,43 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
         }
     }
 
+    assert!(events.contains(&MockEvent::ChainStateSent), "server should send chain state");
     assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
+    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
     assert!(
-        events.contains(&MockEvent::HelloReceived),
-        "client should send hello to server"
+        events.contains(&MockEvent::InvRequestReceived),
+        "client should send InvRequest probe"
     );
     assert!(
-        events.contains(&MockEvent::PingReceived),
-        "mock peer should receive client ping"
+        events.contains(&MockEvent::HeadersRequestReceived),
+        "client should send HeadersRequest probe"
     );
     assert!(
-        events.contains(&MockEvent::PongSent),
-        "mock peer should send pong response"
+        events.contains(&MockEvent::BlocksRequestReceived),
+        "client should send BlocksRequest probe"
     );
+    assert!(
+        events.contains(&MockEvent::TxsRequestReceived),
+        "client should send TxsRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::HeadersResponseSent),
+        "server should send HeadersResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::BlocksResponseSent),
+        "server should send BlocksResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::TxsResponseSent),
+        "server should send TxsResponse"
+    );
+    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
+    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
 
     assert!(
         result.is_err(),
-        "mock peer closes socket after ping/pong, expected client termination"
+        "mock peer closes socket after probe exchange, expected client termination"
     );
 }
 
@@ -94,16 +128,12 @@ fn base_config() -> NodeConfig {
     NodeConfig::local().with_node_identity(NodeIdentity::fixture())
 }
 
-fn mock_peer(
-    mut stream: TcpStream,
-    config: NodeConfig,
-    events: Sender<MockEvent>,
-) -> io::Result<()> {
+fn mock_peer(mut stream: TcpStream, config: NodeConfig, events: Sender<MockEvent>) -> io::Result<()> {
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_millis(150)))?;
-
     let magic = NetworkMagic::new(config.network_magic);
 
+    send_chain_state(&mut stream, magic, config.max_frame_data, &events)?;
     send_payload(
         &mut stream,
         magic,
@@ -116,8 +146,12 @@ fn mock_peer(
 
     let mut inbound = Vec::new();
     let mut read_buffer = [0_u8; 1024];
+    let mut saw_inv_request = false;
+    let mut saw_headers_request = false;
+    let mut saw_blocks_request = false;
+    let mut saw_txs_request = false;
     let mut saw_ping = false;
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(4);
 
     while Instant::now() <= deadline {
         match stream.read(&mut read_buffer) {
@@ -148,6 +182,52 @@ fn mock_peer(
                         &events,
                     )?;
                     events.send(MockEvent::InvRequestReceived).ok();
+                    saw_inv_request = true;
+                }
+                HEADERS_REQUEST_CODE => {
+                    let request = decode_headers_request_payload(&payload)
+                        .expect("mock peer decodes HeadersRequest")
+                        .finish(payload.len())
+                        .expect("mock peer consumes HeadersRequest fully");
+                    send_headers_response(
+                        &mut stream,
+                        magic,
+                        config.max_frame_data,
+                        &request.id,
+                        &events,
+                    )?;
+                    events.send(MockEvent::HeadersRequestReceived).ok();
+                    saw_headers_request = true;
+                }
+                BLOCKS_REQUEST_CODE => {
+                    let request = decode_blocks_request_payload(&payload)
+                        .expect("mock peer decodes BlocksRequest")
+                        .finish(payload.len())
+                        .expect("mock peer consumes BlocksRequest fully");
+                    send_blocks_response(
+                        &mut stream,
+                        magic,
+                        config.max_frame_data,
+                        &request.id,
+                        &events,
+                    )?;
+                    events.send(MockEvent::BlocksRequestReceived).ok();
+                    saw_blocks_request = true;
+                }
+                TXS_REQUEST_CODE => {
+                    let request = decode_txs_request_payload(&payload)
+                        .expect("mock peer decodes TxsRequest")
+                        .finish(payload.len())
+                        .expect("mock peer consumes TxsRequest fully");
+                    send_txs_response(
+                        &mut stream,
+                        magic,
+                        config.max_frame_data,
+                        &request.id,
+                        &events,
+                    )?;
+                    events.send(MockEvent::TxsRequestReceived).ok();
+                    saw_txs_request = true;
                 }
                 PING_CODE => {
                     let ping = decode_ping_payload(&payload)
@@ -170,7 +250,7 @@ fn mock_peer(
             }
         }
 
-        if saw_ping {
+        if saw_inv_request && saw_headers_request && saw_blocks_request && saw_txs_request && saw_ping {
             break;
         }
     }
@@ -178,6 +258,33 @@ fn mock_peer(
     events.send(MockEvent::Completed).ok();
     stream.shutdown(Shutdown::Both)?;
     Ok(())
+}
+
+fn send_chain_state(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let chain_state = ChainState {
+        tips: vec![ChainTip {
+            hash: BlockHash {
+                bytes: [0xAB_u8; 32],
+            },
+            height: 42,
+            weight: vec![0x01_u8, 0x02, 0x03],
+        }],
+    };
+    let payload = encode_chain_state_payload(&chain_state).expect("encode ChainState");
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        CHAIN_STATE_CODE,
+        &payload,
+        events,
+        MockEvent::ChainStateSent,
+    )
 }
 
 fn send_inv_response(
@@ -189,7 +296,7 @@ fn send_inv_response(
 ) -> io::Result<()> {
     let response = InvResponse {
         id: *request_id,
-        hashes: vec![Vec::new()],
+        hashes: vec![vec![BlockHash { bytes: [0x11_u8; 32] }]],
     };
     let payload = encode_inv_response_payload(&response).expect("encode InvResponse");
     send_payload(
@@ -199,7 +306,76 @@ fn send_inv_response(
         INV_RESPONSE_CODE,
         &payload,
         events,
-        MockEvent::InvRequestReceived,
+        MockEvent::InvResponseSent,
+    )
+}
+
+fn send_headers_response(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    request_id: &RequestId,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let response = HeadersResponse {
+        id: *request_id,
+        headers: vec![vec![0x21_u8, 0x22_u8]],
+    };
+    let payload = encode_headers_response_payload(&response).expect("encode HeadersResponse");
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        HEADERS_RESPONSE_CODE,
+        &payload,
+        events,
+        MockEvent::HeadersResponseSent,
+    )
+}
+
+fn send_blocks_response(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    request_id: &RequestId,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let response = alephium_protocol::message::payload::BlocksResponse {
+        id: *request_id,
+        blocks: vec![vec![0x31_u8, 0x32_u8]],
+    };
+    let payload = encode_blocks_response_payload(&response).expect("encode BlocksResponse");
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        BLOCKS_RESPONSE_CODE,
+        &payload,
+        events,
+        MockEvent::BlocksResponseSent,
+    )
+}
+
+fn send_txs_response(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    request_id: &RequestId,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let response = TxsResponse {
+        id: *request_id,
+        txs: vec![vec![0x41_u8, 0x42_u8]],
+    };
+    let payload = encode_txs_response_payload(&response).expect("encode TxsResponse");
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        TXS_RESPONSE_CODE,
+        &payload,
+        events,
+        MockEvent::TxsResponseSent,
     )
 }
 
