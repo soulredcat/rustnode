@@ -5,5 +5,9 @@ edition.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+blake2 = "0.10"
+secp256k1 = "0.30"
+
 [lints]
 workspace = true
