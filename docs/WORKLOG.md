@@ -217,7 +217,7 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 
 **Task:** persist handshake identity across restarts.
 
-**Implementation commit:** `TBD`
+**Implementation commit:** `776a430`
 
 **Changes:**
 
