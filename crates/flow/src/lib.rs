@@ -850,11 +850,33 @@ fn send_txs_request(
         return Ok(());
     }
 
+    let mut requestable = Vec::new();
+    for (chain_index, txs) in request_hashes {
+        let mut chain_txs = Vec::new();
+        let mut seen = HashSet::new();
+        for tx in txs {
+            if tx.bytes == [0_u8; 32] || seen.contains(&tx.bytes) {
+                continue;
+            }
+            seen.insert(tx.bytes);
+            if session.requested_tx_ids.insert(tx.bytes) {
+                chain_txs.push(tx);
+            }
+        }
+        if !chain_txs.is_empty() {
+            requestable.push((chain_index, chain_txs));
+        }
+    }
+
+    if requestable.is_empty() {
+        return Ok(());
+    }
+
     let request = TxsRequest {
         id: RequestId {
             value: next_request_id(&mut session.next_request_id),
         },
-        hashes: request_hashes,
+        hashes: requestable,
     };
     let payload = encode_txs_request_payload(&request).map_err(|error| {
         FlowError::Protocol(format!("failed to encode probe TxsRequest: {error}"))
@@ -957,10 +979,8 @@ fn handle_new_inv(
             if hash.bytes == [0_u8; 32] || seen.contains(&hash.bytes) {
                 continue;
             }
-            if session.requested_block_hashes.insert(hash.bytes) {
-                seen.insert(hash.bytes);
-                requestable.push(hash);
-            }
+            seen.insert(hash.bytes);
+            requestable.push(hash);
         }
     }
     if let Err(error) = send_blocks_request(stream, config, session, requestable) {
@@ -993,10 +1013,8 @@ fn handle_new_txhashes(
             if tx.bytes == [0_u8; 32] || seen.contains(&tx.bytes) {
                 continue;
             }
-            if session.requested_tx_ids.insert(tx.bytes) {
-                seen.insert(tx.bytes);
-                chain_requests.push(tx);
-            }
+            seen.insert(tx.bytes);
+            chain_requests.push(tx);
         }
         if !chain_requests.is_empty() {
             request_hashes.push((chain_index, chain_requests));
