@@ -6,7 +6,7 @@ STATE_DIR="${OFFICIAL_NODE_STATE_DIR:-${ROOT_DIR}/.local/official-node}"
 LOG_FILE="${STATE_DIR}/official-node.log"
 PID_FILE="${STATE_DIR}/official-node.pid"
 P2P_HOST="127.0.0.1"
-P2P_PORT="19973"
+P2P_PORT="${OFFICIAL_NODE_P2P_PORT:-19974}"
 STARTUP_TIMEOUT_SECONDS="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 
 "${ROOT_DIR}/scripts/official-node/build.sh"

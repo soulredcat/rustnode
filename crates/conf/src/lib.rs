@@ -20,7 +20,8 @@ pub const STATUS: &str = "M1 local bootstrap configuration implemented";
 pub const NETWORK_MAGIC_BYTES: [u8; 4] = [0xa2, 0xfd, 0xc6, 0xbb];
 
 /// Local default peer for the devnet harness.
-pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19973";
+/// WARNING: default 19974 is used to avoid collision with the common Java node port 19973.
+pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19974";
 
 /// M1 devnet `network-id` used by the local official node harness.
 pub const DEFAULT_NETWORK_ID: u8 = 2;

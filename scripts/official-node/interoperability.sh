@@ -181,6 +181,9 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
     exit 1
   fi
 else
+  if [[ "${PEER_PORT}" -eq 19973 ]]; then
+    echo "Peringatan: port 19973 biasanya dipakai oleh node Java default. Default interop sekarang 19974." >&2
+  fi
   if ! is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "no peer listening at ${PEER_ADDRESS}; start one externally or run without RUST_INTEROP_ATTACH_TO_EXISTING" >&2
     exit 1
