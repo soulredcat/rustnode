@@ -1,0 +1,12 @@
+[package]
+name = "alephium-conf"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+alephium-util = { path = "../util" }
+
+[lints]
+workspace = true

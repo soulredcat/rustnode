@@ -1,0 +1,9 @@
+[package]
+name = "alephium-serde"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

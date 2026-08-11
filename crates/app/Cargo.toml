@@ -1,0 +1,18 @@
+[package]
+name = "alephium-app"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "alephium-node-rs"
+path = "src/main.rs"
+
+[dependencies]
+alephium-util = { path = "../util" }
+alephium-conf = { path = "../conf" }
+alephium-flow = { path = "../flow" }
+
+[lints]
+workspace = true

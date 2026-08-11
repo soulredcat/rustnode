@@ -2,89 +2,105 @@
 
 > Rust rebuild of the official Alephium node.
 
-The goal of this repository is straightforward: **make a working Alephium node in Rust that can communicate and operate with the existing official Alephium Scala node.**
+The objective is explicit: **build a working Alephium full node in Rust that can communicate and operate on the same network as the existing official Scala node.**
 
-The initial project is not a new Alephium protocol and not an optimization project. We first reproduce the official behavior in Rust. Optimization comes only after the Rust implementation works correctly with the official network.
+The first release is a compatibility implementation. It is not a new protocol, not a fork, and not an optimization experiment. The Rust node must first reproduce official Alephium behavior. Performance work begins only after compatibility is proven.
+
+## Current status
+
+**Milestone M0: repository bootstrap.**
+
+The workspace and development control documents are being established. P2P interoperability, synchronization, validation, VM execution, and production use are not implemented yet.
+
+Do not use this repository for mainnet funds, mining, signing, or consensus decisions.
+
+## Start here
+
+Anyone—human or AI—working on this repository must read these files in order:
+
+1. [`README.md`](./README.md) — project mission and milestone order.
+2. [`AGENTS.md`](./AGENTS.md) — mandatory implementation rules and AI workflow.
+3. [`TASKS.md`](./TASKS.md) — current task, completed work, and acceptance criteria.
+4. [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module boundaries and compatibility architecture.
+5. [`docs/UPSTREAM_MAPPING.md`](./docs/UPSTREAM_MAPPING.md) — mapping from official Scala sources to Rust crates.
+6. [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md) — exact first interoperability milestone.
+7. [`docs/WORKLOG.md`](./docs/WORKLOG.md) — handoff record from previous work.
+
+`TASKS.md` is the execution ledger. Do not silently work on a later milestone while an earlier compatibility gate remains open.
 
 ## Source of truth
 
 Official implementation:
 
 - Repository: https://github.com/alephium/alephium
-- Baseline commit: `63bcf6998508025f9538f3377629fe9e66df6c53`
-- Baseline date: 2026-07-22
+- Pinned baseline commit: `63bcf6998508025f9538f3377629fe9e66df6c53`
+- Baseline date: `2026-07-22`
 
-The Scala implementation is the reference behavior during the rebuild.
+The baseline is also recorded in [`UPSTREAM.toml`](./UPSTREAM.toml). During the initial rebuild, the Scala implementation and its tests define expected behavior.
 
-## First objective
+When Rust and Scala disagree, do not guess. Reduce the discrepancy to a fixture, identify the relevant upstream code and test, and record the result.
 
-The first useful milestone is **not** a complete Rust full node.
+## First useful objective
 
-It is this:
+The first useful milestone is not a complete full node. It is a live, accepted P2P session:
 
 ```text
 Official Alephium Node (Scala)
           ^
-          | Alephium P2P protocol
+          | official Alephium P2P
           v
      Rust Node
 ```
 
-The Rust binary must be able to:
+The Rust binary must eventually:
 
-1. start with Alephium network configuration;
-2. open a TCP P2P connection to an official node;
-3. encode/decode the official Alephium message envelope;
-4. exchange a valid signed `Hello` handshake;
-5. be accepted as an Alephium peer;
-6. exchange `Ping` / `Pong`;
-7. remain connected without a protocol adapter or proxy.
+1. load the selected Alephium network configuration;
+2. load or create the identity required by the official handshake;
+3. open a TCP connection to a locally controlled official node;
+4. encode and decode the official message envelope;
+5. exchange a valid signed `Hello`;
+6. be accepted as an Alephium peer;
+7. exchange `Ping` and `Pong`;
+8. remain connected without an adapter or proxy.
 
-After that works, functionality is added vertically until the Rust node can fully synchronize and validate the chain.
+See [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md) for the gate and required evidence.
 
-## Current status
+## Bootstrap commands
 
-**Bootstrap / interoperability implementation.**
+```bash
+# Clone the pinned official source into .upstream/alephium
+make upstream
 
-There is not yet a production-ready Rust node in this repository.
+# Format, lint, compile, and test the current Rust workspace
+make check
 
-## Rules for the initial rebuild
-
-Until compatibility is complete:
-
-```text
-Official Alephium behavior
-          |
-          v
-     Rust equivalent
+# Run the current Rust bootstrap binary
+make run
 ```
 
-Do not introduce protocol changes while rebuilding.
+Expected M0 output is only a status banner. It must not claim that P2P or full-node functionality exists.
 
-That means no changes to:
+## Non-negotiable initial rules
+
+Until compatibility is complete, do not change:
 
 - BlockFlow consensus;
-- PoW / PoLW rules;
-- P2P semantics;
-- transaction format;
-- block format;
-- hashing;
-- signatures;
-- Ralph / Alphred VM semantics;
+- PoW or PoLW behavior;
+- P2P framing or payload semantics;
+- transaction or block formats;
+- hashes or signatures;
+- Ralph/Alphred VM semantics;
 - gas accounting;
-- hard-fork rules;
-- group/shard rules;
-- block limits;
-- transaction limits;
+- hard-fork behavior;
+- group/shard behavior;
+- block or transaction limits;
 - tokenomics or fee distribution.
 
-Performance optimization is explicitly deferred until the Rust node reaches official parity.
+Do not use generic `bincode`, JSON, protobuf, or default Rust `serde` representations for official wire/consensus bytes. The repository crate named `alephium-serde` exists to reproduce Alephium's exact binary encoding.
 
-## Official module mapping
+## Workspace direction
 
-The official repository is already modular. The Rust rebuild should preserve those responsibilities as closely as practical rather than inventing a new protocol architecture during the port.
-
-Important upstream modules include:
+The complete project should remain aligned with the responsibilities in the official repository:
 
 ```text
 macros
@@ -109,217 +125,78 @@ benchmark
 integration
 ```
 
-Planned Rust workspace:
+Only the minimum crates required for the current vertical slice are created initially. More crates are added when an accepted task requires them.
 
-```text
-rustnode/
-├── Cargo.toml
-├── crates/
-│   ├── macros/
-│   ├── util/
-│   ├── serde/
-│   ├── io/
-│   ├── crypto/
-│   ├── protocol/
-│   ├── flow/
-│   ├── json/
-│   ├── conf/
-│   ├── api/
-│   ├── ws/
-│   ├── rpc/
-│   ├── http/
-│   ├── ralph/
-│   ├── wallet/
-│   ├── ralphc/
-│   ├── app/
-│   ├── tools/
-│   └── benchmark/
-├── integration/
-├── tests/
-│   ├── vectors/
-│   ├── interoperability/
-│   ├── differential/
-│   └── replay/
-└── ARCHITECTURE.md
-```
-
-Not every crate needs to be implemented immediately. Development follows a **working vertical slice**: implement the minimum official components required to connect to a Scala node, then extend the same implementation toward synchronization, validation, VM execution, storage, API compatibility, and finally full-node parity.
-
-## Interoperability milestone 1
-
-The official P2P connection starts with a signed `Hello` message containing:
-
-- `clientId`;
-- timestamp;
-- broker information;
-- signature.
-
-The official node validates the handshake, derives the peer's release and P2P version from `clientId`, and then switches the connection into the appropriate P2P message exchange mode.
-
-The Rust implementation therefore needs, before anything else:
+Current bootstrap graph:
 
 ```text
 util
-  |
-serde + crypto
-  |
-protocol/message
-  |
-flow/network minimum
-  |
-app binary
+ |\
+ | serde ---- crypto
+ |    \       /
+ |     protocol
+ |        |
+ conf ----+---- flow
+                 |
+                app
 ```
 
-The first executable target is:
+## Milestone order
 
 ```text
-cargo run ...
-     |
-     v
-connect official node
-     |
-     v
-Hello <-> Hello
-     |
-     v
-Ping <-> Pong
-     |
-     v
-stable accepted peer
+M0  compiling repository bootstrap
+ |
+M1  official P2P handshake and Ping/Pong
+ |
+M2  request and decode real headers/blocks
+ |
+M3  protocol models, canonical bytes, hashes and IDs
+ |
+M4  validation and BlockFlow parity
+ |
+M5  Ralph/Alphred VM and world-state parity
+ |
+M6  persistent synchronization from genesis
+ |
+M7  required API/tooling parity
+ |
+M8  measured implementation optimization
 ```
 
-## Implementation order
+At every milestone, the repository must remain runnable and must state honestly which guarantees are implemented.
 
-### M0 - Rust workspace boots
+## Correctness evidence
 
-- Cargo workspace;
-- configuration loading required for the selected network;
-- logging and controlled shutdown;
-- node identity/key material required by the official handshake.
+For wire- or consensus-critical behavior, implementation is not complete without evidence. Depending on the task, evidence includes:
 
-### M1 - Official P2P handshake works
+- official Scala test references;
+- generated golden vectors;
+- byte-for-byte encode/decode comparison;
+- Rust/Scala P2P logs;
+- differential validation results;
+- VM result and gas comparison;
+- historical replay and chain-tip comparison.
 
-- official message framing;
-- magic bytes;
-- checksum;
-- payload length;
-- payload code;
-- `Hello` serialization/deserialization;
-- handshake signature validation;
-- official-compatible `clientId` parsing/format;
-- P2P v1/v2 selection as required by upstream;
-- connect Rust <-> Scala;
-- `Ping` / `Pong`.
+A benchmark does not prove compatibility.
 
-**Exit condition:** the official Scala node accepts the Rust node as a peer and the connection stays healthy.
+## Documentation index
 
-### M2 - Basic protocol exchange
-
-Implement the official payloads needed for synchronization, including the corresponding request IDs and serializers:
-
-- chain state/inventory messages;
-- header requests/responses;
-- block requests/responses;
-- new header/block announcements;
-- transaction inventory/request/response messages.
-
-**Exit condition:** Rust can request and decode real headers/blocks from an official node.
-
-### M3 - Protocol models and cryptography
-
-- addresses and IDs;
-- transactions;
-- outputs;
-- block headers;
-- blocks;
-- Merkle/hash behavior;
-- all protocol-required cryptography.
-
-**Exit condition:** Rust derives the same hashes/IDs as Scala for captured network data.
-
-### M4 - Validation and BlockFlow
-
-- official header validation;
-- official block validation;
-- official transaction validation;
-- chain/group handling;
-- BlockFlow dependencies, weights, views, and chain selection;
-- hard-fork-specific behavior.
-
-**Exit condition:** Rust accepts/rejects the same real chain data as Scala.
-
-### M5 - VM and state
-
-- Ralph/Alphred VM behavior;
-- stack/frame/instruction semantics;
-- gas accounting;
-- contract state;
-- world-state transitions;
-- official storage behavior at the logical level.
-
-**Exit condition:** Rust produces identical VM/state results for official test vectors and historical blocks.
-
-### M6 - Full synchronization
-
-- persistent storage;
-- restart/recovery;
-- mempool;
-- complete block/header synchronization;
-- genesis-to-tip replay.
-
-**Exit condition:** Rust syncs from genesis and reaches the same valid chain state as an official node.
-
-### M7 - API/tooling parity
-
-- required HTTP API;
-- WebSocket support;
-- RPC behavior;
-- wallet/compiler/tools where required by project scope.
-
-### M8 - Optimization
-
-Only after M1-M7 parity is proven:
-
-- profile first;
-- optimize Rust implementation without changing protocol behavior;
-- benchmark against the official Scala node on equivalent hardware;
-- only then research protocol-level improvements separately.
-
-## Compatibility testing
-
-Every consensus- or wire-critical component should be tested against the official implementation.
-
-```text
-same bytes / same state
-       |
-   +---+---+
-   |       |
- Scala    Rust
-   |       |
-   +---==--+
-```
-
-Required test classes:
-
-- official/golden serialization vectors;
-- Rust <-> Scala P2P interoperability tests;
-- differential transaction/block validation;
-- differential VM execution;
-- historical block replay;
-- restart/recovery tests.
-
-The Rust node is considered correct only when its consensus-visible results match the official implementation.
-
-## Architecture
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md).
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- [`AGENTS.md`](./AGENTS.md)
+- [`TASKS.md`](./TASKS.md)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- [`docs/UPSTREAM_MAPPING.md`](./docs/UPSTREAM_MAPPING.md)
+- [`docs/M1_P2P_INTEROP.md`](./docs/M1_P2P_INTEROP.md)
+- [`docs/AI_TASK_TEMPLATE.md`](./docs/AI_TASK_TEMPLATE.md)
+- [`docs/WORKLOG.md`](./docs/WORKLOG.md)
+- [`tests/README.md`](./tests/README.md)
 
 ## License
 
 No project license has been selected yet.
 
-The official Alephium repository is licensed under LGPL-3.0. Licensing/compliance must be resolved before mechanically copying or porting upstream source code.
+The official Alephium repository is licensed under LGPL-3.0. Licensing and attribution policy must be resolved before mechanically copying or translating substantial upstream source code. Protocol behavior may be studied and independently reimplemented, but an AI agent must not silently copy large upstream sections into this repository.
 
 ## Disclaimer
 
-This project is experimental and unofficial until compatibility with the existing Alephium network has been demonstrated and independently validated.
+This project is experimental and unofficial until interoperability, historical replay, state parity, and security review have been demonstrated independently.

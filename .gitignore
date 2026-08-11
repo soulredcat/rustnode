@@ -1,0 +1,7 @@
+/target/
+/.upstream/
+.env
+*.log
+.DS_Store
+.idea/
+.vscode/
