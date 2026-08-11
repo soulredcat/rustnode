@@ -1,322 +1,325 @@
 # Alephium Rust Node
 
-> Experimental, independent Rust implementation of the Alephium protocol.
+> Rust rebuild of the official Alephium node.
 
-This repository is intended to become a production-grade Alephium full node written in Rust. The first objective is **protocol compatibility**, not a protocol fork and not a TPS redesign.
+The goal of this repository is straightforward: **make a working Alephium node in Rust that can communicate and operate with the existing official Alephium Scala node.**
 
-The Rust implementation must be able to join the existing Alephium network, exchange the same P2P messages, validate the same blocks and transactions, execute the same VM semantics, and derive the same consensus-critical state as the reference Scala implementation.
+The initial project is not a new Alephium protocol and not an optimization project. We first reproduce the official behavior in Rust. Optimization comes only after the Rust implementation works correctly with the official network.
 
-## Status
+## Source of truth
 
-**Phase: architecture / protocol-parity bootstrap.**
-
-There is no production-ready node in this repository yet. Do not use it for mainnet funds, mining, signing, or consensus decisions until the interoperability and historical replay gates defined in this document are complete.
-
-## Reference implementation
-
-Reference client:
+Official implementation:
 
 - Repository: https://github.com/alephium/alephium
 - Baseline commit: `63bcf6998508025f9538f3377629fe9e66df6c53`
 - Baseline date: 2026-07-22
 
-The baseline commit is intentionally pinned. Updating the compatibility target must be explicit and accompanied by regenerated test vectors and differential-test results.
+The Scala implementation is the reference behavior during the rebuild.
 
-## Project goals
+## First objective
 
-1. Implement the Alephium wire protocol and consensus-critical behavior in native Rust.
-2. Preserve byte-for-byte compatibility where the protocol defines serialization.
-3. Preserve transaction IDs, block hashes, signature validation, gas accounting, VM results, hard-fork behavior, state transitions, and BlockFlow decisions.
-4. Sync from genesis and reach the same chain tips/state as the reference client.
-5. Interoperate directly with existing Alephium Scala nodes over P2P.
-6. Reduce runtime overhead, memory pressure, and latency without changing consensus semantics.
-7. Provide a clean Rust foundation for later research into parallel execution, faster propagation, higher shard capacity, and incentivized service-node infrastructure.
+The first useful milestone is **not** a complete Rust full node.
 
-## Non-goals for V1
-
-The compatibility release will **not**:
-
-- change BlockFlow consensus rules;
-- change PoW/PoLW security assumptions;
-- change block time, gas limits, transaction limits, or shard count;
-- introduce staking-based consensus;
-- change Ralph/Alphred VM semantics;
-- introduce service-node rewards;
-- require a new database layout compatible with the Scala client's RocksDB files;
-- optimize code at the cost of deterministic behavior.
-
-Protocol evolution belongs in a later, separately activated phase after Rust/Scala parity is proven.
-
-## Core rule
+It is this:
 
 ```text
-same protocol input
-      |
-      +-------------------+
-      |                   |
-      v                   v
-Scala reference        Rust node
-      |                   |
-      v                   v
-reference result       Rust result
-      |                   |
-      +--------- == -------+
+Official Alephium Node (Scala)
+          ^
+          | Alephium P2P protocol
+          v
+     Rust Node
 ```
 
-For consensus-critical operations, "close enough" is a failure.
+The Rust binary must be able to:
 
-## Planned workspace
+1. start with Alephium network configuration;
+2. open a TCP P2P connection to an official node;
+3. encode/decode the official Alephium message envelope;
+4. exchange a valid signed `Hello` handshake;
+5. be accepted as an Alephium peer;
+6. exchange `Ping` / `Pong`;
+7. remain connected without a protocol adapter or proxy.
+
+After that works, functionality is added vertically until the Rust node can fully synchronize and validate the chain.
+
+## Current status
+
+**Bootstrap / interoperability implementation.**
+
+There is not yet a production-ready Rust node in this repository.
+
+## Rules for the initial rebuild
+
+Until compatibility is complete:
+
+```text
+Official Alephium behavior
+          |
+          v
+     Rust equivalent
+```
+
+Do not introduce protocol changes while rebuilding.
+
+That means no changes to:
+
+- BlockFlow consensus;
+- PoW / PoLW rules;
+- P2P semantics;
+- transaction format;
+- block format;
+- hashing;
+- signatures;
+- Ralph / Alphred VM semantics;
+- gas accounting;
+- hard-fork rules;
+- group/shard rules;
+- block limits;
+- transaction limits;
+- tokenomics or fee distribution.
+
+Performance optimization is explicitly deferred until the Rust node reaches official parity.
+
+## Official module mapping
+
+The official repository is already modular. The Rust rebuild should preserve those responsibilities as closely as practical rather than inventing a new protocol architecture during the port.
+
+Important upstream modules include:
+
+```text
+macros
+util
+serde
+io
+crypto
+protocol
+flow
+json
+conf
+api
+ws
+rpc
+http
+ralph
+wallet
+ralphc
+app
+tools
+benchmark
+integration
+```
+
+Planned Rust workspace:
 
 ```text
 rustnode/
 ├── Cargo.toml
 ├── crates/
-│   ├── alph-primitives/     # hashes, U256, addresses, groups, chain indexes
-│   ├── alph-codec/          # consensus/wire serialization and deserialization
-│   ├── alph-crypto/         # protocol cryptography
-│   ├── alph-protocol/       # blocks, transactions, outputs, scripts, messages
-│   ├── alph-vm/             # Alphred VM execution and gas accounting
-│   ├── alph-consensus/      # validation, PoW/PoLW rules, weights, hard forks
-│   ├── alph-storage/        # storage interfaces and RocksDB implementation
-│   ├── alph-blockflow/      # sharded chain state and BlockFlow logic
-│   ├── alph-mempool/        # transaction admission and lifecycle
-│   ├── alph-p2p/            # peer protocol, discovery, transport, relay
-│   ├── alph-sync/           # headers/blocks/state synchronization
-│   ├── alph-api/            # HTTP/WebSocket/RPC compatibility layer
-│   ├── alph-node/           # node orchestration and lifecycle
-│   └── alph-testkit/        # fixtures, Scala oracle adapters, generators
-├── bins/
-│   ├── alephium-node/
-│   └── alph-tool/
+│   ├── macros/
+│   ├── util/
+│   ├── serde/
+│   ├── io/
+│   ├── crypto/
+│   ├── protocol/
+│   ├── flow/
+│   ├── json/
+│   ├── conf/
+│   ├── api/
+│   ├── ws/
+│   ├── rpc/
+│   ├── http/
+│   ├── ralph/
+│   ├── wallet/
+│   ├── ralphc/
+│   ├── app/
+│   ├── tools/
+│   └── benchmark/
+├── integration/
 ├── tests/
 │   ├── vectors/
-│   ├── differential/
 │   ├── interoperability/
-│   └── mainnet-replay/
+│   ├── differential/
+│   └── replay/
 └── ARCHITECTURE.md
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for module boundaries, dependency rules, execution model, testing strategy, and post-parity protocol research.
+Not every crate needs to be implemented immediately. Development follows a **working vertical slice**: implement the minimum official components required to connect to a Scala node, then extend the same implementation toward synchronization, validation, VM execution, storage, API compatibility, and finally full-node parity.
 
-## Dependency direction
+## Interoperability milestone 1
 
-The core dependency graph is intentionally one-way:
+The official P2P connection starts with a signed `Hello` message containing:
 
-```text
-primitives
-   |
-codec + crypto
-   |
-protocol
-   |
-vm + consensus
-   |
-storage + blockflow
-   |
-mempool + p2p + sync
-   |
-api
-   |
-node
-```
+- `clientId`;
+- timestamp;
+- broker information;
+- signature.
 
-Consensus code must not depend on HTTP, dashboards, service-node economics, or operational tooling.
+The official node validates the handshake, derives the peer's release and P2P version from `clientId`, and then switches the connection into the appropriate P2P message exchange mode.
 
-## Async boundary
-
-Rust async is for I/O orchestration, not deterministic VM semantics.
+The Rust implementation therefore needs, before anything else:
 
 ```text
-ASYNC / I-O                  DETERMINISTIC CORE
-------------------           ---------------------------
-P2P sockets                  codec
-peer management              hashing
-sync scheduling              crypto verification rules
-API/RPC                      transaction validation
-storage scheduling           block validation
-metrics                      VM execution
-shutdown                     gas accounting
-                             state transition
-                             BlockFlow decisions
+util
+  |
+serde + crypto
+  |
+protocol/message
+  |
+flow/network minimum
+  |
+app binary
 ```
 
-The VM and consensus-critical execution path should remain synchronous and deterministic. Parallelism may be introduced only where result ordering and state merging are formally deterministic.
-
-## Compatibility gates
-
-A Rust node is not considered compatible until it passes all of the following:
-
-- Scala decode -> Rust encode is byte-for-byte identical for consensus/wire objects.
-- Transaction IDs are identical.
-- Block hashes are identical.
-- Signature verification accepts/rejects the same vectors.
-- VM return values are identical.
-- VM failure classes and consensus-relevant failure ordering are identical.
-- Gas consumption is identical.
-- World-state transitions are identical.
-- Transaction validation decisions are identical.
-- Block validation decisions are identical.
-- Hard-fork behavior is identical at every activation boundary.
-- BlockFlow chain selection/dependencies are identical.
-- Rust <-> Scala P2P handshake and message exchange work without adapters.
-- Rust can replay the historical chain from genesis without divergence.
-- Rust can run as a shadow mainnet node and remain at the same valid network state.
-
-## Differential testing
-
-The Scala client is the initial protocol oracle.
-
-For each fixture:
+The first executable target is:
 
 ```text
-fixture bytes/state
-      |
-      +--------------------+
-      |                    |
-      v                    v
-Scala oracle           Rust implementation
-      |                    |
-      v                    v
-canonical output       candidate output
-      |                    |
-      +--------- diff ------+
+cargo run ...
+     |
+     v
+connect official node
+     |
+     v
+Hello <-> Hello
+     |
+     v
+Ping <-> Pong
+     |
+     v
+stable accepted peer
 ```
 
-Golden vectors should cover both valid and invalid inputs. Invalid vectors are essential: rejecting the same malformed transaction for different reasons can expose semantic divergence that later becomes consensus-critical.
+## Implementation order
 
-## Development roadmap
+### M0 - Rust workspace boots
 
-### Phase 0 - Protocol lock and oracle
+- Cargo workspace;
+- configuration loading required for the selected network;
+- logging and controlled shutdown;
+- node identity/key material required by the official handshake.
 
-- pin the Scala baseline;
-- inventory consensus-critical types and serialization rules;
-- create golden-vector extraction tooling;
-- define canonical error/result representations for differential tests.
+### M1 - Official P2P handshake works
 
-### Phase 1 - Primitives, codec, crypto
+- official message framing;
+- magic bytes;
+- checksum;
+- payload length;
+- payload code;
+- `Hello` serialization/deserialization;
+- handshake signature validation;
+- official-compatible `clientId` parsing/format;
+- P2P v1/v2 selection as required by upstream;
+- connect Rust <-> Scala;
+- `Ping` / `Pong`.
 
-- integer and byte primitives;
-- hashes and IDs;
-- address/group/chain-index types;
-- exact serialization/deserialization;
-- required cryptographic primitives and signatures;
-- property and fuzz tests.
+**Exit condition:** the official Scala node accepts the Rust node as a peer and the connection stays healthy.
 
-### Phase 2 - Protocol model and VM
+### M2 - Basic protocol exchange
 
-- transactions and outputs;
-- blocks and headers;
-- scripts/contracts;
-- hard-fork rules;
-- VM stack/frame/instructions;
-- exact gas accounting;
-- stateful/stateless execution parity.
+Implement the official payloads needed for synchronization, including the corresponding request IDs and serializers:
 
-### Phase 3 - Validation, storage, BlockFlow
+- chain state/inventory messages;
+- header requests/responses;
+- block requests/responses;
+- new header/block announcements;
+- transaction inventory/request/response messages.
 
-- transaction validation;
-- block/header validation;
-- world-state storage;
-- chain/header-chain state;
-- BlockFlow dependencies, tips, weights, and view updates;
-- historical replay tooling.
+**Exit condition:** Rust can request and decode real headers/blocks from an official node.
 
-### Phase 4 - Mempool, P2P, sync, API
+### M3 - Protocol models and cryptography
 
-- mempool lifecycle;
-- Alephium P2P framing and payloads;
-- peer discovery and relay;
-- block/header synchronization;
-- API compatibility required by existing tooling.
+- addresses and IDs;
+- transactions;
+- outputs;
+- block headers;
+- blocks;
+- Merkle/hash behavior;
+- all protocol-required cryptography.
 
-### Phase 5 - Mainnet shadow operation
+**Exit condition:** Rust derives the same hashes/IDs as Scala for captured network data.
 
-- genesis-to-tip replay;
-- long-running Rust/Scala differential state checks;
-- fault injection;
-- restart/recovery testing;
-- storage corruption and partial-write testing;
-- P2P interoperability under real network conditions.
+### M4 - Validation and BlockFlow
 
-### Phase 6 - Performance engineering
+- official header validation;
+- official block validation;
+- official transaction validation;
+- chain/group handling;
+- BlockFlow dependencies, weights, views, and chain selection;
+- hard-fork-specific behavior.
 
-Only after parity:
+**Exit condition:** Rust accepts/rejects the same real chain data as Scala.
 
-- profile allocation and copy hot paths;
-- bounded concurrency and backpressure;
-- batch signature verification where semantics permit;
-- compact/efficient internal representations;
-- RocksDB batching and cache tuning;
-- propagation and sync optimization;
-- benchmark CPU, RAM, tail latency, replay speed, and block propagation.
+### M5 - VM and state
 
-Performance claims must be measured against the pinned Scala reference under equivalent hardware and workloads.
+- Ralph/Alphred VM behavior;
+- stack/frame/instruction semantics;
+- gas accounting;
+- contract state;
+- world-state transitions;
+- official storage behavior at the logical level.
 
-### Phase 7 - Protocol research
+**Exit condition:** Rust produces identical VM/state results for official test vectors and historical blocks.
 
-Protocol-changing work must be isolated from the compatibility client and require explicit network activation. Candidate research areas include:
+### M6 - Full synchronization
 
-- deterministic transaction access sets;
-- conflict graphs and parallel VM execution;
-- compact-block propagation;
-- increased shard/group capacity;
-- service-node infrastructure and fee-funded rewards.
+- persistent storage;
+- restart/recovery;
+- mempool;
+- complete block/header synchronization;
+- genesis-to-tip replay.
 
-None of these are V1 requirements.
+**Exit condition:** Rust syncs from genesis and reaches the same valid chain state as an official node.
 
-## Service-node research direction
+### M7 - API/tooling parity
 
-A later protocol proposal may introduce infrastructure roles that receive a fee-funded reward without receiving consensus voting power.
+- required HTTP API;
+- WebSocket support;
+- RPC behavior;
+- wallet/compiler/tools where required by project scope.
 
-Current research model:
+### M8 - Optimization
 
-| Tier | Proposed bond | Proposed maximum slots | Share of service-node reward pool |
-|---|---:|---:|---:|
-| Tier 1 / Backbone | 1,000,000 ALPH | 128 | 50% |
-| Tier 2 / Service | 100,000 ALPH | TBD | 25% |
-| Tier 3 / Edge | 10,000 ALPH | TBD | 25% |
+Only after M1-M7 parity is proven:
 
-Important constraints:
+- profile first;
+- optimize Rust implementation without changing protocol behavior;
+- benchmark against the official Scala node on equivalent hardware;
+- only then research protocol-level improvements separately.
 
-- the bond is an anti-Sybil/service commitment, **not PoS voting power**;
-- reward weight should not grow linearly above the tier minimum;
-- reward payout is monthly;
-- eligibility/performance is based on a rolling 90-day service record;
-- useful service must be provable; heartbeat-only uptime is insufficient;
-- the exact fraction of total transaction fees assigned to the service-node reward pool is **TBD**;
-- the 50/25/25 split applies to that reward pool, not automatically to all network fees;
-- this design requires economic simulation, adversarial analysis, and a protocol upgrade before activation.
+## Compatibility testing
 
-## Security principles
+Every consensus- or wire-critical component should be tested against the official implementation.
 
-- Fail closed on malformed or ambiguous data.
-- No unsafe code in consensus crates without a documented, reviewed reason.
-- No floating-point arithmetic in consensus-critical calculations.
-- Integer overflow/underflow behavior must be explicit.
-- Hard-fork rules must be centralized and testable.
-- Untrusted network input must have bounded allocation and bounded work.
-- All queues must be bounded or explicitly justified.
-- Database writes that form one logical state transition must be atomic/recoverable.
-- Every optimization must preserve deterministic output.
-- Fuzz parsers, VM inputs, transaction validation, and P2P framing.
+```text
+same bytes / same state
+       |
+   +---+---+
+   |       |
+ Scala    Rust
+   |       |
+   +---==--+
+```
 
-## Contribution rule for consensus code
+Required test classes:
 
-Any change touching codec, hashing, VM, gas, transaction/block validation, hard-fork rules, or BlockFlow must include at least one of:
+- official/golden serialization vectors;
+- Rust <-> Scala P2P interoperability tests;
+- differential transaction/block validation;
+- differential VM execution;
+- historical block replay;
+- restart/recovery tests.
 
-- a new differential test against the Scala oracle;
-- a new golden vector;
-- a historical replay assertion;
-- an interoperability test.
+The Rust node is considered correct only when its consensus-visible results match the official implementation.
 
-A benchmark alone is never sufficient justification for a consensus change.
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## License
 
-A project license has not yet been selected for this repository.
+No project license has been selected yet.
 
-The Alephium reference implementation is licensed under LGPL-3.0. Before copying or mechanically porting reference-client source code, this project must establish and follow an explicit licensing/compliance policy. Prefer protocol reimplementation from documented behavior and verified test vectors rather than uncontrolled source translation.
+The official Alephium repository is licensed under LGPL-3.0. Licensing/compliance must be resolved before mechanically copying or porting upstream source code.
 
 ## Disclaimer
 
-This project is currently experimental and unofficial. It is not a replacement for the Alephium reference client until all compatibility, replay, interoperability, and security gates are satisfied.
+This project is experimental and unofficial until compatibility with the existing Alephium network has been demonstrated and independently validated.
