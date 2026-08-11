@@ -97,9 +97,13 @@ make m1-vectors
 
 # Run the current Rust bootstrap binary
 make run
+
+# Run node watcher (auto-retry reconnect, useful when peer starts later)
+cargo run -p alephium-app -- --watch --peer <peer-address>
 ```
 
-The current Rust binary prints an honest implementation-status banner. It does not yet connect to Alephium P2P.
+The current Rust binary prints an honest implementation-status banner.
+With `--watch`, it keeps reconnecting and will connect to Alephium P2P when a peer becomes reachable.
 
 ## Non-negotiable initial rules
 
