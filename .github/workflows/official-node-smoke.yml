@@ -31,12 +31,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Fetch pinned official source
+        run: ./scripts/fetch-upstream.sh
+
       - name: Set up Java
         uses: actions/setup-java@v5.7.0
         with:
           distribution: temurin
           java-version: "17"
           cache: sbt
+          cache-dependency-path: |
+            .upstream/alephium/**/*.sbt
+            .upstream/alephium/project/build.properties
+            .upstream/alephium/project/**/*.scala
+            .upstream/alephium/project/**/*.sbt
 
       - name: Set up sbt
         uses: sbt/setup-sbt@v1.5.7
