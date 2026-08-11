@@ -78,9 +78,8 @@ pub fn encode_frame(
         });
     }
 
-    let data_len = i32::try_from(data.len()).map_err(|_| Error::LengthOutOfRange {
-        length: data.len(),
-    })?;
+    let data_len =
+        i32::try_from(data.len()).map_err(|_| Error::LengthOutOfRange { length: data.len() })?;
     let capacity = ENVELOPE_LENGTH
         .checked_add(data.len())
         .ok_or(Error::LengthOutOfRange { length: data.len() })?;
