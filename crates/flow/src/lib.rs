@@ -787,9 +787,11 @@ fn send_blocks_request(
         return Ok(());
     }
 
+    let mut seen = HashSet::new();
     let requestable: Vec<BlockHash> = locators
         .into_iter()
         .filter(|locator| locator.bytes != [0_u8; 32])
+        .filter(|locator| seen.insert(locator.bytes))
         .filter(|locator| !session.requested_block_hashes.contains(&locator.bytes))
         .collect();
 
