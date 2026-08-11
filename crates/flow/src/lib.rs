@@ -45,13 +45,17 @@ use alephium_protocol::message::payload::{
     NewBlockHash, NewHeader, NewInv, NewTxHashes, Ping, Pong, RequestId, TxsRequest, TxsResponse,
     TransactionId,
 };
-use alephium_serde::Error as SerdeError;
+use alephium_serde::{compact, fixed, Error as SerdeError};
 
 /// Current implementation status.
 pub const STATUS: &str =
     "M2 request/response decode plus announcement-driven sync scaffolding enabled.";
 
 const SYNC_STATE_FILE: &str = ".local/rustnode/sync-state.txt";
+const NONCE_BYTES: usize = 24;
+const HASH_BYTES: usize = alephium_crypto::HASH_LENGTH;
+const HEADER_VERSION_BYTES: usize = 1;
+const HEADER_TARGET_BYTES: usize = 4;
 
 #[derive(Debug, Clone, Copy)]
 pub struct WalletView {
@@ -208,9 +212,10 @@ impl SyncState {
         }
     }
 
-    fn record_blocks(&mut self, blocks: &[Vec<u8>]) {
+    fn record_blocks(&mut self, blocks: &[Vec<u8>], configured_groups: u32) {
         for bytes in blocks {
-            let hash = hash_blake2b_256(bytes);
+            let hash = extract_block_hash(bytes, configured_groups)
+                .unwrap_or_else(|_| hash_blake2b_256(bytes));
             if self.observed_blocks.insert(hash) {
                 self.blocks_seen += 1;
                 self.recent_block_hashes.push(hash);
@@ -268,6 +273,58 @@ fn decode_hex_32(input: &str) -> io::Result<[u8; 32]> {
         })?;
     }
     Ok(bytes)
+}
+
+fn extract_block_hash(
+    bytes: &[u8],
+    configured_groups: u32,
+) -> Result<[u8; alephium_crypto::HASH_LENGTH], ()> {
+    let header_len = extract_block_header_len(bytes, configured_groups)?;
+    Ok(hash_blake3_double(&bytes[..header_len]))
+}
+
+fn extract_block_header_len(bytes: &[u8], configured_groups: u32) -> Result<usize, ()> {
+    let configured_groups = usize::try_from(configured_groups).map_err(|_| ())?;
+    let max_deps = configured_groups
+        .checked_mul(2)
+        .and_then(|v| v.checked_sub(1))
+        .ok_or(())?;
+    let mut rest = bytes;
+
+    rest = fixed::take(rest, NONCE_BYTES).map_err(|_| ())?.rest;
+    if rest.len() < HEADER_VERSION_BYTES {
+        return Err(());
+    }
+    rest = &rest[HEADER_VERSION_BYTES..];
+
+    let dep_count = compact::decode_i32(rest).map_err(|_| ())?;
+    if dep_count.value < 0 {
+        return Err(());
+    }
+    rest = dep_count.rest;
+    let dep_count: usize = dep_count.value.try_into().map_err(|_| ())?;
+    if dep_count > max_deps {
+        return Err(());
+    }
+
+    for _ in 0..dep_count {
+        rest = fixed::take(rest, HASH_BYTES).map_err(|_| ())?.rest;
+    }
+
+    rest = fixed::take(rest, HASH_BYTES).map_err(|_| ())?.rest;
+    rest = fixed::take(rest, HASH_BYTES).map_err(|_| ())?.rest;
+    let staged_timestamp = fixed::decode_i64_be(rest).map_err(|_| ())?;
+    if staged_timestamp.value < 0 {
+        return Err(());
+    }
+    rest = staged_timestamp.rest;
+    rest = fixed::take(rest, HEADER_TARGET_BYTES).map_err(|_| ())?.rest;
+    let header_len = bytes.len().checked_sub(rest.len()).ok_or(())?;
+    if header_len == 0 || header_len > bytes.len() {
+        Err(())
+    } else {
+        Ok(header_len)
+    }
 }
 
 pub fn load_wallet_snapshot() -> Result<WalletView, FlowError> {
@@ -705,7 +762,9 @@ fn handle_blocks_response(
         response.id.value,
         response.blocks.len()
     );
-    session.sync_state.record_blocks(&response.blocks);
+    session
+        .sync_state
+        .record_blocks(&response.blocks, config.configured_groups());
     persist_sync_state(session);
     maybe_send_txs_request(stream, config, session)?;
     Ok(())
@@ -759,6 +818,13 @@ fn handle_headers_response(
         response.headers.len()
     );
     session.sync_state.record_headers(&response.headers);
+    if session.last_headers_locator.is_none() {
+        if let Some(locator) =
+            header_locator_from_response(&response.headers, config.configured_groups())
+        {
+            session.last_headers_locator = Some(locator);
+        }
+    }
     persist_sync_state(session);
     maybe_send_blocks_request(stream, config, session, &response)?;
     Ok(())
@@ -778,6 +844,14 @@ fn maybe_send_blocks_request(
         .map(|locator| vec![locator])
         .unwrap_or_default();
     send_blocks_request(stream, config, session, locators)
+}
+
+fn header_locator_from_response(
+    headers: &[Vec<u8>],
+    configured_groups: u32,
+) -> Option<BlockHash> {
+    let first = headers.first()?;
+    extract_block_hash(first, configured_groups).ok().map(|bytes| BlockHash { bytes })
 }
 
 fn send_blocks_request(
@@ -1031,12 +1105,14 @@ fn handle_inv_response(
 
 fn handle_new_block(
     _stream: &mut TcpStream,
-    _config: &NodeConfig,
+    config: &NodeConfig,
     session: &mut Session,
     block: NewBlock,
 ) {
     println!("received NewBlock with {} bytes", block.bytes.len());
-    session.sync_state.record_blocks(&[block.bytes.clone()]);
+    session
+        .sync_state
+        .record_blocks(&[block.bytes.clone()], config.configured_groups());
     persist_sync_state(session);
 }
 
@@ -1049,9 +1125,9 @@ fn handle_new_header(
     println!("received NewHeader with {} bytes", header.bytes.len());
     session.sync_state.record_headers(&[header.bytes.clone()]);
     persist_sync_state(session);
-    let locators = vec![BlockHash {
-        bytes: hash_blake3_double(&header.bytes),
-    }];
+    let locator = extract_block_hash(&header.bytes, config.configured_groups())
+        .unwrap_or_else(|_| hash_blake3_double(&header.bytes));
+    let locators = vec![BlockHash { bytes: locator }];
     if let Err(error) = send_blocks_request(stream, config, session, locators) {
         eprintln!("failed to request block for NewHeader: {error}");
     }
@@ -1358,4 +1434,42 @@ fn now_millis() -> Result<i64, FlowError> {
         .map_err(|error| FlowError::Protocol(format!("invalid system time: {error}")))?;
     i64::try_from(duration.as_millis())
         .map_err(|error| FlowError::Protocol(format!("timestamp overflow: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        compact, extract_block_hash, hash_blake2b_256, hash_blake3_double, SyncState, HASH_BYTES,
+        HEADER_TARGET_BYTES, NONCE_BYTES,
+    };
+
+    #[test]
+    fn extract_block_hash_uses_block_header_when_parsable() {
+        let mut block = Vec::new();
+        block.resize(NONCE_BYTES, 0x11);
+        block.extend_from_slice(&[0x00]);
+        block.extend_from_slice(&compact::encode_i32(7));
+        for _ in 0..7 {
+            block.extend_from_slice(&[0x22_u8; HASH_BYTES]);
+        }
+        block.extend_from_slice(&[0x33_u8; HASH_BYTES]); // depStateHash
+        block.extend_from_slice(&[0x44_u8; HASH_BYTES]); // txsHash
+        block.extend_from_slice(&0x0000_0001_6974_0000_i64.to_be_bytes());
+        block.resize(block.len() + HEADER_TARGET_BYTES, 0x55); // target
+
+        let expected = hash_blake3_double(&block);
+        assert_eq!(extract_block_hash(&block, 4), Ok(expected));
+    }
+
+    #[test]
+    fn extract_block_hash_fallback_to_blake2b_on_invalid_block() {
+        let mut state = SyncState::default();
+        let block = vec![vec![0x99_u8; 2]];
+
+        state.record_blocks(&block, 4);
+
+        assert_eq!(state.blocks_seen, 1);
+        assert_eq!(state.recent_block_hashes, vec![hash_blake2b_256(&block[0])]);
+        assert!(state.observed_blocks.contains(&hash_blake2b_256(&block[0])));
+    }
 }

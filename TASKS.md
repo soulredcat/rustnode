@@ -95,7 +95,7 @@ cargo test --workspace
 - harness commit: `c168d2bfef5d1a7d624f54697dedd18dd1006ce3`;
 - workflow-order fix: `88796ffae76abe76abf69d7f38936ffd7aa71da7`;
 - successful GitHub Actions run: `31460207593`;
-- official JAR built from the pinned commit and opened `127.0.0.1:19985` (previously `19975`, then `19974`, and earlier `19973` before Java collision-avoidance updates).
+- official JAR built from the pinned commit and opened `127.0.0.1:19985` (after prior Java-safe migrations through `19975`/`19974`/`19973` and compatibility updates).
 
 ### M0 exit gate
 

@@ -76,8 +76,8 @@ if is_port_open "${P2P_HOST}" "${P2P_PORT}"; then
   exit 1
 fi
 
-if [[ "${P2P_PORT}" -eq 19973 || "${P2P_PORT}" -eq 19974 || "${P2P_PORT}" -eq 19975 ]]; then
-  echo "Peringatan: port ${P2P_PORT} sering dipakai node Java; gunakan OFFICIAL_NODE_P2P_PORT=19985 agar tidak bentrok." >&2
+if [[ "${P2P_PORT}" -eq 19973 || "${P2P_PORT}" -eq 19974 || "${P2P_PORT}" -eq 19975 || "${P2P_PORT}" -eq 19985 ]]; then
+  echo "Peringatan: port ${P2P_PORT} sering dipakai node Java; jika bentrok, gunakan OFFICIAL_NODE_P2P_PORT ke port lain." >&2
 fi
 
 "${ROOT_DIR}/scripts/official-node/build.sh"

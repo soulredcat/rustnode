@@ -87,7 +87,7 @@ make check
 make official-smoke
 
 # WARNING: default local official-node P2P port is 19985.
-# Avoid Java port collisions on 19973/19974/19975 by explicitly setting OFFICIAL_NODE_P2P_PORT or RUST_INTEROP_PEER_PORT.
+# If Java node shares this port, set OFFICIAL_NODE_P2P_PORT or RUST_INTEROP_PEER_PORT to another value before start.
 
 # Run the pure-Rust M1 bootstrap peer smoke (no Java / no JVM dependencies)
 make rust-interop-m1

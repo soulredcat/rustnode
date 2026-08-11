@@ -377,6 +377,36 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 
 **Outcome:** default runtime/devnet port for local runs is now `127.0.0.1:19985`, with clearer collision warning text so Java peer remains untouched when attach/managed interop is used.
 
+## 2026-08-11 — Interop port migration to non-conflicting default 20000
+
+**Task:** move the default local interop/runtime P2P endpoint off legacy/common Java ports while preserving override path.
+
+**Implementation details:**
+
+- changed local interoperability default port from `19985` to `20000` in:
+  - `config/official-node/user.conf` (`bind-address`, `internal-address`, `coordinator-address`);
+  - `crates/conf/src/lib.rs` (`DEFAULT_PEER_ADDRESS`);
+  - `scripts/official-node/{prepare-home.sh,smoke.sh,interoperability.sh,interoperability-interop-clean.sh}`;
+  - documentation (`README.md`, `docs/LOCAL_OFFICIAL_NODE.md`, `TASKS.md`, `tests/interoperability/m1/README.md`).
+- expanded Java-collision warnings so ports `19973`, `19974`, `19975`, and `19985` are flagged, and directed users to the new safer default `20000`.
+
+**Outcome:** managed interop scripts and local runbook now default to `127.0.0.1:20000` to keep Java/Alephium process on its legacy port(s) intact by default.
+
+## 2026-08-11 — Interop default restored to 19985
+
+**Task:** keep repository aligned with requested local baseline while retaining clear Java-collision warnings.
+
+**Implementation details:**
+
+- restored default P2P/listen ports from `20000` back to `19985` in:
+  - `config/official-node/user.conf`;
+  - `crates/conf/src/lib.rs` (`DEFAULT_PEER_ADDRESS`);
+  - `scripts/official-node/{prepare-home.sh,smoke.sh,interoperability.sh}`;
+  - docs (`README.md`, `docs/LOCAL_OFFICIAL_NODE.md`, `tests/interoperability/m1/README.md`).
+- kept explicit warning guidance in scripts and docs to override `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT` when Java occupies `19985`.
+
+**Outcome:** default local interop remains `127.0.0.1:19985` per request, with explicit collision warning for Java coexistence.
+
 ## 2026-08-11 — M3 header-hash parity partial alignment (Blake3)
 
 **Task:** align header hash construction with upstream semantics where supported by current Rust path.

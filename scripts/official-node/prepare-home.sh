@@ -27,8 +27,8 @@ if [[ ! "$OFFICIAL_NODE_P2P_PORT" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-if [[ "${OFFICIAL_NODE_P2P_PORT}" -eq 19973 || "${OFFICIAL_NODE_P2P_PORT}" -eq 19974 || "${OFFICIAL_NODE_P2P_PORT}" -eq 19975 ]]; then
-  echo "Peringatan: ${OFFICIAL_NODE_P2P_PORT} sering dipakai untuk node Java/Alephium lokal. Gunakan port lain (mis. 19985) agar tidak bentrok." >&2
+if [[ "${OFFICIAL_NODE_P2P_PORT}" -eq 19973 || "${OFFICIAL_NODE_P2P_PORT}" -eq 19974 || "${OFFICIAL_NODE_P2P_PORT}" -eq 19975 || "${OFFICIAL_NODE_P2P_PORT}" -eq 19985 ]]; then
+  echo "Peringatan: ${OFFICIAL_NODE_P2P_PORT} sering dipakai untuk node Java/Alephium lokal. Jika bentrok, jalankan dengan OFFICIAL_NODE_P2P_PORT <port_lain> dan attach jika perlu." >&2
 fi
 
 if [[ "${OFFICIAL_NODE_P2P_PORT}" -ne 19985 ]]; then
