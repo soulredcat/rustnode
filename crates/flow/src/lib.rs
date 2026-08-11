@@ -923,16 +923,27 @@ fn maybe_send_txs_request(
     if session.sent_txs_request {
         return Ok(());
     }
+
+    let fallback_tx_hashes: Vec<TransactionId> = session
+        .sync_state
+        .recent_block_hashes
+        .iter()
+        .rev()
+        .take(16)
+        .copied()
+        .map(|bytes| TransactionId { bytes })
+        .collect();
+
+    if fallback_tx_hashes.is_empty() {
+        println!("TxsRequest skipped; no known tx or block hashes available for probe.");
+        return Ok(());
+    }
+
     send_txs_request(
         stream,
         config,
         session,
-        vec![(
-            ChainIndex { from: 0, to: 0 },
-            vec![TransactionId {
-                bytes: [0x02_u8; 32],
-            }],
-        )],
+        vec![(ChainIndex { from: 0, to: 0 }, fallback_tx_hashes)],
     )
 }
 

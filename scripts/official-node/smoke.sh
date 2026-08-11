@@ -71,8 +71,8 @@ PY
 
 if is_port_open "${P2P_HOST}" "${P2P_PORT}"; then
   echo "Peringatan: ${P2P_HOST}:${P2P_PORT} sudah dipakai proses lain (kemungkinan Java/Alephium)." >&2
-  echo "Jalankan smoke dengan OFFICIAL_NODE_P2P_PORT pada port bebas agar tidak konflik." >&2
-  echo "Untuk co-location, default aman untuk devnet yang sama-sama lokal adalah 19985." >&2
+  echo "Repo ini default pakai port ${P2P_PORT} (idealnya 19985 untuk interop Rust-Scala saat ini)." >&2
+  echo "Jika port ini dipakai Java/Alephium, jalankan dengan OFFICIAL_NODE_P2P_PORT ke port lain, atau jalankan attach mode ke peer yang sudah hidup." >&2
   exit 1
 fi
 

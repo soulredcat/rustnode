@@ -145,7 +145,9 @@ Before committing interoperability evidence:
 
 Do not point malformed-frame tests at public mainnet or testnet peers.
 
-WARNING: the default P2P port for this devnet harness is `19985`. If Java node Anda memakai port ini, override dengan `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT` sebelum menjalankan.
+WARNING: this repository’s local interoperability harness is configured to use `19985` by default.
+If Java node Anda memakai port ini, override dengan `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT` sebelum menjalankan.
+Jangan menjalankan dua node yang bind ke `19985` secara bersamaan; gunakan `RUST_INTEROP_ATTACH_TO_EXISTING=1` saat hanya ingin attach ke Java peer yang sudah jalan.
 
 Do not expose ports `19985`, `12973`, or `10973` beyond loopback for this harness.
 
