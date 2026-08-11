@@ -62,7 +62,11 @@ fn decode_hex(value: &str) -> Vec<u8> {
 
 fn magic() -> NetworkMagic {
     let fixture = decode_hex(NETWORK_MAGIC);
-    NetworkMagic::new(fixture.try_into().expect("magic fixture must be four bytes"))
+    NetworkMagic::new(
+        fixture
+            .try_into()
+            .expect("magic fixture must be four bytes"),
+    )
 }
 
 #[test]
@@ -106,7 +110,9 @@ fn every_incomplete_hello_prefix_requests_more_data_without_panicking() {
             FrameDecode::NeedMoreData { required_total } => {
                 assert!(required_total > prefix_len, "prefix {prefix_len}");
             }
-            FrameDecode::Complete(_) => panic!("incomplete prefix {prefix_len} decoded as complete"),
+            FrameDecode::Complete(_) => {
+                panic!("incomplete prefix {prefix_len} decoded as complete");
+            }
         }
     }
 }
@@ -147,19 +153,11 @@ fn invalid_envelope_vectors_fail_at_the_official_boundary() {
         Err(Error::WrongFormat { .. })
     ));
     assert!(matches!(
-        decode_frame_exact(
-            &decode_hex(WRONG_CHECKSUM),
-            magic(),
-            MAX_TEST_DATA_LENGTH
-        ),
+        decode_frame_exact(&decode_hex(WRONG_CHECKSUM), magic(), MAX_TEST_DATA_LENGTH),
         Err(Error::WrongFormat { .. })
     ));
     assert!(matches!(
-        decode_frame_exact(
-            &decode_hex(NEGATIVE_LENGTH),
-            magic(),
-            MAX_TEST_DATA_LENGTH
-        ),
+        decode_frame_exact(&decode_hex(NEGATIVE_LENGTH), magic(), MAX_TEST_DATA_LENGTH),
         Err(Error::WrongFormat { .. })
     ));
 }
