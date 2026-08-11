@@ -39,9 +39,9 @@ to validate the Rust handshake + ping/pong and frame decode path without Java.
 
 - Environment variables:
 
-- `RUST_INTEROP_PEER_ADDRESS` (default `127.0.0.1:19975`)
-- `RUST_INTEROP_PEER_PORT` (default `19975`) - alternative shorthand to change only port
-- `OFFICIAL_NODE_P2P_PORT` (default `19975`) - sets runtime official-node listener port when script-managed (`prepare-home.sh`)
+- `RUST_INTEROP_PEER_ADDRESS` (default `127.0.0.1:19985`)
+- `RUST_INTEROP_PEER_PORT` (default `19985`) - alternative shorthand to change only port
+- `OFFICIAL_NODE_P2P_PORT` (default `19985`) - sets runtime official-node listener port when script-managed (`prepare-home.sh`)
 - `RUST_INTEROP_DURATION_SECONDS` (default `120`)
 - `OFFICIAL_NODE_STATE_DIR` / `RUST_INTEROP_DIR` / `ALEPHIUM_UPSTREAM_DIR`
 - `OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS` (default `180`)

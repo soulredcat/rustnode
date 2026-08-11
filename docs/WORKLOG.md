@@ -361,3 +361,18 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 - synchronized `TASKS.md` historical references to current default `127.0.0.1:19975`.
 
 **Outcome:** safer coexistence with an already-running Java/Alephium node is now possible without changing topology or manually reconfiguring public-facing ports; attach mode remains recommended for live Java coexistence.
+
+## 2026-08-11 — Interop port migration to Java-safe default 19985
+
+**Task:** eliminate remaining implicit overlap with common Java/Alephium peer ports while preserving local interoperability defaults.
+
+**Implementation details:**
+
+- changed local interoperability default port from `19975` to `19985` in:
+  - `config/official-node/user.conf` (`bind-address`, `internal-address`, `coordinator-address`);
+  - `crates/conf/src/lib.rs` (`DEFAULT_PEER_ADDRESS`);
+  - `scripts/official-node/{prepare-home.sh,smoke.sh,interoperability.sh}`;
+  - documentation (`README.md`, `docs/LOCAL_OFFICIAL_NODE.md`, `tests/interoperability/m1/README.md`, `TASKS.md`);
+- added explicit warning output when selected port is one of Java-typical ports (`19973`, `19974`, `19975`) with a direct recommendation to use `19985` or explicit `RUST_INTEROP_*` overrides.
+
+**Outcome:** default runtime/devnet port for local runs is now `127.0.0.1:19985`, with clearer collision warning text so Java peer remains untouched when attach/managed interop is used.

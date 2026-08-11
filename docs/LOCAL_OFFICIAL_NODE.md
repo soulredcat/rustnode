@@ -25,7 +25,7 @@ Native PowerShell automation is not yet provided. On Windows, use WSL2 for M0/M1
 Official Scala node
 network-id: 2 (devnet)
 bootstrap peers: none
-P2P: 127.0.0.1:19975
+P2P: 127.0.0.1:19985
 REST: 127.0.0.1:12973
 miner API: 127.0.0.1:10973
 P2P mode for M1: v1
@@ -62,7 +62,7 @@ The command:
 3. creates an isolated home under `.local/official-node/home`;
 4. copies `config/official-node/user.conf` with mode `0600`;
 5. starts the official JAR;
-6. waits for `127.0.0.1:${OFFICIAL_NODE_P2P_PORT:-19975}`;
+6. waits for `127.0.0.1:${OFFICIAL_NODE_P2P_PORT:-19985}`;
 7. verifies the process remains alive after readiness;
 8. prints recent logs;
 9. shuts the process down through a cleanup trap.
@@ -145,11 +145,11 @@ Before committing interoperability evidence:
 
 Do not point malformed-frame tests at public mainnet or testnet peers.
 
-WARNING: the default P2P port for this devnet harness is `19975` to avoid collision with common Java node
-peer ports `19973` and `19974`. If you need to run multiple nodes on one host, set
+WARNING: the default P2P port for this devnet harness is `19985` to avoid collision with common Java node
+peer ports `19973`, `19974`, and `19975`. If you need to run multiple nodes on one host, set
 `RUST_INTEROP_PEER_ADDRESS` / `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT`, keep all peers on loopback, and avoid killing unrelated production processes.
 
-Do not expose ports `19975`, `12973`, or `10973` beyond loopback for this harness.
+Do not expose ports `19985`, `12973`, or `10973` beyond loopback for this harness.
 
 Do not reuse the harness home for wallets, mining, or production state.
 

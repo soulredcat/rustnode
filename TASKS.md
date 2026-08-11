@@ -85,7 +85,7 @@ cargo test --workspace
 
 - isolated devnet configuration in `config/official-node/user.conf`;
 - pinned official-node build/run/smoke scripts;
-- loopback-only P2P endpoint `127.0.0.1:19975`;
+- loopback-only P2P endpoint `127.0.0.1:19985`;
 - no bootstrap peers and no public-network malformed traffic;
 - reproducible runbook in `docs/LOCAL_OFFICIAL_NODE.md`;
 - dedicated GitHub Actions smoke workflow.
@@ -95,7 +95,7 @@ cargo test --workspace
 - harness commit: `c168d2bfef5d1a7d624f54697dedd18dd1006ce3`;
 - workflow-order fix: `88796ffae76abe76abf69d7f38936ffd7aa71da7`;
 - successful GitHub Actions run: `31460207593`;
-- official JAR built from the pinned commit and opened `127.0.0.1:19975` (previously `19974` and earlier `19973` before Java conflict avoidance updates).
+- official JAR built from the pinned commit and opened `127.0.0.1:19985` (previously `19975`, then `19974`, and earlier `19973` before Java collision-avoidance updates).
 
 ### M0 exit gate
 
