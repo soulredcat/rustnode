@@ -14,7 +14,7 @@ Completed foundation:
 
 - the minimum Rust workspace compiles, lints, and tests in CI;
 - CI fetches the exact pinned official Alephium source;
-- the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19973`;
+- the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19974`;
 - project tasks, upstream mappings, AI rules, runbooks, and worklogs are committed.
 
 Current active work is extending interoperability smoke into basic sync requests (`Inv/Headers/Blocks/Txs`) and decoding the responses. **Rust synchronization state machine, validation, VM execution, and production use are not implemented yet.**
@@ -104,6 +104,7 @@ cargo run -p alephium-app -- --watch --peer <peer-address>
 # Run interop against an already-running peer (no managed official-node lifecycle)
 RUST_INTEROP_ATTACH_TO_EXISTING=1 make official-interop-m1
 RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
+# ATTENTION: ATTACH mode does not manage the official-node lifecycle (no startup/kill).
 ```
 
 The current Rust binary prints an honest implementation-status banner.

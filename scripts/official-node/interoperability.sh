@@ -12,7 +12,8 @@ RUST_ERROR_FILE="${INTEROP_DIR}/error.txt"
 RUST_PID_FILE="${INTEROP_DIR}/rust-node.pid"
 ATTACH_TO_EXISTING="${RUST_INTEROP_ATTACH_TO_EXISTING:-0}"
 
-PEER_ADDRESS="${RUST_INTEROP_PEER_ADDRESS:-127.0.0.1:19973}"
+DEFAULT_INTEROP_PORT="${RUST_INTEROP_PEER_PORT:-19974}"
+PEER_ADDRESS="${RUST_INTEROP_PEER_ADDRESS:-127.0.0.1:${DEFAULT_INTEROP_PORT}}"
 PEER_HOST="${PEER_ADDRESS%:*}"
 PEER_PORT="${PEER_ADDRESS##*:}"
 DURATION_SECONDS="${RUST_INTEROP_DURATION_SECONDS:-120}"
@@ -122,10 +123,34 @@ environment_file: ${RUST_MANIFEST_FILE}
 EOF
 }
 
+run_rust_peer() {
+  if command -v cargo >/dev/null 2>&1; then
+    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- "${PEER_ADDRESS}")
+    return
+  fi
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    local windows_root
+    windows_root="$(wslpath -w "${ROOT_DIR}")"
+    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- ${PEER_ADDRESS} }"
+    return
+  fi
+
+  echo "cargo not found; please install Rust or make cargo available in shell PATH" >&2
+  return 1
+}
+
 mkdir -p "${STATE_DIR}" "${INTEROP_DIR}"
 write_manifest
 
 if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
+  if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
+    echo "WARNING: ${PEER_ADDRESS} already has a listening process." >&2
+    echo "Jika Java node Anda sedang jalan di port ini, gunakan ATTACH mode agar tidak bentrok." >&2
+    echo "Lanjutkan hanya dengan membunuh proses yang dipakai port itu atau pindah ke port lain dengan RUST_INTEROP_PEER_ADDRESS." >&2
+    exit 1
+  fi
+
   "${ROOT_DIR}/scripts/official-node/build.sh"
   OFFICIAL_NODE_RESET=1 "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
 
@@ -161,11 +186,11 @@ else
     exit 1
   fi
   echo "attaching to existing peer at ${PEER_ADDRESS} (skip official node startup/cleanup)"
+  echo "WARNING: ATTACH mode aktif, script tidak akan menyalakan atau mematikan node Java/official." >&2
 fi
 
 (
-  cd "${ROOT_DIR}"
-  cargo run -p alephium-app -- "${PEER_ADDRESS}"
+  run_rust_peer
 ) >"${RUST_LOG_FILE}" 2>"${RUST_ERROR_FILE}" &
 rust_pid=$!
 printf '%s\n' "${rust_pid}" > "${RUST_PID_FILE}"

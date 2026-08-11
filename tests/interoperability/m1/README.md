@@ -25,6 +25,7 @@ Jika official node Anda sudah running di peer yang sama dan Anda tidak ingin scr
 ```bash
 RUST_INTEROP_ATTACH_TO_EXISTING=1 make official-interop-m1
 RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
+Peringatan: mode attach tidak akan menyalakan atau mematikan node official/Java yang sedang berjalan.
 ```
 
 For a pure-Rust connectivity smoke (no official JVM node), use:
@@ -36,9 +37,10 @@ make rust-interop-m1
 The command runs `crates/flow` integration test peer exchange (`full_rust_mock_peer_handshake_and_ping_pong`)
 to validate the Rust handshake + ping/pong and frame decode path without Java.
 
-Environment variables:
+- Environment variables:
 
-- `RUST_INTEROP_PEER_ADDRESS` (default `127.0.0.1:19973`)
+- `RUST_INTEROP_PEER_ADDRESS` (default `127.0.0.1:19974`)
+- `RUST_INTEROP_PEER_PORT` (default `19974`) - alternative shorthand to change only port
 - `RUST_INTEROP_DURATION_SECONDS` (default `120`)
 - `OFFICIAL_NODE_STATE_DIR` / `RUST_INTEROP_DIR` / `ALEPHIUM_UPSTREAM_DIR`
 - `OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS` (default `180`)
