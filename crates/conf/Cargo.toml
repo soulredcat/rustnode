@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 alephium-util = { path = "../util" }
+alephium-crypto = { path = "../crypto" }
 
 [lints]
 workspace = true

@@ -2,7 +2,9 @@
 
 use std::process;
 
-use alephium_conf::{NodeConfig, DEFAULT_PEER_ADDRESS};
+use alephium_conf::{
+    resolve_node_identity_path, NodeConfig, DEFAULT_PEER_ADDRESS,
+};
 use alephium_flow::run;
 
 fn main() {
@@ -12,7 +14,14 @@ fn main() {
         peer_address = args[1].clone();
     }
 
-    let config = NodeConfig::with_peer_address(peer_address);
+    let identity_path = resolve_node_identity_path();
+    let config = match NodeConfig::with_peer_address(peer_address).with_node_identity_path(identity_path) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("failed to load node identity: {error}");
+            process::exit(1);
+        }
+    };
 
     println!("alephium-node-rs");
     println!("upstream baseline: {}", alephium_util::UPSTREAM_BASELINE_COMMIT);

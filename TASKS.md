@@ -13,8 +13,8 @@ Last updated: `2026-08-11`
 
 ```text
 Current milestone: M1 — official P2P handshake and Ping/Pong
-Current active gate: M1-005 — handshake persistence and identity lifecycle
-Next implementation task: M1-002 — bounded Alephium binary codec primitives
+Current active gate: M2 — Request and decode real network data
+Next implementation task: M2 data requests and synchronization request primitives
 ```
 
 M0 is complete. No task beyond M1 should begin until the official Scala node accepts the Rust handshake.
@@ -175,13 +175,13 @@ Read these before implementation:
 
 ### M1-005 — Implement official handshake cryptography and identity persistence
 
-**Status:** `IN PROGRESS`
+**Status:** `DONE`
 
 **Dependency:** M1-001 and M1-004.
 
 **Scope:** official SecP256K1 formats/signing/verification required by handshake; persistent identity file with atomic creation and restrictive permissions where supported.
 
-**Current state:** signing and validation now behave against official fixtures; identity persistence is still in-memory/config fixture and is not yet persisted across restarts in production-safe storage.
+**Current state:** signing and validation now behave against official fixtures; identity persistence is implemented with atomic create-or-load identity storage at runtime.
 
 **Acceptance:** Rust verifies Scala signatures and Scala verifies Rust-produced `Hello` signatures.
 
@@ -233,7 +233,7 @@ Disconnected -> Connecting -> TcpConnected -> HelloSent
 
 ### M1 exit gate
 
-M1-005 remains open for persisted identity lifecycle. Other gates are currently `DONE`.
+M1 exit gate complete. M2 is now the next blocked milestone.
 
 ---
 

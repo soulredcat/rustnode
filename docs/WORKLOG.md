@@ -212,3 +212,21 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 **Blocker remaining for next milestone:**
 
 - Full persistence for identity is still required for strict M1-005 scope; current Rust identity remains fixture-backed and not persisted via separate atomic storage.
+
+## 2026-08-11 — Node identity persistence (M1-005 close)
+
+**Task:** persist handshake identity across restarts.
+
+**Implementation commit:** `TBD`
+
+**Changes:**
+
+- added `NodeIdentity` persistence helpers in `crates/conf/src/lib.rs`;
+- added explicit identity path override via `RUSTNODE_IDENTITY_PATH`;
+- persisted identity now loads from disk with validation and is atomically created on first run when missing;
+- configured `crates/app/src/main.rs` to bootstrap `NodeConfig` with persisted identity before flow starts.
+
+**Acceptance updates:**
+
+- Rust handshake path still uses deterministic fixture values on first run.
+- restart behavior is now backed by file persistence; identity is re-used unless storage is missing or corrupted.

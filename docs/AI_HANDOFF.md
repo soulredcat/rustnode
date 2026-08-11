@@ -9,9 +9,9 @@ Read this file after `TASKS.md` and verify its claims against the repository and
 ## Current state
 
 ```text
-Active milestone: M1 — Official P2P interoperability path
-Active task:      M1-001 — Freeze M1 official vectors + M1-009 interoperability gate
-Task status:      IN_PROGRESS
+Active milestone: M1 — Official P2P handshake and ping/pong complete
+Active task:      M2 — Request and decode real network data
+Task status:      BLOCKED (no M2 implementation yet)
 Working branch:   main
 Pinned upstream:  alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53
 ```
@@ -35,31 +35,14 @@ Runnable Rust binary:            implemented
 Official fixture generator:      committed and used
 Message envelope:                implemented
 Hello/Ping/Pong:                 implemented
-Official-node interoperability:  harness added, runtime proof pending local tools
+Official-node interoperability:  direct official-node interop implemented and runtime-validated on Linux/WSL
 ```
 
-Do not claim protocol milestones complete until the official interoperability gate runs and succeeds.
+Do not claim protocol milestones without local evidence attached in `docs/WORKLOG.md`.
 
 ## Next exact task
 
-Close `M1-009` in `TASKS.md` with a successful `official-interop` run in an environment with:
-- Java 17+
-- sbt
-- git
-- 19973 listener
-
-Required sequence:
-
-1. Inspect the current repository tree.
-2. Choose and pin a Rust toolchain deliberately.
-3. Create the minimal workspace members listed in M0-001.
-4. Keep initial crates dependency-light and `unsafe`-free.
-5. Add a runnable node binary with a version command only; do not fake network readiness.
-6. Add unit tests proving the workspace wiring.
-7. Run all M0-001 acceptance commands.
-8. Update `TASKS.md`, this file, and `docs/WORKLOG.md` with exact results.
-
-Do not start M1 protocol implementation until the clean workspace gate passes.
+Complete `M1-005` acceptance evidence in `TASKS.md` if any manual gap remains, then start M2 protocol request work in a new session.
 
 ## Known risks
 
