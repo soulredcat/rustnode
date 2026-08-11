@@ -19,6 +19,15 @@ be committed as a reproducible test record after each run.
 make official-interop-m1
 ```
 
+For a pure-Rust connectivity smoke (no official JVM node), use:
+
+```bash
+make rust-interop-m1
+```
+
+The command runs `crates/flow` integration test peer exchange (`full_rust_mock_peer_handshake_and_ping_pong`)
+to validate the Rust handshake + ping/pong and frame decode path without Java.
+
 Environment variables:
 
 - `RUST_INTEROP_PEER_ADDRESS` (default `127.0.0.1:19973`)

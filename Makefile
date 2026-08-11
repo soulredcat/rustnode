@@ -1,4 +1,4 @@
-.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke official-interop-m1 m1-vectors
+.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke official-interop-m1 rust-interop-m1 m1-vectors
 
 check: fmt check-build clippy test
 
@@ -31,6 +31,9 @@ official-smoke:
 
 official-interop-m1:
 	./scripts/official-node/interoperability.sh
+
+rust-interop-m1:
+	./scripts/rust-only-smoke.sh
 
 m1-vectors:
 	./scripts/generate-m1-vectors.sh

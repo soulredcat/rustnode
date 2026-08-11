@@ -86,6 +86,9 @@ make check
 # Build and smoke-test the isolated official Scala node
 make official-smoke
 
+# Run the pure-Rust M1 bootstrap peer smoke (no Java / no JVM dependencies)
+make rust-interop-m1
+
 # Run the Rust/official interoperability smoke run
 make official-interop-m1
 
