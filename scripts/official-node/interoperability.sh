@@ -213,6 +213,10 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "WARNING: ${PEER_ADDRESS} already has a listening process." >&2
     if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 || "${PEER_PORT}" -eq 19975 || "${PEER_PORT}" -eq 19985 ]]; then
+      if [[ "${PEER_PORT}" -eq 19985 ]]; then
+        echo "Peringatan: 19985 adalah port default repo ini. Java/Alephium lokal juga sering memakai port ini." >&2
+        echo "Jika Java harus tetap jalan, jalankan dengan ATTACH mode atau ganti RUST_INTEROP_PEER_PORT." >&2
+      fi
       echo "Peringatan: port ${PEER_PORT} sering dipakai node Java; sesuaikan dengan OFFICIAL_NODE_P2P_PORT/RUST_INTEROP_PEER_PORT jika bentrok." >&2
       append_operator_note "startup blocked: ${PEER_ADDRESS} already listened and is Java-common."
     fi
@@ -255,6 +259,9 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   fi
 else
   if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 || "${PEER_PORT}" -eq 19975 || "${PEER_PORT}" -eq 19985 ]]; then
+    if [[ "${PEER_PORT}" -eq 19985 ]]; then
+      echo "Peringatan: 19985 adalah port default repo ini. Pastikan node Java tidak ikut dimatikan saat ATTACH." >&2
+    fi
     echo "Peringatan: port ${PEER_PORT} sering dipakai node Java. Jika bentrok, gunakan RUST_INTEROP_PEER_ADDRESS/PORT lain." >&2
     append_operator_note "ATTACH mode used with Java-common port ${PEER_PORT}."
   fi

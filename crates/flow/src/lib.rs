@@ -365,6 +365,7 @@ struct Session {
     outstanding_txs_request: Option<u32>,
     chain_state_tips: Vec<BlockHash>,
     requested_block_hashes: HashSet<[u8; 32]>,
+    requested_header_locators: HashSet<[u8; 32]>,
     requested_tx_ids: HashSet<[u8; 32]>,
     sync_state: SyncState,
     sent_inv_request: bool,
@@ -431,6 +432,7 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         outstanding_txs_request: None,
         chain_state_tips: Vec::new(),
         requested_block_hashes: HashSet::new(),
+        requested_header_locators: HashSet::new(),
         requested_tx_ids: HashSet::new(),
         sync_state: SyncState::load().unwrap_or_default(),
         sent_inv_request: false,
@@ -668,7 +670,7 @@ fn maybe_send_headers_probe(
     session: &mut Session,
     response: &InvResponse,
 ) -> Result<(), FlowError> {
-    if session.sent_headers_request {
+    if session.outstanding_headers_request.is_some() {
         return Ok(());
     }
 
@@ -693,11 +695,35 @@ fn send_headers_request(
     session: &mut Session,
     locators: Vec<BlockHash>,
 ) -> Result<(), FlowError> {
+    if session.outstanding_headers_request.is_some() {
+        return Ok(());
+    }
+
+    let has_locator_input = !locators.is_empty();
+    let mut seen = HashSet::new();
+    let request_locators: Vec<BlockHash> = locators
+        .into_iter()
+        .filter(|locator| locator.bytes != [0_u8; 32])
+        .filter(|locator| seen.insert(locator.bytes))
+        .filter(|locator| !session.requested_header_locators.contains(&locator.bytes))
+        .filter_map(|locator| {
+            if session.requested_header_locators.insert(locator.bytes) {
+                Some(locator)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if request_locators.is_empty() && has_locator_input {
+        return Ok(());
+    }
+
     let request = HeadersRequest {
         id: RequestId {
             value: next_request_id(&mut session.next_request_id),
         },
-        locators,
+        locators: request_locators,
     };
     session.last_headers_locator = request.locators.first().copied();
     let payload = encode_headers_request_payload(&request).map_err(|error| {
@@ -848,9 +874,6 @@ fn maybe_send_blocks_request(
     session: &mut Session,
     _response: &HeadersResponse,
 ) -> Result<(), FlowError> {
-    if session.sent_blocks_request {
-        return Ok(());
-    }
     let locators = session
         .last_headers_locator
         .map(|locator| vec![locator])
@@ -1194,9 +1217,6 @@ fn handle_new_block_hash(
         "received NewBlockHash bytes {}",
         block_hash.hash.bytes.len()
     );
-    if session.sent_headers_request {
-        return;
-    }
     if let Err(error) = send_headers_request(
         stream,
         config,
