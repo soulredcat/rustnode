@@ -566,7 +566,7 @@ fn process_inbound(
             }
             NEW_BLOCK_HASH_CODE => {
                 let block_hash = decode_new_block_hash_payload(payload)?.finish(payload_len)?;
-                handle_new_block_hash(block_hash);
+                handle_new_block_hash(stream, config, session, block_hash);
             }
             NEW_TX_HASHES_CODE => {
                 let hashes = decode_new_txhashes_payload(payload)?.finish(payload_len)?;
@@ -1184,8 +1184,27 @@ fn handle_new_inv(
     }
 }
 
-fn handle_new_block_hash(block_hash: NewBlockHash) {
-    println!("received NewBlockHash bytes {}", block_hash.hash.bytes.len());
+fn handle_new_block_hash(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    block_hash: NewBlockHash,
+) {
+    println!(
+        "received NewBlockHash bytes {}",
+        block_hash.hash.bytes.len()
+    );
+    if session.sent_headers_request {
+        return;
+    }
+    if let Err(error) = send_headers_request(
+        stream,
+        config,
+        session,
+        vec![block_hash.hash],
+    ) {
+        eprintln!("failed to request headers from NewBlockHash: {error}");
+    }
 }
 
 fn handle_new_txhashes(
