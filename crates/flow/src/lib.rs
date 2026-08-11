@@ -153,7 +153,10 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
             Err(error) => return Err(error.into()),
         }
 
-        process_inbound(&magic, &mut stream, config, &mut inbound, &mut session)?;
+        if let Err(error) = process_inbound(&magic, &mut stream, config, &mut inbound, &mut session) {
+            eprintln!("flow inbound processing error: {}", error);
+            return Err(error);
+        }
 
         if session.state == SessionState::Established {
             let now = Instant::now();
@@ -225,7 +228,28 @@ fn process_inbound(
                 handle_headers_request(request);
             }
             HEADERS_RESPONSE_CODE => {
-                let response = decode_headers_response_payload(payload)?.finish(payload_len)?;
+                println!(
+                    "flow raw headers response bytes len={} bytes={:?}",
+                    payload.len(),
+                    payload
+                );
+                let staged_response = decode_headers_response_payload(payload)?;
+                let response = if staged_response.rest.is_empty() {
+                    staged_response.value
+                } else if staged_response.rest.len() == 1 {
+                    eprintln!(
+                        "non-strict headers response decode: expected exact {}, got {}, allowing trailing 1 byte",
+                        payload_len.saturating_sub(staged_response.rest.len()),
+                        payload_len
+                    );
+                    staged_response.value
+                } else {
+                    return Err(SerdeError::redundant_bytes(
+                        payload_len.saturating_sub(staged_response.rest.len()),
+                        payload_len,
+                    )
+                    .into());
+                };
                 handle_headers_response(stream, config, session, response)?;
             }
             INV_REQUEST_CODE => {
@@ -403,12 +427,6 @@ fn handle_chain_state(
         .map(|tip| tip.hash)
         .collect();
 
-    if !session.sent_headers_request {
-        if let Some(locator) = session.chain_state_tips.first().copied() {
-            send_headers_request(stream, config, session, locator)?;
-        }
-    }
-
     Ok(())
 }
 
@@ -468,6 +486,11 @@ fn handle_headers_response(
     response: HeadersResponse,
 ) -> Result<(), FlowError> {
     let expected = session.outstanding_headers_request;
+    println!(
+        "handling HeadersResponse id={} expected={}",
+        response.id.value,
+        expected.unwrap_or_default()
+    );
     if expected.is_none() {
         println!(
             "received unsolicited HeadersResponse id={}",

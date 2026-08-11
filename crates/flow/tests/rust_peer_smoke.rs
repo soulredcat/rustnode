@@ -87,6 +87,7 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
     while Instant::now() < deadline {
         match rx.recv_timeout(Duration::from_millis(25)) {
             Ok(event) => {
+                println!("interop event: {:?}", event);
                 events.insert(event);
                 if event == MockEvent::Completed {
                     break;
@@ -172,6 +173,7 @@ fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
     while Instant::now() < deadline {
         match rx.recv_timeout(Duration::from_millis(25)) {
             Ok(event) => {
+                println!("interop event (empty-inv): {:?}", event);
                 events.insert(event);
                 if event == MockEvent::Completed {
                     break;
@@ -284,6 +286,7 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes InvRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes InvRequest fully");
+                    println!("mock peer received InvRequest id={}", request.id.value);
                     match inv_kind {
                         InvPayloadKind::Empty => send_inv_response_empty(
                             &mut stream,
@@ -308,6 +311,7 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes HeadersRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes HeadersRequest fully");
+                    println!("mock peer received HeadersRequest id={}", request.id.value);
                     send_headers_response(
                         &mut stream,
                         magic,
@@ -323,6 +327,7 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes BlocksRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes BlocksRequest fully");
+                    println!("mock peer received BlocksRequest id={}", request.id.value);
                     send_blocks_response(
                         &mut stream,
                         magic,
@@ -338,6 +343,7 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes TxsRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes TxsRequest fully");
+                    println!("mock peer received TxsRequest id={}", request.id.value);
                     send_txs_response(
                         &mut stream,
                         magic,
@@ -353,6 +359,7 @@ fn mock_peer_with_inv_behavior(
                         .expect("mock peer decodes Ping")
                         .finish(payload.len())
                         .expect("mock peer consumes Ping fully");
+                    println!("mock peer received Ping id={}", ping.id.value);
                     send_payload(
                         &mut stream,
                         magic,
@@ -440,6 +447,7 @@ fn send_inv_response(
         id: *request_id,
         hashes: vec![vec![BlockHash { bytes: [0x11_u8; 32] }]],
     };
+    println!("mock peer sending InvResponse id={}", request_id.value);
     let payload = encode_inv_response_payload(&response).expect("encode InvResponse");
     send_payload(
         stream,
@@ -463,7 +471,13 @@ fn send_headers_response(
         id: *request_id,
         headers: vec![vec![0x21_u8, 0x22_u8]],
     };
+    println!("mock peer sending HeadersResponse id={}", request_id.value);
     let payload = encode_headers_response_payload(&response).expect("encode HeadersResponse");
+    println!(
+        "mock peer headers response payload_len={} bytes={:?}",
+        payload.len(),
+        payload
+    );
     send_payload(
         stream,
         magic,
@@ -486,6 +500,7 @@ fn send_blocks_response(
         id: *request_id,
         blocks: vec![vec![0x31_u8, 0x32_u8]],
     };
+    println!("mock peer sending BlocksResponse id={}", request_id.value);
     let payload = encode_blocks_response_payload(&response).expect("encode BlocksResponse");
     send_payload(
         stream,
@@ -509,6 +524,7 @@ fn send_txs_response(
         id: *request_id,
         txs: vec![vec![0x41_u8, 0x42_u8]],
     };
+    println!("mock peer sending TxsResponse id={}", request_id.value);
     let payload = encode_txs_response_payload(&response).expect("encode TxsResponse");
     send_payload(
         stream,
