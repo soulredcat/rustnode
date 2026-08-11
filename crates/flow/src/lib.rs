@@ -173,11 +173,17 @@ fn process_inbound(
                 let pong = decode_pong_payload(payload)?.finish(payload_len)?;
                 handle_pong(session, pong)?;
             }
-            unsupported => {
-                return Err(FlowError::Protocol(format!(
+            unsupported => match session.state {
+                SessionState::Established => {
+                    println!(
+                        "received unsupported payload code {unsupported} in Established state"
+                    );
+                    Ok(())
+                }
+                _ => Err(FlowError::Protocol(format!(
                     "unsupported payload code {unsupported}"
-                )));
-            }
+                ))),
+            }?,
         }
 
         inbound.drain(0..frame.consumed);
@@ -336,4 +342,3 @@ fn now_millis() -> Result<i64, FlowError> {
     i64::try_from(duration.as_millis())
         .map_err(|error| FlowError::Protocol(format!("timestamp overflow: {error}")))
 }
-
