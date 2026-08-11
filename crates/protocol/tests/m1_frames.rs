@@ -78,7 +78,7 @@ fn canonical_frames_match_official_scala_bytes() {
 
         assert_eq!(
             encode_frame(magic(), frame.data, MAX_TEST_DATA_LENGTH),
-            Ok(encoded)
+            Ok(encoded.clone())
         );
 
         let raw = decode_raw_message_data(frame.data).expect("raw message data must decode");
