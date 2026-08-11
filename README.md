@@ -100,6 +100,10 @@ make run
 
 # Run node watcher (auto-retry reconnect, useful when peer starts later)
 cargo run -p alephium-app -- --watch --peer <peer-address>
+
+# Run interop against an already-running peer (no managed official-node lifecycle)
+RUST_INTEROP_ATTACH_TO_EXISTING=1 make official-interop-m1
+RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
 ```
 
 The current Rust binary prints an honest implementation-status banner.

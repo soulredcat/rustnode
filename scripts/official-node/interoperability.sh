@@ -10,6 +10,7 @@ RUST_LOG_FILE="${INTEROP_DIR}/rust-node.log"
 RUST_MANIFEST_FILE="${INTEROP_DIR}/commands.txt"
 RUST_ERROR_FILE="${INTEROP_DIR}/error.txt"
 RUST_PID_FILE="${INTEROP_DIR}/rust-node.pid"
+ATTACH_TO_EXISTING="${RUST_INTEROP_ATTACH_TO_EXISTING:-0}"
 
 PEER_ADDRESS="${RUST_INTEROP_PEER_ADDRESS:-127.0.0.1:19973}"
 PEER_HOST="${PEER_ADDRESS%:*}"
@@ -71,7 +72,7 @@ cleanup() {
     rm -f "${RUST_PID_FILE}"
   fi
 
-  if [[ -f "${OFFICIAL_PID_FILE}" ]]; then
+  if [[ "${ATTACH_TO_EXISTING}" -eq 0 && -f "${OFFICIAL_PID_FILE}" ]]; then
     pid="$(cat "${OFFICIAL_PID_FILE}")"
     if kill -0 "${pid}" 2>/dev/null; then
       kill "${pid}" 2>/dev/null || true
@@ -88,9 +89,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "${STATE_DIR}" "${INTEROP_DIR}"
-
 write_manifest() {
+  local official_start_command="attached to existing peer at ${PEER_ADDRESS}"
+
+  if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
+    official_start_command="${ROOT_DIR}/scripts/official-node/run.sh"
+  fi
+
   cat > "${RUST_MANIFEST_FILE}" <<EOF
 run_id: ${RANDOM}
 date_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -98,43 +103,52 @@ official_commit_or_release: $(git -C "${ROOT_DIR}/.upstream/alephium" rev-parse 
 rust_commit: $(git -C "${ROOT_DIR}" rev-parse HEAD)
 rust_build_command: cargo build -p alephium-app
 rust_start_command: cargo run -p alephium-app -- ${PEER_ADDRESS}
-official_start_command: ${ROOT_DIR}/scripts/official-node/run.sh
+official_start_command: ${official_start_command}
 official_listen_address: ${PEER_ADDRESS}
 test_duration_seconds: ${DURATION_SECONDS}
 environment_file: ${RUST_MANIFEST_FILE}
 EOF
 }
 
-"${ROOT_DIR}/scripts/official-node/build.sh"
+mkdir -p "${STATE_DIR}" "${INTEROP_DIR}"
 write_manifest
 
-OFFICIAL_NODE_RESET=1 "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
+if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
+  "${ROOT_DIR}/scripts/official-node/build.sh"
+  OFFICIAL_NODE_RESET=1 "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
 
-(
-  "${ROOT_DIR}/scripts/official-node/run.sh"
-) >"${OFFICIAL_LOG_FILE}" 2>&1 &
-official_pid=$!
-printf '%s\n' "${official_pid}" > "${OFFICIAL_PID_FILE}"
+  (
+    "${ROOT_DIR}/scripts/official-node/run.sh"
+  ) > "${OFFICIAL_LOG_FILE}" 2>&1 &
+  official_pid=$!
+  printf '%s\n' "${official_pid}" > "${OFFICIAL_PID_FILE}"
 
-official_ready=0
-for _ in $(seq 1 "${OFFICIAL_READY_TIMEOUT}"); do
-  if ! kill -0 "${official_pid}" 2>/dev/null; then
-    echo "official node exited before readiness" >&2
+  official_ready=0
+  for _ in $(seq 1 "${OFFICIAL_READY_TIMEOUT}"); do
+    if ! kill -0 "${official_pid}" 2>/dev/null; then
+      echo "official node exited before readiness" >&2
+      cat "${OFFICIAL_LOG_FILE}" >&2
+      exit 1
+    fi
+
+    if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
+      official_ready=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "${official_ready}" -ne 1 ]]; then
+    echo "official node did not open ${PEER_ADDRESS} within ${OFFICIAL_READY_TIMEOUT}s" >&2
     cat "${OFFICIAL_LOG_FILE}" >&2
     exit 1
   fi
-
-  if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
-    official_ready=1
-    break
+else
+  if ! is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
+    echo "no peer listening at ${PEER_ADDRESS}; start one externally or run without RUST_INTEROP_ATTACH_TO_EXISTING" >&2
+    exit 1
   fi
-  sleep 1
-done
-
-if [[ "${official_ready}" -ne 1 ]]; then
-  echo "official node did not open ${PEER_ADDRESS} within ${OFFICIAL_READY_TIMEOUT}s" >&2
-  cat "${OFFICIAL_LOG_FILE}" >&2
-  exit 1
+  echo "attaching to existing peer at ${PEER_ADDRESS} (skip official node startup/cleanup)"
 fi
 
 (
@@ -157,7 +171,8 @@ m2_txs_response_seen=0
 
 while true; do
   now=$(date +%s)
-  if ! kill -0 "${official_pid}" 2>/dev/null; then
+
+  if [[ "${ATTACH_TO_EXISTING}" -eq 0 && ! kill -0 "${official_pid}" 2>/dev/null ]]; then
     echo "official node died during interop run" >&2
     cat "${OFFICIAL_LOG_FILE}" >&2
     exit 1
