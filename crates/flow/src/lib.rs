@@ -59,6 +59,11 @@ struct Session {
     outstanding_ping: Option<u32>,
     ping_deadline: Option<Instant>,
     next_ping_at: Instant,
+    outstanding_inv_request: Option<u32>,
+    outstanding_headers_request: Option<u32>,
+    outstanding_blocks_request: Option<u32>,
+    outstanding_txs_request: Option<u32>,
+    chain_state_tips: Vec<BlockHash>,
     sent_inv_request: bool,
     sent_headers_request: bool,
     sent_blocks_request: bool,
@@ -116,6 +121,11 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         outstanding_ping: None,
         ping_deadline: None,
         next_ping_at: Instant::now() + config.ping_interval,
+        outstanding_inv_request: None,
+        outstanding_headers_request: None,
+        outstanding_blocks_request: None,
+        outstanding_txs_request: None,
+        chain_state_tips: Vec::new(),
         sent_inv_request: false,
         sent_headers_request: false,
         sent_blocks_request: false,
@@ -200,7 +210,7 @@ fn process_inbound(
             }
             CHAIN_STATE_CODE => {
                 let chain_state = decode_chain_state_payload(payload)?.finish(payload_len)?;
-                handle_chain_state(chain_state);
+                handle_chain_state(session, chain_state);
             }
             BLOCKS_REQUEST_CODE => {
                 let request = decode_blocks_request_payload(payload)?.finish(payload_len)?;
@@ -216,8 +226,7 @@ fn process_inbound(
             }
             HEADERS_RESPONSE_CODE => {
                 let response = decode_headers_response_payload(payload)?.finish(payload_len)?;
-                maybe_send_blocks_request(stream, config, session, &response)?;
-                handle_headers_response(response);
+                handle_headers_response(stream, config, session, response)?;
             }
             INV_REQUEST_CODE => {
                 let request = decode_inv_request_payload(payload)?.finish(payload_len)?;
@@ -253,7 +262,7 @@ fn process_inbound(
             }
             TXS_RESPONSE_CODE => {
                 let response = decode_txs_response_payload(payload)?.finish(payload_len)?;
-                handle_txs_response(response);
+                handle_txs_response(session, response);
             }
             HEADERS_BY_HEIGHTS_REQUEST_CODE => {
                 let request = decode_headers_by_heights_request_payload(payload)?.finish(payload_len)?;
@@ -331,6 +340,7 @@ fn send_inv_request(
         FlowError::Protocol(format!("failed to encode initial InvRequest payload: {error}"))
     })?;
     send_payload(stream, config, INV_REQUEST_CODE, &payload)?;
+    session.outstanding_inv_request = Some(request.id.value);
     session.sent_inv_request = true;
     println!("sent InvRequest id={} as initial sync probe", request.id.value);
     Ok(())
@@ -346,7 +356,12 @@ fn maybe_send_headers_probe(
         return Ok(());
     }
 
-    let Some(locator) = response.hashes.iter().find_map(|chain| chain.first().copied()) else {
+    let Some(locator) = response
+        .hashes
+        .iter()
+        .find_map(|chain| chain.first().copied())
+        .or_else(|| session.chain_state_tips.first().copied())
+    else {
         return Ok(());
     };
 
@@ -360,13 +375,19 @@ fn maybe_send_headers_probe(
         FlowError::Protocol(format!("failed to encode probe HeadersRequest: {error}"))
     })?;
     send_payload(stream, config, HEADERS_REQUEST_CODE, &payload)?;
+    session.outstanding_headers_request = Some(request.id.value);
     session.sent_headers_request = true;
     println!("sent HeadersRequest id={} with 1 locator", request.id.value);
     Ok(())
 }
 
-fn handle_chain_state(chain_state: ChainState) {
+fn handle_chain_state(session: &mut Session, chain_state: ChainState) {
     println!("received ChainState with {} tip(s)", chain_state.tips.len());
+    session.chain_state_tips = chain_state
+        .tips
+        .into_iter()
+        .map(|tip| tip.hash)
+        .collect();
 }
 
 fn handle_blocks_request(request: BlocksRequest) {
@@ -383,6 +404,24 @@ fn handle_blocks_response(
     session: &mut Session,
     response: BlocksResponse,
 ) -> Result<(), FlowError> {
+    let expected = session.outstanding_blocks_request;
+    if expected.is_none() {
+        println!(
+            "received unsolicited BlocksResponse id={}",
+            response.id.value
+        );
+        return Ok(());
+    }
+    if expected != Some(response.id.value) {
+        println!(
+            "received BlocksResponse id={} expected={}",
+            response.id.value,
+            expected.unwrap_or_default()
+        );
+        return Ok(());
+    }
+    session.outstanding_blocks_request = None;
+
     println!(
         "received BlocksResponse id={} blocks={}",
         response.id.value,
@@ -400,12 +439,37 @@ fn handle_headers_request(request: HeadersRequest) {
     );
 }
 
-fn handle_headers_response(response: HeadersResponse) {
+fn handle_headers_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    response: HeadersResponse,
+) -> Result<(), FlowError> {
+    let expected = session.outstanding_headers_request;
+    if expected.is_none() {
+        println!(
+            "received unsolicited HeadersResponse id={}",
+            response.id.value
+        );
+        return Ok(());
+    }
+    if expected != Some(response.id.value) {
+        println!(
+            "received HeadersResponse id={} expected={}",
+            response.id.value,
+            expected.unwrap_or_default()
+        );
+        return Ok(());
+    }
+    session.outstanding_headers_request = None;
+
     println!(
         "received HeadersResponse id={} headers={}",
         response.id.value,
         response.headers.len()
     );
+    maybe_send_blocks_request(stream, config, session, &response)?;
+    Ok(())
 }
 
 fn maybe_send_blocks_request(
@@ -434,6 +498,7 @@ fn maybe_send_blocks_request(
         FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
     })?;
     send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+    session.outstanding_blocks_request = Some(request.id.value);
     session.sent_blocks_request = true;
     println!(
         "sent BlocksRequest id={} with {} locator(s)",
@@ -467,6 +532,7 @@ fn maybe_send_txs_request(
         FlowError::Protocol(format!("failed to encode probe TxsRequest: {error}"))
     })?;
     send_payload(stream, config, TXS_REQUEST_CODE, &payload)?;
+    session.outstanding_txs_request = Some(request.id.value);
     session.sent_txs_request = true;
     println!(
         "sent TxsRequest id={} chains={} txs={}",
@@ -494,12 +560,24 @@ fn handle_inv_response(
     response: InvResponse,
 ) -> Result<(), FlowError> {
     let count: usize = response.hashes.iter().map(|chain| chain.len()).sum();
-    println!(
-        "received InvResponse id={} chains={} hashes={}",
-        response.id.value,
-        response.hashes.len(),
-        count
-    );
+    let request_id = response.id.value;
+    let expected_id = session.outstanding_inv_request;
+    if expected_id == Some(request_id) {
+        session.outstanding_inv_request = None;
+        println!(
+            "received InvResponse id={} chains={} hashes={} (matched)",
+            request_id,
+            response.hashes.len(),
+            count
+        );
+    } else {
+        println!(
+            "received InvResponse id={} chains={} hashes={} (unsolicited)",
+            request_id,
+            response.hashes.len(),
+            count
+        );
+    }
 
     maybe_send_headers_probe(stream, config, session, &response)
 }
@@ -546,7 +624,22 @@ fn handle_txs_request(request: TxsRequest) {
     );
 }
 
-fn handle_txs_response(response: TxsResponse) {
+fn handle_txs_response(session: &mut Session, response: TxsResponse) {
+    let expected = session.outstanding_txs_request;
+    if expected.is_none() {
+        println!("received unsolicited TxsResponse id={}", response.id.value);
+        return;
+    }
+    if expected != Some(response.id.value) {
+        println!(
+            "received TxsResponse id={} expected={}",
+            response.id.value,
+            expected.unwrap_or_default()
+        );
+        return;
+    }
+    session.outstanding_txs_request = None;
+
     println!(
         "received TxsResponse id={} txs={}",
         response.id.value,
