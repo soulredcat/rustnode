@@ -45,6 +45,12 @@ enum MockEvent {
     Completed,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum InvPayloadKind {
+    Empty,
+    NonEmpty,
+}
+
 #[test]
 fn full_rust_mock_peer_handshake_and_ping_pong() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock peer");
@@ -56,7 +62,98 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
         let config = base_config();
         move || {
             let (stream, _) = listener.accept().expect("mock peer accepted");
-            mock_peer(stream, config, tx).expect("mock peer completed");
+            mock_peer_with_inv_behavior(
+                stream,
+                config,
+                tx,
+                InvPayloadKind::NonEmpty,
+            )
+            .expect("mock peer completed");
+        }
+    });
+
+    let mut client_config = base_config().with_node_identity(NodeIdentity::fixture());
+    client_config.peer_address = listener_addr.to_string();
+    client_config.ping_interval = Duration::from_millis(20);
+    client_config.ping_timeout = Duration::from_millis(300);
+
+    let client = thread::spawn(move || run(&client_config));
+
+    let result = client.join().expect("client thread should not panic");
+    server.join().expect("server thread should not panic");
+
+    let mut events = HashSet::new();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(25)) {
+            Ok(event) => {
+                events.insert(event);
+                if event == MockEvent::Completed {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    assert!(events.contains(&MockEvent::ChainStateSent), "server should send chain state");
+    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
+    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        events.contains(&MockEvent::InvRequestReceived),
+        "client should send InvRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::HeadersRequestReceived),
+        "client should send HeadersRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::BlocksRequestReceived),
+        "client should send BlocksRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::TxsRequestReceived),
+        "client should send TxsRequest probe"
+    );
+    assert!(
+        events.contains(&MockEvent::HeadersResponseSent),
+        "server should send HeadersResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::BlocksResponseSent),
+        "server should send BlocksResponse"
+    );
+    assert!(
+        events.contains(&MockEvent::TxsResponseSent),
+        "server should send TxsResponse"
+    );
+    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
+    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+
+    assert!(
+        result.is_err(),
+        "mock peer closes socket after probe exchange, expected client termination"
+    );
+}
+
+#[test]
+fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock peer");
+    let listener_addr = listener.local_addr().expect("peer address");
+
+    let (tx, rx) = mpsc::channel::<MockEvent>();
+
+    let server = thread::spawn({
+        let config = base_config();
+        move || {
+            let (stream, _) = listener.accept().expect("mock peer accepted");
+            mock_peer_with_inv_behavior(
+                stream,
+                config,
+                tx,
+                InvPayloadKind::Empty,
+            )
+            .expect("mock peer completed");
         }
     });
 
@@ -128,7 +225,20 @@ fn base_config() -> NodeConfig {
     NodeConfig::local().with_node_identity(NodeIdentity::fixture())
 }
 
-fn mock_peer(mut stream: TcpStream, config: NodeConfig, events: Sender<MockEvent>) -> io::Result<()> {
+fn mock_peer(
+    stream: TcpStream,
+    config: NodeConfig,
+    events: Sender<MockEvent>,
+) -> io::Result<()> {
+    mock_peer_with_inv_behavior(stream, config, events, InvPayloadKind::NonEmpty)
+}
+
+fn mock_peer_with_inv_behavior(
+    mut stream: TcpStream,
+    config: NodeConfig,
+    events: Sender<MockEvent>,
+    inv_kind: InvPayloadKind,
+) -> io::Result<()> {
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_millis(150)))?;
     let magic = NetworkMagic::new(config.network_magic);
@@ -174,13 +284,22 @@ fn mock_peer(mut stream: TcpStream, config: NodeConfig, events: Sender<MockEvent
                         .expect("mock peer decodes InvRequest")
                         .finish(payload.len())
                         .expect("mock peer consumes InvRequest fully");
-                    send_inv_response(
-                        &mut stream,
-                        magic,
-                        config.max_frame_data,
-                        &request.id,
-                        &events,
-                    )?;
+                    match inv_kind {
+                        InvPayloadKind::Empty => send_inv_response_empty(
+                            &mut stream,
+                            magic,
+                            config.max_frame_data,
+                            &request.id,
+                            &events,
+                        )?,
+                        InvPayloadKind::NonEmpty => send_inv_response(
+                            &mut stream,
+                            magic,
+                            config.max_frame_data,
+                            &request.id,
+                            &events,
+                        )?,
+                    }
                     events.send(MockEvent::InvRequestReceived).ok();
                     saw_inv_request = true;
                 }
@@ -284,6 +403,29 @@ fn send_chain_state(
         &payload,
         events,
         MockEvent::ChainStateSent,
+    )
+}
+
+fn send_inv_response_empty(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    request_id: &RequestId,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let response = InvResponse {
+        id: *request_id,
+        hashes: Vec::new(),
+    };
+    let payload = encode_inv_response_payload(&response).expect("encode InvResponse");
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        INV_RESPONSE_CODE,
+        &payload,
+        events,
+        MockEvent::InvResponseSent,
     )
 }
 
