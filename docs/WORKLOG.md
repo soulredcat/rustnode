@@ -300,7 +300,7 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 **Changed:**
 
 - added `OFFICIAL_NODE_P2P_PORT` support in `scripts/official-node/prepare-home.sh` and wired it through runtime bootstrap scripts;
-- kept the interop default at `19974` and added Java-default collision warning + usage guidance;
+- kept the interop default at `19975` and added Java-default collision warning + usage guidance;
 - updated interoperability docs with attach/port configuration guidance and refreshed `TASKS.md` consistency.
 
 ## 2026-08-11 — M2 assertion quality and CI enforcement
