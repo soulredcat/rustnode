@@ -642,8 +642,8 @@ fn send_headers_request(
 }
 
 fn handle_chain_state(
-    stream: &mut TcpStream,
-    config: &NodeConfig,
+    _stream: &mut TcpStream,
+    _config: &NodeConfig,
     session: &mut Session,
     chain_state: ChainState,
 ) -> Result<(), FlowError> {
@@ -654,18 +654,6 @@ fn handle_chain_state(
         .map(|tip| tip.hash)
         .collect();
     persist_sync_state(session);
-
-    if !session.sent_headers_request {
-        let maybe_locator = session.chain_state_tips.first().copied().filter(|locator| {
-            locator.bytes != [0_u8; 32]
-        });
-        send_headers_request(
-            stream,
-            config,
-            session,
-            maybe_locator.into_iter().collect(),
-        )?;
-    }
 
     Ok(())
 }
@@ -784,6 +772,22 @@ fn send_blocks_request(
     locators: Vec<BlockHash>,
 ) -> Result<(), FlowError> {
     if session.outstanding_blocks_request.is_some() {
+        return Ok(());
+    }
+    if locators.is_empty() {
+        let request = BlocksRequest {
+            id: RequestId {
+                value: next_request_id(&mut session.next_request_id),
+            },
+            locators: Vec::new(),
+        };
+        let payload = encode_blocks_request_payload(&request).map_err(|error| {
+            FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
+        })?;
+        send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+        session.outstanding_blocks_request = Some(request.id.value);
+        session.sent_blocks_request = true;
+        println!("sent BlocksRequest id={} with 0 locator(s)", request.id.value);
         return Ok(());
     }
 
