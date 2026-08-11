@@ -27,8 +27,10 @@ use alephium_protocol::message::payload::{
     decode_inv_response_payload, decode_new_block_hash_payload, decode_new_block_payload,
     decode_new_header_payload, decode_new_inv_payload, decode_new_txhashes_payload, decode_ping_payload,
     decode_pong_payload, decode_txs_request_payload, decode_txs_response_payload,
+    encode_blocks_response_payload, encode_headers_response_payload, encode_inv_response_payload,
     encode_blocks_request_payload, encode_headers_request_payload, encode_hello_payload,
     encode_inv_request_payload, encode_ping_payload, encode_pong_payload, encode_txs_request_payload,
+    encode_txs_response_payload,
     BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE, BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE,
     BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HELLO_CODE,
     HEADERS_BY_HEIGHTS_REQUEST_CODE, HEADERS_BY_HEIGHTS_RESPONSE_CODE, HEADERS_REQUEST_CODE,
@@ -452,7 +454,7 @@ fn process_inbound(
             }
             BLOCKS_REQUEST_CODE => {
                 let request = decode_blocks_request_payload(payload)?.finish(payload_len)?;
-                handle_blocks_request(request);
+                handle_blocks_request(stream, config, session, request)?;
             }
             BLOCKS_RESPONSE_CODE => {
                 let response = decode_blocks_response_payload(payload)?.finish(payload_len)?;
@@ -460,7 +462,7 @@ fn process_inbound(
             }
             HEADERS_REQUEST_CODE => {
                 let request = decode_headers_request_payload(payload)?.finish(payload_len)?;
-                handle_headers_request(request);
+                handle_headers_request(stream, config, request)?;
             }
             HEADERS_RESPONSE_CODE => {
                 println!(
@@ -473,7 +475,7 @@ fn process_inbound(
             }
             INV_REQUEST_CODE => {
                 let request = decode_inv_request_payload(payload)?.finish(payload_len)?;
-                handle_inv_request(request);
+                handle_inv_request(stream, config, session, request)?;
             }
             INV_RESPONSE_CODE => {
                 let response = decode_inv_response_payload(payload)?.finish(payload_len)?;
@@ -501,7 +503,7 @@ fn process_inbound(
             }
             TXS_REQUEST_CODE => {
                 let request = decode_txs_request_payload(payload)?.finish(payload_len)?;
-                handle_txs_request(request);
+                handle_txs_request(stream, config, session, request)?;
             }
             TXS_RESPONSE_CODE => {
                 let response = decode_txs_response_payload(payload)?.finish(payload_len)?;
@@ -658,12 +660,18 @@ fn handle_chain_state(
     Ok(())
 }
 
-fn handle_blocks_request(request: BlocksRequest) {
+fn handle_blocks_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    _session: &mut Session,
+    request: BlocksRequest,
+) -> Result<(), FlowError> {
     println!(
         "received BlocksRequest id={} locators={}",
         request.id.value,
         request.locators.len()
     );
+    send_blocks_response(stream, config, &request.id, Vec::new())
 }
 
 fn handle_blocks_response(
@@ -701,12 +709,17 @@ fn handle_blocks_response(
     Ok(())
 }
 
-fn handle_headers_request(request: HeadersRequest) {
+fn handle_headers_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    request: HeadersRequest,
+) -> Result<(), FlowError> {
     println!(
         "received HeadersRequest id={} locators={}",
         request.id.value,
         request.locators.len()
     );
+    send_headers_response(stream, config, &request.id, Vec::new())
 }
 
 fn handle_headers_response(
@@ -908,7 +921,12 @@ fn send_txs_request(
     Ok(())
 }
 
-fn handle_inv_request(request: InvRequest) {
+fn handle_inv_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    _session: &mut Session,
+    request: InvRequest,
+) -> Result<(), FlowError> {
     let count: usize = request.locators.iter().map(|chain| chain.len()).sum();
     println!(
         "received InvRequest id={} chains={} hashes={}",
@@ -916,6 +934,68 @@ fn handle_inv_request(request: InvRequest) {
         request.locators.len(),
         count
     );
+    send_inv_response(stream, config, &request.id, request.locators.len())
+}
+
+fn send_inv_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    request_id: &RequestId,
+    chain_count: usize,
+) -> Result<(), FlowError> {
+    let response = InvResponse {
+        id: *request_id,
+        hashes: vec![Vec::new(); chain_count],
+    };
+    let payload = encode_inv_response_payload(&response)
+        .map_err(|error| FlowError::Protocol(format!("failed to encode inbound InvResponse: {error}")))?;
+    send_payload(stream, config, INV_RESPONSE_CODE, &payload)?;
+    println!(
+        "sent InvResponse id={} chains={}",
+        response.id.value,
+        response.hashes.len()
+    );
+    Ok(())
+}
+
+fn send_headers_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    request_id: &RequestId,
+    headers: Vec<Vec<u8>>,
+) -> Result<(), FlowError> {
+    let response = HeadersResponse {
+        id: *request_id,
+        headers,
+    };
+    let payload = encode_headers_response_payload(&response).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode inbound HeadersResponse: {error}"))
+    })?;
+    send_payload(stream, config, HEADERS_RESPONSE_CODE, &payload)?;
+    println!("sent HeadersResponse id={} headers={}", response.id.value, response.headers.len());
+    Ok(())
+}
+
+fn send_blocks_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    request_id: &RequestId,
+    blocks: Vec<Vec<u8>>,
+) -> Result<(), FlowError> {
+    let response = BlocksResponse {
+        id: *request_id,
+        blocks,
+    };
+    let payload = encode_blocks_response_payload(&response).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode inbound BlocksResponse: {error}"))
+    })?;
+    send_payload(stream, config, BLOCKS_RESPONSE_CODE, &payload)?;
+    println!(
+        "sent BlocksResponse id={} blocks={}",
+        response.id.value,
+        response.blocks.len()
+    );
+    Ok(())
 }
 
 fn handle_inv_response(
@@ -1040,17 +1120,6 @@ fn handle_new_txhashes(
     }
 }
 
-fn handle_txs_request(request: TxsRequest) {
-    let chain_count = request.hashes.len();
-    let tx_count: usize = request.hashes.iter().map(|(_, txs)| txs.len()).sum();
-    println!(
-        "received TxsRequest id={} chains={} txs={}",
-        request.id.value,
-        chain_count,
-        tx_count
-    );
-}
-
 fn handle_txs_response(session: &mut Session, response: TxsResponse) {
     let expected = session.outstanding_txs_request;
     if expected.is_none() {
@@ -1096,6 +1165,45 @@ fn handle_headers_by_heights_response(response: HeadersByHeightsResponse) {
         response.id.value,
         response.headers.len()
     );
+}
+
+fn handle_txs_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    _session: &mut Session,
+    request: TxsRequest,
+) -> Result<(), FlowError> {
+    let chain_count = request.hashes.len();
+    let tx_count: usize = request.hashes.iter().map(|(_, txs)| txs.len()).sum();
+    println!(
+        "received TxsRequest id={} chains={} txs={}",
+        request.id.value,
+        chain_count,
+        tx_count
+    );
+    send_txs_response(stream, config, &request.id, Vec::new())
+}
+
+fn send_txs_response(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    request_id: &RequestId,
+    txs: Vec<Vec<u8>>,
+) -> Result<(), FlowError> {
+    let response = TxsResponse {
+        id: *request_id,
+        txs,
+    };
+    let payload = encode_txs_response_payload(&response).map_err(|error| {
+        FlowError::Protocol(format!("failed to encode inbound TxsResponse: {error}"))
+    })?;
+    send_payload(stream, config, TXS_RESPONSE_CODE, &payload)?;
+    println!(
+        "sent TxsResponse id={} txs={}",
+        response.id.value,
+        response.txs.len()
+    );
+    Ok(())
 }
 
 fn handle_blocks_and_uncles_by_heights_request(request: BlocksAndUnclesByHeightsRequest) {
