@@ -12,12 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Toolchain versions
+        run: |
+          rustc --version
+          cargo --version
 
       - name: Formatting
         run: cargo fmt --all -- --check
