@@ -20,8 +20,41 @@ DURATION_SECONDS="${RUST_INTEROP_DURATION_SECONDS:-120}"
 OFFICIAL_READY_TIMEOUT="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 REQUIRE_M2="${RUST_INTEROP_REQUIRE_M2:-0}"
 REQUIRE_M2_ANNOUNCEMENTS="${RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS:-0}"
+OFFICIAL_CONFIG_FILE="${ROOT_DIR}/config/official-node/user.conf"
+ACTUAL_RESULT="in_progress"
+OPERATOR_NOTES=""
+NETWORK_ID="unknown"
+P2P_VERSION="unknown"
+OFFICIAL_REPOSITORY="unknown"
 
 : > "${RUST_ERROR_FILE}"
+
+if [[ -f "${OFFICIAL_CONFIG_FILE}" ]]; then
+  NETWORK_ID="$(sed -nE "s/^[[:space:]]*network-id[[:space:]]*=[[:space:]]*([0-9]+).*/\\1/p" "${OFFICIAL_CONFIG_FILE}" | tail -n 1)"
+  if [[ "${NETWORK_ID}" == "" ]]; then
+    NETWORK_ID="unknown"
+  fi
+  if grep -Eq "enable-p2p-v2[[:space:]]*=[[:space:]]*true" "${OFFICIAL_CONFIG_FILE}"; then
+    P2P_VERSION="2"
+  elif grep -Eq "enable-p2p-v2[[:space:]]*=[[:space:]]*false" "${OFFICIAL_CONFIG_FILE}"; then
+    P2P_VERSION="1"
+  fi
+fi
+
+if command -v git >/dev/null 2>&1; then
+  OFFICIAL_REPOSITORY="$(git -C "${ROOT_DIR}/.upstream/alephium" remote get-url origin 2>/dev/null || echo unknown)"
+  if [[ "${OFFICIAL_REPOSITORY}" == "" ]]; then
+    OFFICIAL_REPOSITORY="unknown"
+  fi
+fi
+
+EXPECTED_RESULT="required: handshake (Hello) and ping/pong exchange"
+if [[ "${REQUIRE_M2}" -eq 1 ]]; then
+  EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response markers"
+  if [[ "${REQUIRE_M2_ANNOUNCEMENTS}" -eq 1 ]]; then
+    EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response + announcement markers"
+  fi
+fi
 
 is_port_open() {
   local host=$1
@@ -68,8 +101,31 @@ PY
   return 1
 }
 
+append_operator_note() {
+  local note=$1
+  if [[ "${OPERATOR_NOTES}" == "" ]]; then
+    OPERATOR_NOTES="${note}"
+  else
+    OPERATOR_NOTES="${OPERATOR_NOTES}; ${note}"
+  fi
+}
+
 cleanup() {
   local code=$?
+  if [[ "${ACTUAL_RESULT}" == "in_progress" ]]; then
+    if [[ "${code}" -eq 0 ]]; then
+      ACTUAL_RESULT="pass"
+    else
+      ACTUAL_RESULT="failed with exit ${code}"
+    fi
+  fi
+  if [[ "${OPERATOR_NOTES}" == "" ]]; then
+    append_operator_note "Interop run ended with code ${code}"
+  fi
+  write_manifest
+  if [[ "${code}" -eq 0 ]]; then
+    echo "Interop run completed successfully."
+  fi
 
   if [[ -f "${RUST_PID_FILE}" ]]; then
     rust_pid="$(cat "${RUST_PID_FILE}")"
@@ -113,14 +169,24 @@ write_manifest() {
   cat > "${RUST_MANIFEST_FILE}" <<EOF
 run_id: ${RANDOM}
 date_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+official_repository: ${OFFICIAL_REPOSITORY}
 official_commit_or_release: ${official_commit}
+official_build_command: ./scripts/official-node/build.sh
+official_start_command: ${official_start_command}
+official_listen_address: ${PEER_ADDRESS}
+network_id: ${NETWORK_ID}
+p2p_version: ${P2P_VERSION}
 rust_commit: ${rust_commit}
 rust_build_command: cargo build -p alephium-app
 rust_start_command: cargo run -p alephium-app -- ${PEER_ADDRESS}
-official_start_command: ${official_start_command}
-official_listen_address: ${PEER_ADDRESS}
 test_duration_seconds: ${DURATION_SECONDS}
-environment_file: ${RUST_MANIFEST_FILE}
+test_duration: ${DURATION_SECONDS}s
+configuration_files: ${OFFICIAL_CONFIG_FILE},${ROOT_DIR}/scripts/official-node/run.sh,${ROOT_DIR}/scripts/official-node/prepare-home.sh
+log_artifacts: ${RUST_LOG_FILE},${RUST_ERROR_FILE},${OFFICIAL_LOG_FILE},${RUST_MANIFEST_FILE}
+packet_capture_artifact_if_any: none
+expected_result: ${EXPECTED_RESULT}
+actual_result: ${ACTUAL_RESULT}
+operator_notes: ${OPERATOR_NOTES}
 EOF
 }
 
@@ -142,14 +208,15 @@ run_rust_peer() {
 }
 
 mkdir -p "${STATE_DIR}" "${INTEROP_DIR}"
-write_manifest
 
 if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "WARNING: ${PEER_ADDRESS} already has a listening process." >&2
     if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 || "${PEER_PORT}" -eq 19975 || "${PEER_PORT}" -eq 19985 ]]; then
       echo "Peringatan: port ${PEER_PORT} sering dipakai node Java; sesuaikan dengan OFFICIAL_NODE_P2P_PORT/RUST_INTEROP_PEER_PORT jika bentrok." >&2
+      append_operator_note "startup blocked: ${PEER_ADDRESS} already listened and is Java-common."
     fi
+    append_operator_note "startup blocked: ${PEER_ADDRESS} already listening."
     echo "Jika Java node Anda sedang jalan di port ini, gunakan ATTACH mode agar tidak bentrok." >&2
     echo "Lanjutkan hanya dengan membunuh proses yang dipakai port itu atau pindah ke port lain dengan RUST_INTEROP_PEER_ADDRESS." >&2
     exit 1
@@ -168,6 +235,7 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   for _ in $(seq 1 "${OFFICIAL_READY_TIMEOUT}"); do
     if ! kill -0 "${official_pid}" 2>/dev/null; then
       echo "official node exited before readiness" >&2
+      append_operator_note "official node exited before readiness check."
       cat "${OFFICIAL_LOG_FILE}" >&2
       exit 1
     fi
@@ -181,19 +249,23 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
 
   if [[ "${official_ready}" -ne 1 ]]; then
     echo "official node did not open ${PEER_ADDRESS} within ${OFFICIAL_READY_TIMEOUT}s" >&2
+    append_operator_note "official node failed to open ${PEER_ADDRESS} within timeout."
     cat "${OFFICIAL_LOG_FILE}" >&2
     exit 1
   fi
 else
   if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 || "${PEER_PORT}" -eq 19975 || "${PEER_PORT}" -eq 19985 ]]; then
     echo "Peringatan: port ${PEER_PORT} sering dipakai node Java. Jika bentrok, gunakan RUST_INTEROP_PEER_ADDRESS/PORT lain." >&2
+    append_operator_note "ATTACH mode used with Java-common port ${PEER_PORT}."
   fi
   if ! is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "no peer listening at ${PEER_ADDRESS}; start one externally or run without RUST_INTEROP_ATTACH_TO_EXISTING" >&2
+    append_operator_note "ATTACH mode requested but peer not reachable at ${PEER_ADDRESS}."
     exit 1
   fi
   echo "attaching to existing peer at ${PEER_ADDRESS} (skip official node startup/cleanup)"
   echo "WARNING: ATTACH mode aktif, script tidak akan menyalakan atau mematikan node Java/official." >&2
+  append_operator_note "ATTACH mode aktif; tidak memulai/mematikan proses official/JVM."
 fi
 
 (
@@ -225,6 +297,7 @@ while true; do
   if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
     if ! kill -0 "${official_pid}" 2>/dev/null; then
       echo "official node died during interop run" >&2
+      append_operator_note "official node died during run."
       cat "${OFFICIAL_LOG_FILE}" >&2
       exit 1
     fi
@@ -232,6 +305,7 @@ while true; do
 
   if ! kill -0 "${rust_pid}" 2>/dev/null; then
     echo "rust process exited during interop run" >&2
+    append_operator_note "rust process exited early before deadline."
     cat "${RUST_ERROR_FILE}" >&2
     if (( now >= deadline )); then
       break
@@ -305,6 +379,7 @@ done
 
 if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 ]]; then
   echo "interop assertions not yet observed before timeout" >&2
+  append_operator_note "basic handshake+ping assertions not observed before deadline."
   cat "${RUST_LOG_FILE}" >&2
   cat "${RUST_ERROR_FILE}" >&2
   exit 1
@@ -313,18 +388,21 @@ fi
 if [[ "${REQUIRE_M2}" -eq 1 ]]; then
   if [[ "${m2_inv_request_seen}" -ne 1 || "${m2_headers_request_seen}" -ne 1 || "${m2_blocks_request_seen}" -ne 1 || "${m2_txs_request_seen}" -ne 1 ]]; then
     echo "M2 request markers not all observed before timeout" >&2
+    append_operator_note "M2 request markers missing."
     cat "${RUST_LOG_FILE}" >&2
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
   fi
   if [[ "${m2_chain_state_seen}" -ne 1 ]] && [[ "${m2_chain_state_fallback_headers_seen}" -ne 1 ]]; then
     echo "M2 chain-state marker not observed before timeout" >&2
+    append_operator_note "M2 chain-state marker / fallback request not observed."
     cat "${RUST_LOG_FILE}" >&2
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
   fi
   if [[ "${m2_headers_response_seen}" -ne 1 || "${m2_blocks_response_seen}" -ne 1 || "${m2_txs_response_seen}" -ne 1 ]]; then
     echo "M2 response markers not all observed before timeout" >&2
+    append_operator_note "M2 response markers missing."
     cat "${RUST_LOG_FILE}" >&2
     cat "${RUST_ERROR_FILE}" >&2
     exit 1
@@ -333,11 +411,10 @@ if [[ "${REQUIRE_M2}" -eq 1 ]]; then
   if [[ "${REQUIRE_M2_ANNOUNCEMENTS}" -eq 1 ]]; then
     if [[ "${m2_new_block_seen}" -ne 1 || "${m2_new_header_seen}" -ne 1 || "${m2_new_inv_seen}" -ne 1 || "${m2_new_txhashes_seen}" -ne 1 ]]; then
       echo "M2 announcement markers not all observed before timeout" >&2
+      append_operator_note "M2 announcement markers missing."
       cat "${RUST_LOG_FILE}" >&2
       cat "${RUST_ERROR_FILE}" >&2
       exit 1
     fi
   fi
 fi
-
-echo "Interop run completed successfully."
