@@ -45,7 +45,7 @@ use alephium_serde::Error as SerdeError;
 
 /// Current implementation status.
 pub const STATUS: &str =
-    "M1 bootstrap complete; M2 request/response decoding and sync state wallet scaffold enabled.";
+    "M2 request/response decode plus announcement-driven sync scaffolding enabled.";
 
 const SYNC_STATE_FILE: &str = ".local/rustnode/sync-state.txt";
 
@@ -54,14 +54,18 @@ pub struct WalletView {
     pub headers_seen: usize,
     pub blocks_seen: usize,
     pub txs_seen: usize,
+    pub recent_block_hashes: usize,
 }
 
 impl fmt::Display for WalletView {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "wallet view: headers={} blocks={} txs={} (balance preview unavailable)",
-            self.headers_seen, self.blocks_seen, self.txs_seen
+            "wallet view: headers={} blocks={} txs={} recent_block_hashes={} (balance preview unavailable)",
+            self.headers_seen,
+            self.blocks_seen,
+            self.txs_seen,
+            self.recent_block_hashes
         )
     }
 }
@@ -77,8 +81,10 @@ struct SyncState {
     pub headers_seen: usize,
     pub blocks_seen: usize,
     pub txs_seen: usize,
+    pub observed_blocks: HashSet<[u8; 32]>,
     pub observed_txs: HashSet<[u8; 32]>,
     pub recent_header_hashes: Vec<BlockHash>,
+    pub recent_block_hashes: Vec<[u8; 32]>,
     pub recent_tx_hashes: Vec<[u8; 32]>,
 }
 
@@ -88,8 +94,10 @@ impl Default for SyncState {
             headers_seen: 0,
             blocks_seen: 0,
             txs_seen: 0,
+            observed_blocks: HashSet::new(),
             observed_txs: HashSet::new(),
             recent_header_hashes: Vec::new(),
+            recent_block_hashes: Vec::new(),
             recent_tx_hashes: Vec::new(),
         }
     }
@@ -97,7 +105,9 @@ impl Default for SyncState {
 
 impl SyncState {
     fn sync_state_path() -> PathBuf {
-        PathBuf::from(SYNC_STATE_FILE)
+        std::env::var("RUSTNODE_SYNC_STATE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(SYNC_STATE_FILE))
     }
 
     fn load() -> io::Result<Self> {
@@ -118,6 +128,17 @@ impl SyncState {
                 state.blocks_seen = value.parse().unwrap_or_default();
             } else if let Some(value) = line.strip_prefix("txs_seen=") {
                 state.txs_seen = value.parse().unwrap_or_default();
+            } else if let Some(value) = line.strip_prefix("block_hashes=") {
+                for token in value.split(',') {
+                    if token.is_empty() {
+                        continue;
+                    }
+                    let mut bytes = [0_u8; 32];
+                    let decoded = decode_hex_32(token)?;
+                    bytes.copy_from_slice(&decoded);
+                    state.observed_blocks.insert(bytes);
+                    state.recent_block_hashes.push(bytes);
+                }
             } else if let Some(value) = line.strip_prefix("tx_hashes=") {
                 for token in value.split(',') {
                     if token.is_empty() {
@@ -155,6 +176,17 @@ impl SyncState {
                 .join(",");
             lines.push(format!("tx_hashes={encoded}"));
         }
+        if self.recent_block_hashes.is_empty() {
+            lines.push("block_hashes=".to_owned());
+        } else {
+            let encoded = self
+                .recent_block_hashes
+                .iter()
+                .map(encode_hex)
+                .collect::<Vec<_>>()
+                .join(",");
+            lines.push(format!("block_hashes={encoded}"));
+        }
 
         std::fs::write(Self::sync_state_path(), lines.join("\n"))
     }
@@ -173,8 +205,17 @@ impl SyncState {
     }
 
     fn record_blocks(&mut self, blocks: &[Vec<u8>]) {
-        self.blocks_seen += blocks.len();
-        let _ = blocks;
+        for bytes in blocks {
+            let hash = hash_blake2b_256(bytes);
+            if self.observed_blocks.insert(hash) {
+                self.blocks_seen += 1;
+                self.recent_block_hashes.push(hash);
+                if self.recent_block_hashes.len() > 128 {
+                    let removed = self.recent_block_hashes.remove(0);
+                    self.observed_blocks.remove(&removed);
+                }
+            }
+        }
     }
 
     fn record_txs(&mut self, txs: &[Vec<u8>]) {
@@ -196,8 +237,10 @@ impl SyncState {
             headers_seen: self.headers_seen,
             blocks_seen: self.blocks_seen,
             txs_seen: self.txs_seen,
+            recent_block_hashes: self.recent_block_hashes.len(),
         }
     }
+
 }
 
 fn encode_hex(bytes: &[u8; 32]) -> String {
@@ -248,12 +291,13 @@ struct Session {
     outstanding_blocks_request: Option<u32>,
     outstanding_txs_request: Option<u32>,
     chain_state_tips: Vec<BlockHash>,
+    requested_block_hashes: HashSet<[u8; 32]>,
+    requested_tx_ids: HashSet<[u8; 32]>,
     sync_state: SyncState,
     sent_inv_request: bool,
     sent_headers_request: bool,
     sent_blocks_request: bool,
     sent_txs_request: bool,
-    headers_probe_pending: bool,
     last_headers_locator: Option<BlockHash>,
 }
 
@@ -313,12 +357,13 @@ pub fn run(config: &NodeConfig) -> Result<(), FlowError> {
         outstanding_blocks_request: None,
         outstanding_txs_request: None,
         chain_state_tips: Vec::new(),
+        requested_block_hashes: HashSet::new(),
+        requested_tx_ids: HashSet::new(),
         sync_state: SyncState::load().unwrap_or_default(),
         sent_inv_request: false,
         sent_headers_request: false,
         sent_blocks_request: false,
         sent_txs_request: false,
-        headers_probe_pending: false,
         last_headers_locator: None,
     };
 
@@ -436,15 +481,15 @@ fn process_inbound(
             }
             NEW_BLOCK_CODE => {
                 let block = decode_new_block_payload(payload)?.finish(payload_len)?;
-                handle_new_block(block);
+                handle_new_block(stream, config, session, block);
             }
             NEW_HEADER_CODE => {
                 let header = decode_new_header_payload(payload)?.finish(payload_len)?;
-                handle_new_header(header);
+                handle_new_header(stream, config, session, header);
             }
             NEW_INV_CODE => {
                 let new_inv = decode_new_inv_payload(payload)?.finish(payload_len)?;
-                handle_new_inv(new_inv);
+                handle_new_inv(stream, config, session, new_inv);
             }
             NEW_BLOCK_HASH_CODE => {
                 let block_hash = decode_new_block_hash_payload(payload)?.finish(payload_len)?;
@@ -452,7 +497,7 @@ fn process_inbound(
             }
             NEW_TX_HASHES_CODE => {
                 let hashes = decode_new_txhashes_payload(payload)?.finish(payload_len)?;
-                handle_new_txhashes(hashes);
+                handle_new_txhashes(stream, config, session, hashes);
             }
             TXS_REQUEST_CODE => {
                 let request = decode_txs_request_payload(payload)?.finish(payload_len)?;
@@ -561,7 +606,6 @@ fn maybe_send_headers_probe(
         .or_else(|| session.chain_state_tips.first().copied())
         .filter(|locator| locator.bytes != [0_u8; 32]);
 
-    session.headers_probe_pending = false;
     let locators: Vec<BlockHash> = maybe_locator.into_iter().collect();
     if locators.is_empty() {
         println!("sending fallback HeadersRequest with empty locator");
@@ -611,9 +655,7 @@ fn handle_chain_state(
         .collect();
     persist_sync_state(session);
 
-    if session.headers_probe_pending
-        && !session.sent_headers_request
-    {
+    if !session.sent_headers_request {
         let maybe_locator = session.chain_state_tips.first().copied().filter(|locator| {
             locator.bytes != [0_u8; 32]
         });
@@ -728,17 +770,37 @@ fn maybe_send_blocks_request(
     if session.sent_blocks_request {
         return Ok(());
     }
-
     let locators = session
         .last_headers_locator
         .map(|locator| vec![locator])
         .unwrap_or_default();
+    send_blocks_request(stream, config, session, locators)
+}
+
+fn send_blocks_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    locators: Vec<BlockHash>,
+) -> Result<(), FlowError> {
+    let requestable: Vec<BlockHash> = locators
+        .into_iter()
+        .filter(|locator| locator.bytes != [0_u8; 32])
+        .filter(|locator| session.requested_block_hashes.insert(locator.bytes))
+        .collect();
+
+    if requestable.is_empty() {
+        return Ok(());
+    }
+    if session.outstanding_blocks_request.is_some() {
+        return Ok(());
+    }
 
     let request = BlocksRequest {
         id: RequestId {
             value: next_request_id(&mut session.next_request_id),
         },
-        locators,
+        locators: requestable,
     };
     let payload = encode_blocks_request_payload(&request).map_err(|error| {
         FlowError::Protocol(format!("failed to encode probe BlocksRequest: {error}"))
@@ -762,17 +824,37 @@ fn maybe_send_txs_request(
     if session.sent_txs_request {
         return Ok(());
     }
-
-    let request = TxsRequest {
-        id: RequestId {
-            value: next_request_id(&mut session.next_request_id),
-        },
-        hashes: vec![(
+    send_txs_request(
+        stream,
+        config,
+        session,
+        vec![(
             ChainIndex { from: 0, to: 0 },
             vec![TransactionId {
                 bytes: [0x02_u8; 32],
             }],
         )],
+    )
+}
+
+fn send_txs_request(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    request_hashes: Vec<(ChainIndex, Vec<TransactionId>)>,
+) -> Result<(), FlowError> {
+    if request_hashes.is_empty() {
+        return Ok(());
+    }
+    if session.outstanding_txs_request.is_some() {
+        return Ok(());
+    }
+
+    let request = TxsRequest {
+        id: RequestId {
+            value: next_request_id(&mut session.next_request_id),
+        },
+        hashes: request_hashes,
     };
     let payload = encode_txs_request_payload(&request).map_err(|error| {
         FlowError::Protocol(format!("failed to encode probe TxsRequest: {error}"))
@@ -828,28 +910,74 @@ fn handle_inv_response(
     maybe_send_headers_probe(stream, config, session, &response)
 }
 
-fn handle_new_block(block: NewBlock) {
+fn handle_new_block(
+    _stream: &mut TcpStream,
+    _config: &NodeConfig,
+    session: &mut Session,
+    block: NewBlock,
+) {
     println!("received NewBlock with {} bytes", block.bytes.len());
+    session.sync_state.record_blocks(&[block.bytes.clone()]);
+    persist_sync_state(session);
 }
 
-fn handle_new_header(header: NewHeader) {
+fn handle_new_header(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    header: NewHeader,
+) {
     println!("received NewHeader with {} bytes", header.bytes.len());
+    session.sync_state.record_headers(&[header.bytes.clone()]);
+    persist_sync_state(session);
+    let locators = vec![BlockHash {
+        bytes: hash_blake2b_256(&header.bytes),
+    }];
+    if let Err(error) = send_blocks_request(stream, config, session, locators) {
+        eprintln!("failed to request block for NewHeader: {error}");
+    }
 }
 
-fn handle_new_inv(new_inv: NewInv) {
+fn handle_new_inv(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    new_inv: NewInv,
+) {
     let total: usize = new_inv.hashes.iter().map(|chain| chain.len()).sum();
     println!(
         "received NewInv with {} chain(s), {} hashes",
         new_inv.hashes.len(),
         total
     );
+    let mut requestable: Vec<BlockHash> = Vec::new();
+    let mut seen = HashSet::new();
+    for chain in new_inv.hashes {
+        for hash in chain {
+            if hash.bytes == [0_u8; 32] || seen.contains(&hash.bytes) {
+                continue;
+            }
+            if session.requested_block_hashes.insert(hash.bytes) {
+                seen.insert(hash.bytes);
+                requestable.push(hash);
+            }
+        }
+    }
+    if let Err(error) = send_blocks_request(stream, config, session, requestable) {
+        eprintln!("failed to request blocks from NewInv: {error}");
+    }
 }
 
 fn handle_new_block_hash(block_hash: NewBlockHash) {
     println!("received NewBlockHash bytes {}", block_hash.hash.bytes.len());
 }
 
-fn handle_new_txhashes(new_tx_hashes: NewTxHashes) {
+fn handle_new_txhashes(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    new_tx_hashes: NewTxHashes,
+) {
     let chain_count = new_tx_hashes.hashes.len();
     let tx_count: usize = new_tx_hashes
         .hashes
@@ -857,6 +985,26 @@ fn handle_new_txhashes(new_tx_hashes: NewTxHashes) {
         .map(|(_, txs)| txs.len())
         .sum();
     println!("received NewTxHashes chains={} txs={}", chain_count, tx_count);
+    let mut request_hashes = Vec::new();
+    for (chain_index, txs) in new_tx_hashes.hashes {
+        let mut chain_requests = Vec::new();
+        let mut seen = HashSet::new();
+        for tx in txs {
+            if tx.bytes == [0_u8; 32] || seen.contains(&tx.bytes) {
+                continue;
+            }
+            if session.requested_tx_ids.insert(tx.bytes) {
+                seen.insert(tx.bytes);
+                chain_requests.push(tx);
+            }
+        }
+        if !chain_requests.is_empty() {
+            request_hashes.push((chain_index, chain_requests));
+        }
+    }
+    if let Err(error) = send_txs_request(stream, config, session, request_hashes) {
+        eprintln!("failed to request txs from NewTxHashes: {error}");
+    }
 }
 
 fn handle_txs_request(request: TxsRequest) {
