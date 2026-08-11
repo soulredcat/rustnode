@@ -17,6 +17,7 @@ be committed as a reproducible test record after each run.
 
 ```bash
 make official-interop-m1
+make official-interop-m2
 ```
 
 For a pure-Rust connectivity smoke (no official JVM node), use:
@@ -39,6 +40,13 @@ The command runs:
 
 1. official pinned-source build and local isolated setup;
 2. official node startup wait for port readiness;
-3. Rust M1 flow run for the requested duration;
+3. Rust flow run for the requested duration;
 4. marker checks for `received valid Hello` and `received matching pong`;
+   - with `official-interop-m2`, also checks `Inv/Headers/Blocks/Txs` request and response markers.
 5. process cleanup and output of `commands.txt` and log paths.
+
+To force M2 checks in a local run, set:
+
+```bash
+RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
+```

@@ -8,7 +8,7 @@ The first release is a compatibility implementation. It is not a new protocol, n
 
 ## Current status
 
-**Milestone M1: official P2P handshake and Ping/Pong.**
+**Milestone M2: request and decode real network data (interoperability smoke level).**
 
 Completed foundation:
 
@@ -17,7 +17,7 @@ Completed foundation:
 - the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19973`;
 - project tasks, upstream mappings, AI rules, runbooks, and worklogs are committed.
 
-Current active work is freezing official M1 wire behavior into Scala-generated vectors. **Rust P2P framing, `Hello`, `Ping/Pong`, synchronization, validation, VM execution, and production use are not implemented yet.**
+Current active work is extending interoperability smoke into basic sync requests (`Inv/Headers/Blocks/Txs`) and decoding the responses. **Rust synchronization state machine, validation, VM execution, and production use are not implemented yet.**
 
 Do not use this repository for mainnet funds, mining, signing, or consensus decisions.
 

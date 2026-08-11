@@ -16,6 +16,7 @@ PEER_HOST="${PEER_ADDRESS%:*}"
 PEER_PORT="${PEER_ADDRESS##*:}"
 DURATION_SECONDS="${RUST_INTEROP_DURATION_SECONDS:-120}"
 OFFICIAL_READY_TIMEOUT="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
+REQUIRE_M2="${RUST_INTEROP_REQUIRE_M2:-0}"
 
 : > "${RUST_ERROR_FILE}"
 
@@ -146,6 +147,13 @@ printf '%s\n' "${rust_pid}" > "${RUST_PID_FILE}"
 deadline=$(( $(date +%s) + DURATION_SECONDS ))
 handshake_seen=0
 ping_seen=0
+m2_inv_request_seen=0
+m2_headers_request_seen=0
+m2_blocks_request_seen=0
+m2_txs_request_seen=0
+m2_headers_response_seen=0
+m2_blocks_response_seen=0
+m2_txs_response_seen=0
 
 while true; do
   now=$(date +%s)
@@ -173,6 +181,27 @@ while true; do
     if grep -q "received matching pong" "${RUST_LOG_FILE}"; then
       ping_seen=1
     fi
+    if grep -q "sent InvRequest" "${RUST_LOG_FILE}"; then
+      m2_inv_request_seen=1
+    fi
+    if grep -q "sent HeadersRequest" "${RUST_LOG_FILE}"; then
+      m2_headers_request_seen=1
+    fi
+    if grep -q "sent BlocksRequest" "${RUST_LOG_FILE}"; then
+      m2_blocks_request_seen=1
+    fi
+    if grep -q "sent TxsRequest" "${RUST_LOG_FILE}"; then
+      m2_txs_request_seen=1
+    fi
+    if grep -q "received HeadersResponse" "${RUST_LOG_FILE}"; then
+      m2_headers_response_seen=1
+    fi
+    if grep -q "received BlocksResponse" "${RUST_LOG_FILE}"; then
+      m2_blocks_response_seen=1
+    fi
+    if grep -q "received TxsResponse" "${RUST_LOG_FILE}"; then
+      m2_txs_response_seen=1
+    fi
   fi
 
   if [[ "${handshake_seen}" -eq 1 && "${ping_seen}" -eq 1 ]]; then
@@ -194,6 +223,21 @@ if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 ]]; then
   cat "${RUST_LOG_FILE}" >&2
   cat "${RUST_ERROR_FILE}" >&2
   exit 1
+fi
+
+if [[ "${REQUIRE_M2}" -eq 1 ]]; then
+  if [[ "${m2_inv_request_seen}" -ne 1 || "${m2_headers_request_seen}" -ne 1 || "${m2_blocks_request_seen}" -ne 1 || "${m2_txs_request_seen}" -ne 1 ]]; then
+    echo "M2 request markers not all observed before timeout" >&2
+    cat "${RUST_LOG_FILE}" >&2
+    cat "${RUST_ERROR_FILE}" >&2
+    exit 1
+  fi
+  if [[ "${m2_headers_response_seen}" -ne 1 || "${m2_blocks_response_seen}" -ne 1 || "${m2_txs_response_seen}" -ne 1 ]]; then
+    echo "M2 response markers not all observed before timeout" >&2
+    cat "${RUST_LOG_FILE}" >&2
+    cat "${RUST_ERROR_FILE}" >&2
+    exit 1
+  fi
 fi
 
 echo "Interop run completed successfully."

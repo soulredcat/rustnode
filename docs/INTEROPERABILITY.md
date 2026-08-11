@@ -384,3 +384,11 @@ real object decode/re-encode
 ```
 
 M2 must retain all M1 assertions. Header/block exchange does not excuse handshake or liveness regressions.
+
+### M2 assertions (current smoke-level bar)
+
+- Rust sends `InvRequest` after successful Hello validation.
+- Rust receives `InvResponse`, sends `HeadersRequest`, and observes at least one `HeadersResponse`.
+- Rust sends `BlocksRequest` and observes at least one `BlocksResponse`.
+- Rust sends `TxsRequest` and observes at least one `TxsResponse`.
+- No request sequence should suppress Ping/Pong liveness behavior.

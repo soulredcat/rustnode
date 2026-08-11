@@ -248,3 +248,21 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 **Notes:**
 
 - this is intended as an interoperability-first M2 bootstrap, not final sync validation/parsing.
+
+## 2026-08-11 — M2 sync smoke + interoperability marker support
+
+**Task:** extend M2 smoke and interop scaffolding with explicit sync request/response coverage.
+
+**Changed:**
+
+- added `make official-interop-m2` and `make rust-interop-m2` targets;
+- added `RUST_INTEROP_REQUIRE_M2` handling in `scripts/official-node/interoperability.sh` to assert observed
+  sync markers when enabled;
+- made `scripts/rust-only-smoke.sh` test-filter configurable via `RUST_ONLY_TEST_NAME`;
+- updated interoperability and handoff/task documentation (`docs/INTEROPERABILITY.md`, `docs/AI_HANDOFF.md`,
+  `TASKS.md`, `README.md`, `tests/interoperability/m1/README.md`) to reflect current M2 progress and active gate.
+
+**Effect on evidence:**
+
+- mock sync path still validated by `crates/flow/tests/rust_peer_smoke.rs` (chain state + inv/headers/blocks/txs probe + ping/pong);
+- official interop evidence path now has an opt-in M2 assertion mode, ready to be run from Linux/WSL when official node is available.

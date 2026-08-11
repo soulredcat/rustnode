@@ -9,9 +9,9 @@ Read this file after `TASKS.md` and verify its claims against the repository and
 ## Current state
 
 ```text
-Active milestone: M1 — Official P2P handshake and ping/pong complete
+Active milestone: M2 — Request and decode real network data
 Active task:      M2 — Request and decode real network data
-Task status:      BLOCKED (no M2 implementation yet)
+Task status:      IN PROGRESS (mock peer probe in place; official M2 evidence pending)
 Working branch:   main
 Pinned upstream:  alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53
 ```
@@ -42,7 +42,11 @@ Do not claim protocol milestones without local evidence attached in `docs/WORKLO
 
 ## Next exact task
 
-Complete `M1-005` acceptance evidence in `TASKS.md` if any manual gap remains, then start M2 protocol request work in a new session.
+Complete M2 acceptance evidence:
+
+- Add or run official-node interoperability evidence with M2 markers enabled;
+- confirm request/response probe behavior is stable over the soak period;
+- document results in `docs/WORKLOG.md` with command and observed output.
 
 ## Known risks
 

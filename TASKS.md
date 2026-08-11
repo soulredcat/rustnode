@@ -12,7 +12,7 @@ Last updated: `2026-08-11`
 ## Current position
 
 ```text
-Current milestone: M1 — official P2P handshake and Ping/Pong
+Current milestone: M2 — Request and decode real network data
 Current active gate: M2 — Request and decode real network data
 Next implementation task: complete sync request chains and add real-data validation tests
 ```
@@ -256,7 +256,13 @@ Planned sequence:
 3. block request/response and announcement decode;
 4. transaction inventory/request/response decode.
 
-**Exit condition:** Rust sends real sync requests and decodes headers/blocks/transactions and announces as `decoded`, not yet `validated`.
+**Status note:** M2 bootstrap request/response probe is implemented in `alephium-flow` and covered by
+`crates/flow/tests/rust_peer_smoke.rs`.
+
+**Remaining gate criteria:** add/record official interop M2 evidence for these probes (Headers/Blocks/Txs request-response chain).
+
+**Exit condition:** Rust sends real sync requests and decodes headers/blocks/transactions and announces as `decoded`, with
+interop evidence recorded; not yet validated.
 
 ---
 
