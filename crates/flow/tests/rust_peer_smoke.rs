@@ -17,16 +17,17 @@ use alephium_protocol::message::{
 use alephium_protocol::message::payload::{
     decode_blocks_request_payload, decode_headers_request_payload, decode_hello_payload,
     decode_inv_request_payload, decode_ping_payload, decode_txs_request_payload,
-    encode_blocks_response_payload, encode_chain_state_payload, encode_headers_response_payload,
-    encode_hello_payload, encode_inv_response_payload, encode_new_block_payload,
-    encode_new_header_payload, encode_new_inv_payload, encode_new_txhashes_payload, encode_pong_payload,
+    encode_blocks_response_payload, encode_chain_state_payload,
+    encode_headers_response_payload, encode_hello_payload, encode_inv_response_payload,
+    encode_new_block_hash_payload, encode_new_block_payload, encode_new_header_payload,
+    encode_new_inv_payload, encode_new_txhashes_payload, encode_pong_payload,
     encode_txs_response_payload, BlockHash, ChainIndex, ChainState, ChainTip, CliqueId,
-    HeadersResponse, Hello, InterBrokerInfo, InvResponse, NewBlock, NewHeader, NewInv,
+    HeadersResponse, Hello, InterBrokerInfo, InvResponse, NewBlock, NewBlockHash, NewHeader, NewInv,
     NewTxHashes, RequestId, TransactionId, TxsResponse,
     BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HEADERS_REQUEST_CODE,
     HEADERS_RESPONSE_CODE, HELLO_CODE, INV_REQUEST_CODE, INV_RESPONSE_CODE, NEW_BLOCK_CODE,
-    NEW_HEADER_CODE, NEW_INV_CODE, NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE, TXS_REQUEST_CODE,
-    TXS_RESPONSE_CODE,
+    NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE, NEW_INV_CODE, NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE,
+    TXS_REQUEST_CODE, TXS_RESPONSE_CODE,
 };
 use alephium_protocol::message::payload::Pong as PongPayload;
 
@@ -46,6 +47,7 @@ enum MockEvent {
     NewBlockSent,
     NewHeaderSent,
     NewInvSent,
+    NewBlockHashSent,
     NewTxHashesSent,
     PingReceived,
     PongSent,
@@ -217,6 +219,10 @@ fn full_rust_mock_peer_announcement_followups_are_handled() {
     assert!(
         events.contains(&MockEvent::NewInvSent),
         "server should send NewInv announcement"
+    );
+    assert!(
+        events.contains(&MockEvent::NewBlockHashSent),
+        "server should send NewBlockHash announcement"
     );
     assert!(
         events.contains(&MockEvent::NewTxHashesSent),
@@ -480,6 +486,12 @@ fn mock_peer_with_inv_behavior(
                     events.send(MockEvent::HelloReceived).ok();
                     if send_announcements && !announcements_sent {
                         send_new_block(
+                            &mut stream,
+                            magic,
+                            config.max_frame_data,
+                            &events,
+                        )?;
+                        send_new_block_hash(
                             &mut stream,
                             magic,
                             config.max_frame_data,
@@ -844,6 +856,29 @@ fn send_new_header(
         &payload,
         events,
         MockEvent::NewHeaderSent,
+    )
+}
+
+fn send_new_block_hash(
+    stream: &mut TcpStream,
+    magic: NetworkMagic,
+    max_frame_data: usize,
+    events: &Sender<MockEvent>,
+) -> io::Result<()> {
+    let new_block_hash = NewBlockHash {
+        hash: BlockHash {
+            bytes: [0x66_u8; 32],
+        },
+    };
+    let payload = encode_new_block_hash_payload(&new_block_hash);
+    send_payload(
+        stream,
+        magic,
+        max_frame_data,
+        NEW_BLOCK_HASH_CODE,
+        &payload,
+        events,
+        MockEvent::NewBlockHashSent,
     )
 }
 
