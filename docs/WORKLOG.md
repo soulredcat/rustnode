@@ -152,3 +152,33 @@ Bootstrap peers: none
 3. commit vectors plus checksums;
 4. mark M1-001 `DONE` only after reproducibility evidence;
 5. begin M1-002 against those vectors.
+
+## 2026-08-11 — M1 interoperability harness and CI evidence plumbing
+
+**Task:** create executable official-node interoperability command and evidence artifact path.
+
+**Implementation commit:** `87d9fd1` and follow-up workflow changes.
+
+**Changed:**
+
+- added `make official-interop-m1` target backed by `scripts/official-node/interoperability.sh`;
+- interoperability folder README under `tests/interoperability/m1/`;
+- linked `docs/INTEROPERABILITY.md` and `README.md` with the new command;
+- added GitHub Action `.github/workflows/m1-official-interop.yml` to run the harness in Ubuntu with Java+SBT and upload logs.
+
+**Environment limits in this workstation:**
+
+- `bash` shell path does not resolve Windows `git`, and `sbt` is unavailable in this local shell.
+- as a result, `official-interop-m1` cannot be fully executed here yet.
+
+**Required next commands for operator (before M1-009 can be closed):**
+
+```bash
+make official-interop-m1
+```
+
+on a Linux/WSL environment with:
+
+- Java 17+
+- sbt 1.x
+- git

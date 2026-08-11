@@ -1,0 +1,83 @@
+name: m1-official-interop
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "scripts/generate-m1-vectors.sh"
+      - "tools/upstream/m1/**"
+      - "tests/interoperability/m1/**"
+      - "crates/**/*.rs"
+      - ".github/workflows/m1-official-interop.yml"
+  pull_request:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "scripts/generate-m1-vectors.sh"
+      - "tools/upstream/m1/**"
+      - "tests/interoperability/m1/**"
+      - "crates/**/*.rs"
+      - ".github/workflows/m1-official-interop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+          cache-dependency-path: |
+            .upstream/alephium/**/*.sbt
+            .upstream/alephium/project/build.properties
+            .upstream/alephium/project/**/*.scala
+            .upstream/alephium/project/**/*.sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1.5.7
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Versions
+        run: |
+          java -version
+          rustc --version
+          sbt --script-version
+
+      - name: Run M1 interoperability harness
+        env:
+          RUST_INTEROP_DURATION_SECONDS: "45"
+        run: |
+          make official-interop-m1
+
+      - name: Upload interoperability artifacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: m1-official-interop
+          path: |
+            tests/interoperability/m1/commands.txt
+            tests/interoperability/m1/rust-node.log
+            tests/interoperability/m1/error.txt
+            .local/official-node/official-node.log
+          if-no-files-found: error
+          retention-days: 14

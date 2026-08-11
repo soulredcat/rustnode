@@ -86,6 +86,9 @@ make check
 # Build and smoke-test the isolated official Scala node
 make official-smoke
 
+# Run the Rust/official interoperability smoke run
+make official-interop-m1
+
 # Generate official Scala M1 fixtures
 make m1-vectors
 

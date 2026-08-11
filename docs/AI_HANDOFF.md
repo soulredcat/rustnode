@@ -9,9 +9,9 @@ Read this file after `TASKS.md` and verify its claims against the repository and
 ## Current state
 
 ```text
-Active milestone: M0 — Repository bootstrap
-Active task:      M0-001 — Create the minimal Cargo workspace
-Task status:      READY
+Active milestone: M1 — Official P2P interoperability path
+Active task:      M1-001 — Freeze M1 official vectors + M1-009 interoperability gate
+Task status:      IN_PROGRESS
 Working branch:   main
 Pinned upstream:  alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53
 ```
@@ -29,20 +29,24 @@ Pinned upstream:  alephium/alephium@63bcf6998508025f9538f3377629fe9e66df6c53
 ### Implementation status
 
 ```text
-Cargo workspace:                 not created
-Rust crates:                     not created
-Runnable Rust binary:            not created
-Official fixture generator:      not created
-Message envelope:                not implemented
-Hello/Ping/Pong:                 not implemented
-Official-node interoperability:  not tested
+Cargo workspace:                 created
+Rust crates:                     created and connected
+Runnable Rust binary:            implemented
+Official fixture generator:      committed and used
+Message envelope:                implemented
+Hello/Ping/Pong:                 implemented
+Official-node interoperability:  harness added, runtime proof pending local tools
 ```
 
-Do not claim that M0 or M1 is partially implemented based on documentation alone.
+Do not claim protocol milestones complete until the official interoperability gate runs and succeeds.
 
 ## Next exact task
 
-Implement `M0-001` from `TASKS.md`.
+Close `M1-009` in `TASKS.md` with a successful `official-interop` run in an environment with:
+- Java 17+
+- sbt
+- git
+- 19973 listener
 
 Required sequence:
 
