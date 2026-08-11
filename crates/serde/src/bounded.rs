@@ -5,7 +5,7 @@ fn encode_len(length: usize) -> Result<Vec<u8>, Error> {
     Ok(compact::encode_i32(length))
 }
 
-fn decode_non_negative_len(input: &[u8], kind: &str) -> DecodeResult<'_, usize> {
+fn decode_non_negative_len<'a>(input: &'a [u8], kind: &str) -> DecodeResult<'a, usize> {
     let staged = compact::decode_i32(input)?;
     if staged.value < 0 {
         return Err(Error::validation(format!(
