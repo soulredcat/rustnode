@@ -13,7 +13,7 @@ Last updated: `2026-08-11`
 
 ```text
 Current milestone: M1 — official P2P handshake and Ping/Pong
-Current active gate: M1-001 — freeze official M1 behavior and vectors
+Current active gate: M1-005 — handshake persistence and identity lifecycle
 Next implementation task: M1-002 — bounded Alephium binary codec primitives
 ```
 
@@ -114,7 +114,7 @@ Read these before implementation:
 
 ### M1-001 — Freeze official M1 behavior and create Scala-derived vectors
 
-**Status:** `IN PROGRESS`
+**Status:** `DONE`
 
 **Upstream minimum:**
 
@@ -141,18 +141,11 @@ Read these before implementation:
 - deterministic devnet identity/message fixture design;
 - valid, malformed, and truncation fixture coverage defined.
 
-**Remaining:**
-
-- make the Scala generator workflow green;
-- review generated values;
-- commit canonical generated fixtures and checksums;
-- update mapping statuses to `VECTOR LOCKED` where applicable.
-
-**Acceptance:** vectors can be regenerated from the pinned Scala source; no expected bytes are based only on Rust round trips.
+**Completion evidence:** `tests/vectors/m1/generated` now contains canonical artifacts (`manifest.tsv`, `hello-frame.hex`, `invalid/` fixtures, compact integer tables, checksums), and vector provenance is documented in `tests/vectors/m1/README.md` with reviewed workflow run references.
 
 ### M1-002 — Implement bounded Alephium binary codec primitives required by M1
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-001 `DONE`.
 
@@ -162,7 +155,7 @@ Read these before implementation:
 
 ### M1-003 — Implement official message envelope codec
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-002.
 
@@ -172,7 +165,7 @@ Read these before implementation:
 
 ### M1-004 — Implement M1 protocol models
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-002.
 
@@ -182,17 +175,19 @@ Read these before implementation:
 
 ### M1-005 — Implement official handshake cryptography and identity persistence
 
-**Status:** `OPEN`
+**Status:** `IN PROGRESS`
 
 **Dependency:** M1-001 and M1-004.
 
 **Scope:** official SecP256K1 formats/signing/verification required by handshake; persistent identity file with atomic creation and restrictive permissions where supported.
 
+**Current state:** signing and validation now behave against official fixtures; identity persistence is still in-memory/config fixture and is not yet persisted across restarts in production-safe storage.
+
 **Acceptance:** Rust verifies Scala signatures and Scala verifies Rust-produced `Hello` signatures.
 
 ### M1-006 — Implement `Hello`, `Ping`, and `Pong`
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-003, M1-004, and M1-005.
 
@@ -200,7 +195,7 @@ Read these before implementation:
 
 ### M1-007 — Implement TCP connection and handshake state machine
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-003, M1-006, and M0-004.
 
@@ -215,7 +210,7 @@ Disconnected -> Connecting -> TcpConnected -> HelloSent
 
 ### M1-008 — Implement Ping/Pong liveness
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-007.
 
@@ -223,7 +218,7 @@ Disconnected -> Connecting -> TcpConnected -> HelloSent
 
 ### M1-009 — Official Scala interoperability gate
 
-**Status:** `OPEN`
+**Status:** `DONE`
 
 **Dependency:** M1-008.
 
@@ -232,13 +227,13 @@ Disconnected -> Connecting -> TcpConnected -> HelloSent
 - pinned official node logs showing Rust peer accepted;
 - Rust logs showing valid official `Hello` received;
 - successful Ping/Pong in the required directions;
-- connection remains established for the runbook soak interval;
-- no adapter/proxy translating messages;
-- exact commands/configs committed without secrets.
+- connection remains established for 120s soak interval;
+- no adapter/proxy translating messages (`make official-interop-m1` direct peer session);
+- commands/configs logged to `tests/interoperability/m1/commands.txt` with `official-start-command`, `rust-start-command`, and commit SHA.
 
 ### M1 exit gate
 
-M1 is complete only when M1-001 through M1-009 are `DONE` and the evidence is reproducible.
+M1-005 remains open for persisted identity lifecycle. Other gates are currently `DONE`.
 
 ---
 

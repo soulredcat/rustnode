@@ -182,3 +182,33 @@ on a Linux/WSL environment with:
 - Java 17+
 - sbt 1.x
 - git
+
+## 2026-08-11 — M1 interoperability smoke and flow-hardening
+
+**Task:** continue M1 and close interoperability gate.
+
+**Implementation commits:** `a88a778`, `7629f20`.
+
+**Commands run in local workstation (Git Bash with local sbt):**
+
+```bash
+export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
+./scripts/official-node/build.sh
+./scripts/official-node/interoperability.sh
+```
+
+**Observed outcomes:**
+
+- Rust sends valid Hello from deterministic test identity:
+  - `sent Hello: client=rust-alephium/v4.0.0/linux/p2p-v1 broker_id=0 broker_num=1`
+- Rust receives official Hello:
+  - `received valid Hello from scala-alephium/v4.0.0/.../p2p-v1 (1/0)`
+- Rust receives official Ping and sends matching Pong across repeated cycles:
+  - `received ping id=...`
+  - `received matching pong N`
+- Official node remained connected through the 120-second soak window and cleanly closed after run.
+- `Interop run completed successfully.` printed by the harness.
+
+**Blocker remaining for next milestone:**
+
+- Full persistence for identity is still required for strict M1-005 scope; current Rust identity remains fixture-backed and not persisted via separate atomic storage.
