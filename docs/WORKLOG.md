@@ -343,3 +343,21 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
   - updated wording for chain-state/fallback acceptance.
 
 **Result:** `cargo test -p alephium-flow --test rust_peer_smoke` passes (4/4).
+
+## 2026-08-11 — Interop default port migration for Java co-location
+
+**Task:** avoid accidental collision with existing Java/Alephium process on common ports while keeping local interop deterministic.
+
+**Implementation details:**
+
+- changed default local interoperability P2P port from `19974` to `19975` in:
+  - `config/official-node/user.conf`;
+  - `crates/conf/src/lib.rs` (`DEFAULT_PEER_ADDRESS`);
+  - `scripts/official-node/{prepare-home.sh,smoke.sh,interoperability.sh}`;
+  - `tests/interoperability/m1/README.md`;
+  - `docs/LOCAL_OFFICIAL_NODE.md`;
+  - `README.md`.
+- added explicit warning branches in scripts when `19973`/`19974` is selected, directing use of `19975` and attach-mode where needed.
+- synchronized `TASKS.md` historical references to current default `127.0.0.1:19975`.
+
+**Outcome:** safer coexistence with an already-running Java/Alephium node is now possible without changing topology or manually reconfiguring public-facing ports; attach mode remains recommended for live Java coexistence.

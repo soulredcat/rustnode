@@ -14,7 +14,7 @@ Completed foundation:
 
 - the minimum Rust workspace compiles, lints, and tests in CI;
 - CI fetches the exact pinned official Alephium source;
-- the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19974`;
+- the official Scala node builds and runs as an isolated local devnet peer on `127.0.0.1:19975`;
 - project tasks, upstream mappings, AI rules, runbooks, and worklogs are committed.
 
 Current active work is extending interoperability smoke into basic sync requests (`Inv/Headers/Blocks/Txs`) and decoding the responses. **Rust synchronization state machine, validation, VM execution, and production use are not implemented yet.**
@@ -86,8 +86,8 @@ make check
 # Build and smoke-test the isolated official Scala node
 make official-smoke
 
-# WARNING: default local official-node P2P port is 19974 (shifted from Java default 19973) to avoid collision.
-# If you run Java and Rust on the same host, align OFFICIAL_NODE_P2P_PORT, RUST_INTEROP_PEER_PORT, and RUST_INTEROP_PEER_ADDRESS first.
+# WARNING: default local official-node P2P port is 19975.
+# Avoid Java port collisions on 19973/19974 by explicitly setting OFFICIAL_NODE_P2P_PORT or RUST_INTEROP_PEER_PORT.
 
 # Run the pure-Rust M1 bootstrap peer smoke (no Java / no JVM dependencies)
 make rust-interop-m1

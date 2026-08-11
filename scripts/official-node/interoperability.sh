@@ -12,7 +12,7 @@ RUST_ERROR_FILE="${INTEROP_DIR}/error.txt"
 RUST_PID_FILE="${INTEROP_DIR}/rust-node.pid"
 ATTACH_TO_EXISTING="${RUST_INTEROP_ATTACH_TO_EXISTING:-0}"
 
-DEFAULT_INTEROP_PORT="${RUST_INTEROP_PEER_PORT:-${OFFICIAL_NODE_P2P_PORT:-19974}}"
+DEFAULT_INTEROP_PORT="${RUST_INTEROP_PEER_PORT:-${OFFICIAL_NODE_P2P_PORT:-19975}}"
 PEER_ADDRESS="${RUST_INTEROP_PEER_ADDRESS:-127.0.0.1:${DEFAULT_INTEROP_PORT}}"
 PEER_HOST="${PEER_ADDRESS%:*}"
 PEER_PORT="${PEER_ADDRESS##*:}"
@@ -147,8 +147,8 @@ write_manifest
 if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   if is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "WARNING: ${PEER_ADDRESS} already has a listening process." >&2
-    if [[ "${PEER_PORT}" -eq 19973 ]]; then
-      echo "Peringatan: 19973 biasanya dipakai oleh node Java default; port interop sekarang dimulai dari 19974." >&2
+    if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 ]]; then
+      echo "Peringatan: port ${PEER_PORT} sering dipakai node Java; port interop default sekarang 19975." >&2
     fi
     echo "Jika Java node Anda sedang jalan di port ini, gunakan ATTACH mode agar tidak bentrok." >&2
     echo "Lanjutkan hanya dengan membunuh proses yang dipakai port itu atau pindah ke port lain dengan RUST_INTEROP_PEER_ADDRESS." >&2
@@ -185,8 +185,8 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
     exit 1
   fi
 else
-  if [[ "${PEER_PORT}" -eq 19973 ]]; then
-    echo "Peringatan: port 19973 biasanya dipakai oleh node Java default. Default interop sekarang 19974." >&2
+  if [[ "${PEER_PORT}" -eq 19973 || "${PEER_PORT}" -eq 19974 ]]; then
+    echo "Peringatan: port ${PEER_PORT} sering dipakai node Java. Jika bentrok, gunakan RUST_INTEROP_PEER_ADDRESS/PORT dengan 19975." >&2
   fi
   if ! is_port_open "${PEER_HOST}" "${PEER_PORT}"; then
     echo "no peer listening at ${PEER_ADDRESS}; start one externally or run without RUST_INTEROP_ATTACH_TO_EXISTING" >&2

@@ -6,12 +6,12 @@ STATE_DIR="${OFFICIAL_NODE_STATE_DIR:-${ROOT_DIR}/.local/official-node}"
 LOG_FILE="${STATE_DIR}/official-node.log"
 PID_FILE="${STATE_DIR}/official-node.pid"
 P2P_HOST="127.0.0.1"
-P2P_PORT="${OFFICIAL_NODE_P2P_PORT:-19974}"
+P2P_PORT="${OFFICIAL_NODE_P2P_PORT:-19975}"
 STARTUP_TIMEOUT_SECONDS="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 
 "${ROOT_DIR}/scripts/official-node/build.sh"
-if [[ "${P2P_PORT}" -eq 19973 ]]; then
-  echo "Peringatan: port 19973 biasanya dipakai node Java default; gunakan OFFICIAL_NODE_P2P_PORT=19974 agar tidak bentrok." >&2
+if [[ "${P2P_PORT}" -eq 19973 || "${P2P_PORT}" -eq 19974 ]]; then
+  echo "Peringatan: port ${P2P_PORT} sering dipakai node Java; gunakan OFFICIAL_NODE_P2P_PORT=19975 agar tidak bentrok." >&2
 fi
 
 mkdir -p "${STATE_DIR}"
