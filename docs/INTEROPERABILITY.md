@@ -275,6 +275,8 @@ General procedure:
 12. Preserve sanitized evidence and update the worklog.
 
 The final automated test should orchestrate these steps without changing official-node protocol validation.
+`make official-interop-m1` provides a minimal harness with marker checks and reproducible
+run metadata in `tests/interoperability/m1/commands.txt`.
 
 ## M1 assertions
 
