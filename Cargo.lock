@@ -31,7 +31,9 @@ name = "alephium-flow"
 version = "0.0.1"
 dependencies = [
  "alephium-conf",
+ "alephium-crypto",
  "alephium-protocol",
+ "alephium-serde",
  "alephium-util",
 ]
 
