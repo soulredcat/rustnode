@@ -266,3 +266,27 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 
 - mock sync path still validated by `crates/flow/tests/rust_peer_smoke.rs` (chain state + inv/headers/blocks/txs probe + ping/pong);
 - official interop evidence path now has an opt-in M2 assertion mode, ready to be run from Linux/WSL when official node is available.
+
+## 2026-08-11 — M2 attach-mode tooling and stability hardening
+
+**Task:** run/interrogate M2 against an already-running official peer without lifecycle interference.
+
+**Implementation commits:** `c148a6f`, `e7384df`, `c21e41e`, `e5f5b11`, `7f7b0b9`, `56f8a61`, `821732e`
+
+**Changed:**
+
+- added `official-interop-m1-attach` and `official-interop-m2-attach` make targets;
+- added `RUST_INTEROP_ATTACH_TO_EXISTING` branch in interop script so existing official peer is reused;
+- stabilized manifest generation when `git` is not available in shell environment;
+- moved one-time `requested_*` request tracking to send-time so dedupe does not drop candidates prematurely;
+- documented attach-mode usage in `tests/interoperability/m1/README.md`.
+
+**Current blocker in this workstation:**
+
+- interop cannot be fully executed here yet because official-JVM prerequisites are missing (`sbt` and `make` in this shell path).
+
+**Required next command (when prerequisites are available):**
+
+```bash
+RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATION_SECONDS=120 make official-interop-m2
+```
