@@ -115,7 +115,7 @@ Official sbt build: 1.11.5
 Official source: 63bcf6998508025f9538f3377629fe9e66df6c53
 Official assembly: alephium-4.6.0+5-63bcf699-SNAPSHOT.jar
 Network: local devnet, network ID 2
-P2P: 127.0.0.1:19973
+P2P: 127.0.0.1:19973 (historical run, before local devnet default was moved to 19974)
 Bootstrap peers: none
 ```
 
@@ -290,3 +290,15 @@ export PATH="/d/rustalphnode/tmp/sbt/sbt/bin:$PATH"
 ```bash
 RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATION_SECONDS=120 make official-interop-m2
 ```
+
+## 2026-08-11 — Official interop port switch for Java co-location
+
+**Task:** make the local interoperability harness avoid conflicts with an already-running Java/Alephium node.
+
+**Implementation commit:** `f089984`
+
+**Changed:**
+
+- added `OFFICIAL_NODE_P2P_PORT` support in `scripts/official-node/prepare-home.sh` and wired it through runtime bootstrap scripts;
+- kept the interop default at `19974` and added Java-default collision warning + usage guidance;
+- updated interoperability docs with attach/port configuration guidance and refreshed `TASKS.md` consistency.
