@@ -261,6 +261,8 @@ Planned sequence:
 
 **Remaining gate criteria:** add/record official interop M2 evidence for these probes (Headers/Blocks/Txs request-response chain).
 
+**Current command options:** `official-interop-m2` (base), `official-interop-m2-optional-announcements`, `official-interop-m2-strict-announcements` (at least one announcement marker), `official-interop-m2-all-announcements` (all announcement markers required), and manual workflow dispatch input `m2_announcements`.
+
 **Exit condition:** Rust sends real sync requests and decodes headers/blocks/transactions and announces as `decoded`, with
 interop evidence recorded; not yet validated.
 

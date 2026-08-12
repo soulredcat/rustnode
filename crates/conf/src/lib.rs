@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use alephium_crypto::{PrivateKey, PublicKey, PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH};
+use alephium_crypto::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH, PrivateKey, PublicKey};
 
 /// Current implementation status.
 pub const STATUS: &str = "M1 local bootstrap configuration implemented";
@@ -39,15 +39,14 @@ pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v1";
 
 /// Deterministic identity fixture from the Scala vector generator.
 pub const PRIVATE_KEY_BYTES: [u8; 32] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ];
 
 /// Deterministic fixture clique identity.
 pub const CLIQUE_ID_BYTES: [u8; 33] = [
-    0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62,
-    0x95, 0xce, 0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9,
-    0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98,
+    0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+    0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17,
+    0x98,
 ];
 
 /// Liveness pacing for the minimum M1 bootstrap.
@@ -182,7 +181,9 @@ fn temporary_path_for(path: &Path) -> io::Result<PathBuf> {
 }
 
 fn write_node_identity(path: &Path, identity: NodeIdentity) -> Result<(), NodeIdentityError> {
-    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
         fs::create_dir_all(parent)?;
     }
 
@@ -284,7 +285,10 @@ impl NodeConfig {
         self
     }
 
-    pub fn with_node_identity_path(self, path: impl AsRef<Path>) -> Result<Self, NodeIdentityError> {
+    pub fn with_node_identity_path(
+        self,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, NodeIdentityError> {
         let identity = load_or_create_node_identity_at(path)?;
         Ok(self.with_node_identity(identity))
     }

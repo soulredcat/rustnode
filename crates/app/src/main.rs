@@ -4,9 +4,7 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-use alephium_conf::{
-    resolve_node_identity_path, NodeConfig, DEFAULT_PEER_ADDRESS,
-};
+use alephium_conf::{DEFAULT_PEER_ADDRESS, NodeConfig, resolve_node_identity_path};
 use alephium_flow::run;
 
 fn print_usage() {
@@ -25,22 +23,23 @@ fn print_usage() {
     println!("  --wallet-status           print persisted local sync/wallet snapshot and exit");
 }
 
-fn run_with_retry(
-    config: &NodeConfig,
-    retry_interval: Duration,
-    max_attempts: Option<usize>,
-) -> ! {
+fn run_with_retry(config: &NodeConfig, retry_interval: Duration, max_attempts: Option<usize>) -> ! {
     let mut attempt = 0usize;
 
     loop {
         attempt += 1;
-        println!("starting rust watch session #{attempt} to {}", config.peer_address);
+        println!(
+            "starting rust watch session #{attempt} to {}",
+            config.peer_address
+        );
 
         if let Err(error) = run(config) {
             eprintln!("flow exited with error: {error}");
         }
 
-        if let Some(limit) = max_attempts && attempt >= limit {
+        if let Some(limit) = max_attempts
+            && attempt >= limit
+        {
             eprintln!("watch mode reached attempt limit ({limit}); exiting");
             process::exit(1);
         }
@@ -155,18 +154,25 @@ fn main() {
         return;
     }
 
-    let config = match NodeConfig::with_peer_address(peer_address).with_node_identity_path(identity_path) {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("failed to load node identity: {error}");
-            process::exit(1);
-        }
-    };
+    let config =
+        match NodeConfig::with_peer_address(peer_address).with_node_identity_path(identity_path) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("failed to load node identity: {error}");
+                process::exit(1);
+            }
+        };
 
     println!("alephium-node-rs");
-    println!("upstream baseline: {}", alephium_util::UPSTREAM_BASELINE_COMMIT);
+    println!(
+        "upstream baseline: {}",
+        alephium_util::UPSTREAM_BASELINE_COMMIT
+    );
     println!("configuration: {}", alephium_conf::STATUS);
-    println!("node config: peer={}, client={}", config.peer_address, config.client_id);
+    println!(
+        "node config: peer={}, client={}",
+        config.peer_address, config.client_id
+    );
     println!("flow: {}", alephium_flow::STATUS);
 
     if watch_mode {

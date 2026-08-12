@@ -130,12 +130,8 @@ fn prefix_decoder_consumes_one_frame_from_a_multi_frame_buffer() {
     };
     assert_eq!(first.consumed, hello.len());
 
-    let second = decode_frame_prefix(
-        &combined[first.consumed..],
-        magic(),
-        MAX_TEST_DATA_LENGTH,
-    )
-    .expect("second frame");
+    let second = decode_frame_prefix(&combined[first.consumed..], magic(), MAX_TEST_DATA_LENGTH)
+        .expect("second frame");
     let FrameDecode::Complete(second) = second else {
         panic!("second frame unexpectedly incomplete");
     };

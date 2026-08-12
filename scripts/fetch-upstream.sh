@@ -5,17 +5,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ALEPHIUM_UPSTREAM_DIR:-${ROOT_DIR}/.upstream/alephium}"
 REPOSITORY="https://github.com/alephium/alephium.git"
 COMMIT="63bcf6998508025f9538f3377629fe9e66df6c53"
+GIT_CMD="${GIT_CMD:-git}"
 
 mkdir -p "$(dirname "${TARGET_DIR}")"
 
 if [[ ! -d "${TARGET_DIR}/.git" ]]; then
-  git clone --filter=blob:none "${REPOSITORY}" "${TARGET_DIR}"
+  "${GIT_CMD}" clone --filter=blob:none "${REPOSITORY}" "${TARGET_DIR}"
 fi
 
-git -C "${TARGET_DIR}" fetch --force origin "${COMMIT}"
-git -C "${TARGET_DIR}" checkout --detach "${COMMIT}"
+"${GIT_CMD}" -C "${TARGET_DIR}" fetch --force origin "${COMMIT}"
+"${GIT_CMD}" -C "${TARGET_DIR}" checkout --detach "${COMMIT}"
 
-ACTUAL_COMMIT="$(git -C "${TARGET_DIR}" rev-parse HEAD)"
+ACTUAL_COMMIT="$("${GIT_CMD}" -C "${TARGET_DIR}" rev-parse HEAD)"
 if [[ "${ACTUAL_COMMIT}" != "${COMMIT}" ]]; then
   echo "upstream verification failed: expected ${COMMIT}, got ${ACTUAL_COMMIT}" >&2
   exit 1

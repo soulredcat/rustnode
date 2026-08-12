@@ -31,6 +31,7 @@ trap cleanup EXIT INT TERM
 is_port_open() {
   local host=$1
   local port=$2
+  local ps_exe=""
 
   if command -v python3 >/dev/null 2>&1; then
     python3 - "${host}" "${port}" <<'PY'
@@ -57,6 +58,17 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     sock.settimeout(0.5)
     sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
 PY
+    return
+  fi
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    ps_exe="powershell.exe"
+  elif [ -x "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]; then
+    ps_exe="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+  fi
+
+  if [[ "${ps_exe}" != "" ]]; then
+    "${ps_exe}" -NoProfile -NonInteractive -Command "try { (New-Object System.Net.Sockets.TcpClient('$host',$port)).Dispose(); exit 0 } catch { exit 1 }"
     return
   fi
 

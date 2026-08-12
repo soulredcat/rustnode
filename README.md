@@ -86,8 +86,13 @@ make check
 # Build and smoke-test the isolated official Scala node
 make official-smoke
 
-# WARNING: default local official-node P2P port is 19985.
-# If Java node shares this port, set OFFICIAL_NODE_P2P_PORT or RUST_INTEROP_PEER_PORT to another value before start.
+# WARNING: default local official-node ports are 19985/12973/10973.
+# If Java node shares these, set OFFICIAL_NODE_P2P_PORT,
+# OFFICIAL_NODE_REST_PORT, OFFICIAL_NODE_MINER_API_PORT, or RUST_INTEROP_PEER_PORT
+# to other values before start.
+# The M2 "all announcements" mode can be used with default settings:
+# OFFICIAL_NODE_AUTO_MINE_FOR_DEV=1 and OFFICIAL_NODE_ENABLE_WALLET=1
+# are automatically enabled by the interop script when RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=all.
 
 # Run the pure-Rust M1 bootstrap peer smoke (no Java / no JVM dependencies)
 make rust-interop-m1
@@ -97,6 +102,15 @@ make official-interop-m1
 
 # Generate official Scala M1 fixtures
 make m1-vectors
+
+# Full M2 interop (request/response markers, announcements optional)
+make official-interop-m2-optional-announcements
+
+# Full M2 interop (announcement markers required)
+make official-interop-m2-strict-announcements
+
+# Full M2 interop (all announcement markers required)
+make official-interop-m2-all-announcements
 
 # Run the current Rust bootstrap binary
 make run
@@ -108,7 +122,13 @@ cargo run -p alephium-app -- --watch --peer <peer-address>
 RUST_INTEROP_ATTACH_TO_EXISTING=1 make official-interop-m1
 RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 make official-interop-m2
 # ATTENTION: ATTACH mode does not manage the official-node lifecycle (no startup/kill).
-```
+
+# GitHub Actions manual dispatch (workflow_dispatch) options:
+# - workflow input `m2_announcements=none` (default): make official-interop-m2
+# - `m2_announcements=strict`: make official-interop-m2-strict-announcements
+# - `m2_announcements=all`: make official-interop-m2-all-announcements
+# - `m2_announcements=warn`: make official-interop-m2-optional-announcements
+``` 
 
 The current Rust binary prints an honest implementation-status banner.
 With `--watch`, it keeps reconnecting and will connect to Alephium P2P when a peer becomes reachable.

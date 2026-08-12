@@ -6,6 +6,10 @@ STATE_DIR="${OFFICIAL_NODE_STATE_DIR:-${ROOT_DIR}/.local/official-node}"
 HOME_DIR="${OFFICIAL_NODE_HOME:-${STATE_DIR}/home}"
 CONFIG_SOURCE="${ROOT_DIR}/config/official-node/user.conf"
 OFFICIAL_NODE_P2P_PORT="${OFFICIAL_NODE_P2P_PORT:-19985}"
+OFFICIAL_NODE_REST_PORT="${OFFICIAL_NODE_REST_PORT:-12973}"
+OFFICIAL_NODE_MINER_API_PORT="${OFFICIAL_NODE_MINER_API_PORT:-10973}"
+OFFICIAL_NODE_AUTO_MINE_FOR_DEV="${OFFICIAL_NODE_AUTO_MINE_FOR_DEV:-0}"
+OFFICIAL_NODE_ENABLE_WALLET="${OFFICIAL_NODE_ENABLE_WALLET:-0}"
 
 case "${HOME_DIR}" in
   "${ROOT_DIR}"/*) ;;
@@ -32,9 +36,56 @@ if [[ "${OFFICIAL_NODE_P2P_PORT}" -eq 19973 || "${OFFICIAL_NODE_P2P_PORT}" -eq 1
 fi
 
 if [[ "${OFFICIAL_NODE_P2P_PORT}" -ne 19985 ]]; then
-  sed -i -E "s/(^\\s*bind-address\\s*=\\s*\"127\\.0\\.0\\.1:)[0-9]+(\\".*$)/\\1${OFFICIAL_NODE_P2P_PORT}\\2/" "${HOME_DIR}/user.conf"
-  sed -i -E "s/(^\\s*internal-address\\s*=\\s*\"127\\.0\\.0\\.1:)[0-9]+(\\".*$)/\\1${OFFICIAL_NODE_P2P_PORT}\\2/" "${HOME_DIR}/user.conf"
-  sed -i -E "s/(^\\s*coordinator-address\\s*=\\s*\"127\\.0\\.0\\.1:)[0-9]+(\\".*$)/\\1${OFFICIAL_NODE_P2P_PORT}\\2/" "${HOME_DIR}/user.conf"
+  sed -i -E "s/(^\s*bind-address\s*=\s*\"127\.0\.0\.1:)[0-9]+(\".*$)/\1${OFFICIAL_NODE_P2P_PORT}\2/" "${HOME_DIR}/user.conf"
+  sed -i -E "s/(^\s*internal-address\s*=\s*\"127\.0\.0\.1:)[0-9]+(\".*$)/\1${OFFICIAL_NODE_P2P_PORT}\2/" "${HOME_DIR}/user.conf"
+  sed -i -E "s/(^\s*coordinator-address\s*=\s*\"127\.0\.0\.1:)[0-9]+(\".*$)/\1${OFFICIAL_NODE_P2P_PORT}\2/" "${HOME_DIR}/user.conf"
+fi
+
+if [[ ! "${OFFICIAL_NODE_REST_PORT}" =~ ^[0-9]+$ ]]; then
+  echo "OFFICIAL_NODE_REST_PORT must be a positive integer: ${OFFICIAL_NODE_REST_PORT}" >&2
+  exit 1
+fi
+
+if [[ ! "${OFFICIAL_NODE_MINER_API_PORT}" =~ ^[0-9]+$ ]]; then
+  echo "OFFICIAL_NODE_MINER_API_PORT must be a positive integer: ${OFFICIAL_NODE_MINER_API_PORT}" >&2
+  exit 1
+fi
+
+if [[ "${OFFICIAL_NODE_REST_PORT}" -ne 12973 || "${OFFICIAL_NODE_MINER_API_PORT}" -ne 10973 ]]; then
+  sed -i -E "s/(^\s*rest-port\s*=\s*)[0-9]+(\s*)/\1${OFFICIAL_NODE_REST_PORT}\2/" "${HOME_DIR}/user.conf"
+  sed -i -E "s/(^\s*miner-api-port\s*=\s*)[0-9]+(\s*)/\1${OFFICIAL_NODE_MINER_API_PORT}\2/" "${HOME_DIR}/user.conf"
+fi
+
+case "${OFFICIAL_NODE_AUTO_MINE_FOR_DEV}" in
+  1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+    sed -i -E "s/(^\s*mempool\.auto-mine-for-dev\s*=\s*)false(\s*)$/\1true\2/" "${HOME_DIR}/user.conf"
+    ;;
+  0|false|FALSE|False|no|NO|No|off|OFF|Off)
+    :
+    ;;
+  *)
+    echo "OFFICIAL_NODE_AUTO_MINE_FOR_DEV must be 0/1/true/false (got: ${OFFICIAL_NODE_AUTO_MINE_FOR_DEV})" >&2
+    exit 1
+    ;;
+esac
+
+case "${OFFICIAL_NODE_ENABLE_WALLET}" in
+  1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+    if grep -Eq "^[[:space:]]*wallet\.enabled[[:space:]]*=[[:space:]]*false" "${HOME_DIR}/user.conf"; then
+      sed -i -E "s/(^[[:space:]]*wallet\.enabled[[:space:]]*=[[:space:]]*)false([[:space:]]*)$/\1true\2/" "${HOME_DIR}/user.conf"
+    fi
+    ;;
+  0|false|FALSE|False|no|NO|No|off|OFF|Off)
+    :
+    ;;
+  *)
+    echo "OFFICIAL_NODE_ENABLE_WALLET must be 0/1/true/false (got: ${OFFICIAL_NODE_ENABLE_WALLET})" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "${OFFICIAL_NODE_REST_PORT}" -eq 12973 || "${OFFICIAL_NODE_MINER_API_PORT}" -eq 10973 ]]; then
+  echo "Peringatan: salah satu port resmi masih memakai default Alephium (12973/10973). Jika bentrok, set OFFICIAL_NODE_REST_PORT dan OFFICIAL_NODE_MINER_API_PORT." >&2
 fi
 
 echo "Official node home: ${HOME_DIR}"

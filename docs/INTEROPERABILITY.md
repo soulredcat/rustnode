@@ -392,6 +392,24 @@ M2 must retain all M1 assertions. Header/block exchange does not excuse handshak
 - Rust receives `InvResponse`, sends `HeadersRequest`, and observes at least one `HeadersResponse`.
 - Rust sends `BlocksRequest` and observes at least one `BlocksResponse`.
 - Rust sends `TxsRequest` and observes at least one `TxsResponse`.
-- Optional stronger M2 checks (set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1`) require announcement coverage for
-  `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`.
+- Optional stronger M2 checks:
+  - set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` or `strict` for strict local mode (requires at least one announcement marker);
+  - set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=all` for full-coverage mode (requires `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`);
+  - set `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=warn` or `optional` to log and continue when announcements are not observed.
+  - in `all` mode, the harness automatically enables `OFFICIAL_NODE_AUTO_MINE_FOR_DEV=1` and
+    `OFFICIAL_NODE_ENABLE_WALLET=1` when starting a managed official node.
+  - checks required in full-coverage mode:
+    `NewBlock`, `NewHeader`, `NewInv`, and `NewTxHashes`.
 - No request sequence should suppress Ping/Pong liveness behavior.
+
+Run templates for M2:
+
+- `make official-interop-m2` (default M2 without announcement assertions)
+- `make official-interop-m2-optional-announcements` (announcement assertions optional)
+- `make official-interop-m2-strict-announcements` (`1`/`strict`, at least one announcement marker required)
+- `make official-interop-m2-all-announcements` (`all`, all announcement markers required)
+
+CI automation note:
+
+- `m1-official-interop` workflow also supports manual dispatch input `m2_announcements` with
+  `none` (default), `strict`, `all`, or `warn` to choose announcement coverage.

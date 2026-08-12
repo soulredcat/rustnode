@@ -1,5 +1,7 @@
 .PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke \
-        official-interop-m1 official-interop-m2 official-interop-m1-attach official-interop-m2-attach \
+        official-interop-m1 official-interop-m2 official-interop-m2-optional-announcements official-interop-m2-strict-announcements \
+        official-interop-m2-all-announcements \
+        official-interop-m1-attach official-interop-m2-attach \
         rust-interop-m1 rust-interop-m2 m1-vectors
 
 check: fmt check-build clippy test
@@ -36,6 +38,12 @@ official-interop-m1:
 
 official-interop-m2:
 	RUST_INTEROP_REQUIRE_M2=1 ./scripts/official-node/interoperability.sh
+official-interop-m2-optional-announcements:
+	RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=warn ./scripts/official-node/interoperability.sh
+official-interop-m2-strict-announcements:
+	RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=strict ./scripts/official-node/interoperability.sh
+official-interop-m2-all-announcements:
+	RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=all ./scripts/official-node/interoperability.sh
 
 official-interop-m1-attach:
 	RUST_INTEROP_ATTACH_TO_EXISTING=1 ./scripts/official-node/interoperability.sh

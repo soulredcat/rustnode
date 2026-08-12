@@ -314,13 +314,18 @@ RUST_INTEROP_ATTACH_TO_EXISTING=1 RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATIO
 - `scripts/official-node/interoperability.sh` now tracks:
   - `received ChainState`;
   - `received HeadersResponse`, `received BlocksResponse`, `received TxsResponse`;
-  - optional announcement markers `received NewBlock`, `received NewHeader`, `received NewInv`, `received NewTxHashes` when `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1`;
+  - optional announcement markers `received NewBlock`, `received NewHeader`, `received NewInv`, `received NewTxHashes`
+    when `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=warn`/`optional` (at least one marker when `strict`/`1`,
+    all markers when `all`);
   - exits with explicit failures when required markers are missing under `RUST_INTEROP_REQUIRE_M2=1`.
 - `.github/workflows/m1-official-interop.yml` now executes:
   - `RUST_INTEROP_REQUIRE_M2=1 RUST_INTEROP_DURATION_SECONDS=45 make official-interop-m2`
 - `docs/INTEROPERABILITY.md` and `tests/interoperability/m1/README.md` were updated to document:
   - ChainState as part of M2 assertions,
-  - optional announcement marker gating via `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS`.
+  - announcement marker gating via `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS` (strict, all, optional/warn),
+  - dedicated make target `official-interop-m2-all-announcements` for full four-marker mode.
+- `.github/workflows/m1-official-interop.yml` dispatch input `m2_announcements`
+  now allows running strict/optional/full M2 announcement coverage on demand.
 
 **Open risk / next action:**
 - The environment may still not always emit announcement frames during the test window; keep announcement gating optional until evidence is consistently reproducible from official peer behavior.

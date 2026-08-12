@@ -1,13 +1,16 @@
 use core::str;
 
 use alephium_crypto::{self, PublicKey, Signature};
-use alephium_serde::{self, bounded, compact, fixed, DecodeResult, Error, Staging};
+use alephium_serde::{self, DecodeResult, Error, Staging, bounded, compact, fixed};
 
 pub const HANDSHAKE_MAX_CLIENT_ID_BYTES: usize = 256;
 const HASH_BYTES: usize = alephium_crypto::HASH_LENGTH;
 const MAX_REQUEST_VECTOR_ITEMS: usize = 1_048_576;
 const MAX_WEIGHT_BYTES: usize = 8_192;
 const MAX_TX_VECTOR_ITEMS: usize = 1_048_576;
+const HEADER_NONCE_BYTES: usize = 24;
+const HEADER_VERSION_BYTES: usize = 1;
+const HEADER_TARGET_BYTES: usize = 4;
 
 pub const HELLO_CODE: i32 = 0;
 pub const PING_CODE: i32 = 1;
@@ -375,29 +378,27 @@ pub fn decode_wire_header(input: &[u8]) -> DecodeResult<'_, i32> {
 }
 
 pub fn encode_hello_payload(hello: &Hello) -> Result<Vec<u8>, Error> {
-    let mut encoded = bounded::encode_bytes(hello.client_id.as_bytes(), HANDSHAKE_MAX_CLIENT_ID_BYTES)?;
+    let mut encoded =
+        bounded::encode_bytes(hello.client_id.as_bytes(), HANDSHAKE_MAX_CLIENT_ID_BYTES)?;
     encoded.extend_from_slice(&fixed::encode_i64_be(hello.timestamp));
     encoded.extend_from_slice(&encode_inter_broker_info_body(&hello.broker_info)?);
     encoded.extend_from_slice(&hello.signature);
     Ok(encoded)
 }
 
-pub fn decode_hello_payload(
-    input: &[u8],
-    configured_groups: u32,
-) -> Result<Hello, Error> {
+pub fn decode_hello_payload(input: &[u8], configured_groups: u32) -> Result<Hello, Error> {
     let hello = decode_hello_payload_with_rest(input, configured_groups)?;
     if !hello.rest.is_empty() {
-        Err(Error::redundant_bytes(input.len() - hello.rest.len(), input.len()))
+        Err(Error::redundant_bytes(
+            input.len() - hello.rest.len(),
+            input.len(),
+        ))
     } else {
         Ok(hello.value)
     }
 }
 
-fn decode_hello_payload_with_rest(
-    input: &[u8],
-    configured_groups: u32,
-) -> DecodeResult<'_, Hello> {
+fn decode_hello_payload_with_rest(input: &[u8], configured_groups: u32) -> DecodeResult<'_, Hello> {
     let client_id = decode_handshake_client_id(input)?;
     let staged_ts = fixed::decode_i64_be(client_id.rest)?;
     let broker_info = decode_inter_broker_info(staged_ts.rest)?;
@@ -441,11 +442,7 @@ impl Hello {
         let clique_id = PublicKey::try_from(self.broker_info.clique_id.bytes.as_slice())
             .map_err(|_| Error::validation("Invalid Hello signature"))?;
 
-        if !alephium_crypto::verify(
-            &self.broker_info.hash(),
-            &signature,
-            &clique_id,
-        ) {
+        if !alephium_crypto::verify(&self.broker_info.hash(), &signature, &clique_id) {
             return Err(Error::validation("Invalid Hello signature"));
         }
 
@@ -491,26 +488,23 @@ pub fn decode_blocks_request_payload(input: &[u8]) -> DecodeResult<'_, BlocksReq
     let id = decode_request_id(input)?;
     let locators = decode_block_hash_vector(id.rest)?;
     Ok(locators.map(|locators| BlocksRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         locators,
     }))
 }
 
 pub fn encode_blocks_response_payload(response: &BlocksResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_byte_vector(&response.blocks)?);
+    encoded.extend_from_slice(&encode_raw_byte_vector(&response.blocks)?);
     Ok(encoded)
 }
 
 pub fn decode_blocks_response_payload(input: &[u8]) -> DecodeResult<'_, BlocksResponse> {
     let id = decode_request_id(input)?;
-    let blocks = decode_length_prefixed_bytes_vector(id.rest)?;
+    let blocks = decode_length_prefixed_bytes_vector_without_trailing_bytes(id.rest)
+        .or_else(|_| decode_raw_byte_vector(id.rest))?;
     Ok(blocks.map(|blocks| BlocksResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         blocks,
     }))
 }
@@ -525,26 +519,23 @@ pub fn decode_headers_request_payload(input: &[u8]) -> DecodeResult<'_, HeadersR
     let id = decode_request_id(input)?;
     let locators = decode_block_hash_vector(id.rest)?;
     Ok(locators.map(|locators| HeadersRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         locators,
     }))
 }
 
 pub fn encode_headers_response_payload(response: &HeadersResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_byte_vector(&response.headers)?);
+    encoded.extend_from_slice(&encode_headers_vector(&response.headers)?);
     Ok(encoded)
 }
 
 pub fn decode_headers_response_payload(input: &[u8]) -> DecodeResult<'_, HeadersResponse> {
     let id = decode_request_id(input)?;
-    let headers = decode_length_prefixed_bytes_vector(id.rest)?;
+    let headers = decode_headers_vector(id.rest)
+        .or_else(|_| decode_length_prefixed_bytes_vector(id.rest))?;
     Ok(headers.map(|headers| HeadersResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         headers,
     }))
 }
@@ -559,9 +550,7 @@ pub fn decode_inv_request_payload(input: &[u8]) -> DecodeResult<'_, InvRequest> 
     let id = decode_request_id(input)?;
     let locators = decode_nested_block_hash_vector(id.rest)?;
     Ok(locators.map(|locators| InvRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         locators,
     }))
 }
@@ -576,9 +565,7 @@ pub fn decode_inv_response_payload(input: &[u8]) -> DecodeResult<'_, InvResponse
     let id = decode_request_id(input)?;
     let hashes = decode_nested_block_hash_vector(id.rest)?;
     Ok(hashes.map(|hashes| InvResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         hashes,
     }))
 }
@@ -648,26 +635,23 @@ pub fn decode_txs_request_payload(input: &[u8]) -> DecodeResult<'_, TxsRequest> 
     let id = decode_request_id(input)?;
     let hashes = decode_chain_indexed_txid_vector(id.rest)?;
     Ok(hashes.map(|hashes| TxsRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         hashes,
     }))
 }
 
 pub fn encode_txs_response_payload(response: &TxsResponse) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_byte_vector(&response.txs)?);
+    encoded.extend_from_slice(&encode_raw_byte_vector(&response.txs)?);
     Ok(encoded)
 }
 
 pub fn decode_txs_response_payload(input: &[u8]) -> DecodeResult<'_, TxsResponse> {
     let id = decode_request_id(input)?;
-    let txs = decode_length_prefixed_bytes_vector(id.rest)?;
+    let txs = decode_length_prefixed_bytes_vector_without_trailing_bytes(id.rest)
+        .or_else(|_| decode_raw_byte_vector(id.rest))?;
     Ok(txs.map(|txs| TxsResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         txs,
     }))
 }
@@ -690,13 +674,13 @@ pub fn encode_headers_by_heights_request_payload(
     Ok(encoded)
 }
 
-pub fn decode_headers_by_heights_request_payload(input: &[u8]) -> DecodeResult<'_, HeadersByHeightsRequest> {
+pub fn decode_headers_by_heights_request_payload(
+    input: &[u8],
+) -> DecodeResult<'_, HeadersByHeightsRequest> {
     let id = decode_request_id(input)?;
     let data = decode_chain_index_range_vector(id.rest)?;
     Ok(data.map(|data| HeadersByHeightsRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         data,
     }))
 }
@@ -705,7 +689,7 @@ pub fn encode_headers_by_heights_response_payload(
     response: &HeadersByHeightsResponse,
 ) -> Result<Vec<u8>, Error> {
     let mut encoded = encode_request_id(response.id);
-    encoded.extend_from_slice(&encode_byte_matrix(&response.headers)?);
+    encoded.extend_from_slice(&encode_nested_headers_vector(&response.headers)?);
     Ok(encoded)
 }
 
@@ -713,11 +697,9 @@ pub fn decode_headers_by_heights_response_payload(
     input: &[u8],
 ) -> DecodeResult<'_, HeadersByHeightsResponse> {
     let id = decode_request_id(input)?;
-    let headers = decode_byte_matrix(id.rest)?;
+    let headers = decode_nested_headers_vector(id.rest).or_else(|_| decode_byte_matrix(id.rest))?;
     Ok(headers.map(|headers| HeadersByHeightsResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         headers,
     }))
 }
@@ -736,9 +718,7 @@ pub fn decode_blocks_and_uncles_by_heights_request_payload(
     let id = decode_request_id(input)?;
     let data = decode_chain_index_range_vector(id.rest)?;
     Ok(data.map(|data| BlocksAndUnclesByHeightsRequest {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         data,
     }))
 }
@@ -757,9 +737,7 @@ pub fn decode_blocks_and_uncles_by_heights_response_payload(
     let id = decode_request_id(input)?;
     let blocks = decode_byte_matrix(id.rest)?;
     Ok(blocks.map(|blocks| BlocksAndUnclesByHeightsResponse {
-        id: RequestId {
-            value: id.value,
-        },
+        id: RequestId { value: id.value },
         blocks,
     }))
 }
@@ -848,13 +826,13 @@ fn encode_weight(weight: &[u8]) -> Result<Vec<u8>, Error> {
             limit: MAX_WEIGHT_BYTES,
         });
     }
-    let mut encoded = compact::encode_i32(
-        i32::try_from(weight.len())
-            .map_err(|_| Error::LimitExceeded {
+    let mut encoded =
+        compact::encode_i32(
+            i32::try_from(weight.len()).map_err(|_| Error::LimitExceeded {
                 declared: weight.len(),
                 limit: i32::MAX as usize,
             })?,
-    );
+        );
     encoded.extend_from_slice(weight);
     Ok(encoded)
 }
@@ -905,15 +883,11 @@ fn decode_chain_tip(input: &[u8]) -> DecodeResult<'_, ChainTip> {
 }
 
 fn encode_chain_tips(tips: &[ChainTip]) -> Result<Vec<u8>, Error> {
-    let mut encoded = bounded::encode_vec(
-        tips,
-        MAX_REQUEST_VECTOR_ITEMS,
-        |tip, encoded| {
-            tip.validate()?;
-            encoded.extend_from_slice(&encode_chain_tip(tip)?);
-            Ok(())
-        },
-    )?;
+    let mut encoded = bounded::encode_vec(tips, MAX_REQUEST_VECTOR_ITEMS, |tip, encoded| {
+        tip.validate()?;
+        encoded.extend_from_slice(&encode_chain_tip(tip)?);
+        Ok(())
+    })?;
     if encoded.is_empty() {
         // Keep empty vector encoding as a zero-length compact int.
         encoded = compact::encode_i32(0);
@@ -930,7 +904,10 @@ fn decode_chain_tips(input: &[u8]) -> DecodeResult<'_, Vec<ChainTip>> {
         )));
     }
     let len = usize::try_from(staged.value).map_err(|_| {
-        Error::validation(format!("invalid chain tip count conversion: {}", staged.value))
+        Error::validation(format!(
+            "invalid chain tip count conversion: {}",
+            staged.value
+        ))
     })?;
     if len > MAX_REQUEST_VECTOR_ITEMS {
         return Err(Error::LimitExceeded {
@@ -964,7 +941,10 @@ fn decode_block_hash_vector(input: &[u8]) -> DecodeResult<'_, Vec<BlockHash>> {
         )));
     }
     let len = usize::try_from(staged_len.value).map_err(|_| {
-        Error::validation(format!("invalid block hash vector length: {}", staged_len.value))
+        Error::validation(format!(
+            "invalid block hash vector length: {}",
+            staged_len.value
+        ))
     })?;
     if len > MAX_REQUEST_VECTOR_ITEMS {
         return Err(Error::LimitExceeded {
@@ -1022,13 +1002,12 @@ fn decode_nested_block_hash_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<Blo
 
 fn encode_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
     bounded::encode_vec(values, MAX_REQUEST_VECTOR_ITEMS, |value, encoded| {
-        encoded.extend_from_slice(&compact::encode_i32(
-            i32::try_from(value.len())
-                .map_err(|_| Error::LimitExceeded {
-                    declared: value.len(),
-                    limit: MAX_REQUEST_VECTOR_ITEMS,
-                })?,
-        ));
+        encoded.extend_from_slice(&compact::encode_i32(i32::try_from(value.len()).map_err(
+            |_| Error::LimitExceeded {
+                declared: value.len(),
+                limit: MAX_REQUEST_VECTOR_ITEMS,
+            },
+        )?));
         if value.len() > MAX_TX_VECTOR_ITEMS {
             return Err(Error::LimitExceeded {
                 declared: value.len(),
@@ -1038,6 +1017,44 @@ fn encode_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
         encoded.extend_from_slice(value);
         Ok(())
     })
+}
+
+fn encode_raw_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
+    let mut encoded = compact::encode_i32(i32::try_from(values.len()).map_err(|_| {
+        Error::LimitExceeded {
+            declared: values.len(),
+            limit: MAX_REQUEST_VECTOR_ITEMS,
+        }
+    })?);
+    for value in values {
+        if value.len() > MAX_TX_VECTOR_ITEMS {
+            return Err(Error::LimitExceeded {
+                declared: value.len(),
+                limit: MAX_TX_VECTOR_ITEMS,
+            });
+        }
+        encoded.extend_from_slice(value);
+    }
+    Ok(encoded)
+}
+
+fn encode_headers_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
+    let mut encoded = compact::encode_i32(i32::try_from(values.len()).map_err(|_| {
+        Error::LimitExceeded {
+            declared: values.len(),
+            limit: MAX_REQUEST_VECTOR_ITEMS,
+        }
+    })?);
+    for value in values {
+        if value.len() > MAX_REQUEST_VECTOR_ITEMS {
+            return Err(Error::LimitExceeded {
+                declared: value.len(),
+                limit: MAX_REQUEST_VECTOR_ITEMS,
+            });
+        }
+        encoded.extend_from_slice(value);
+    }
+    Ok(encoded)
 }
 
 fn decode_length_prefixed_bytes_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<u8>>> {
@@ -1090,6 +1107,212 @@ fn decode_length_prefixed_bytes_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec
     Ok(Staging::new(items, rest))
 }
 
+fn decode_length_prefixed_bytes_vector_without_trailing_bytes(
+    input: &[u8],
+) -> DecodeResult<'_, Vec<Vec<u8>>> {
+    decode_length_prefixed_bytes_vector(input).and_then(|staged| {
+        if staged.rest.is_empty() {
+            Ok(staged)
+        } else {
+            Err(Error::validation(
+                "length-prefixed payload has trailing bytes".to_owned(),
+            ))
+        }
+    })
+}
+
+fn decode_raw_byte_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<u8>>> {
+    let staged_len = compact::decode_i32(input)?;
+    if staged_len.value < 0 {
+        return Err(Error::validation(format!(
+            "negative byte vector count: {}",
+            staged_len.value
+        )));
+    }
+    let len = usize::try_from(staged_len.value).map_err(|_| {
+        Error::validation(format!(
+            "invalid byte vector count conversion: {}",
+            staged_len.value
+        ))
+    })?;
+    if len > MAX_TX_VECTOR_ITEMS {
+        return Err(Error::LimitExceeded {
+            declared: len,
+            limit: MAX_TX_VECTOR_ITEMS,
+        });
+    }
+
+    if len == 0 {
+        return Ok(Staging::new(Vec::new(), staged_len.rest));
+    }
+
+    if len == 1 {
+        return Ok(Staging::new(vec![staged_len.rest.to_vec()], &[]));
+    }
+
+    if staged_len.rest.is_empty() {
+        return Err(Error::validation(format!(
+            "raw byte vector declared {len} items but no payload bytes were found"
+        )));
+    }
+
+    Ok(Staging::new(vec![staged_len.rest.to_vec()], &[]))
+}
+
+fn decode_headers_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<u8>>> {
+    let staged_len = compact::decode_i32(input)?;
+    if staged_len.value < 0 {
+        return Err(Error::validation(format!(
+            "negative header vector count: {}",
+            staged_len.value
+        )));
+    }
+    let len = usize::try_from(staged_len.value).map_err(|_| {
+        Error::validation(format!(
+            "invalid header vector count conversion: {}",
+            staged_len.value
+        ))
+    })?;
+    if len > MAX_TX_VECTOR_ITEMS {
+        return Err(Error::LimitExceeded {
+            declared: len,
+            limit: MAX_TX_VECTOR_ITEMS,
+        });
+    }
+
+    let mut rest = staged_len.rest;
+    let mut headers = Vec::with_capacity(len);
+    for _ in 0..len {
+        let header_len = decode_block_header_len(rest)?;
+        let staged = fixed::take(rest, header_len)?;
+        headers.push(staged.value.to_vec());
+        rest = staged.rest;
+    }
+    Ok(Staging::new(headers, rest))
+}
+
+fn encode_nested_headers_vector(values: &[Vec<Vec<u8>>]) -> Result<Vec<u8>, Error> {
+    bounded::encode_vec(values, MAX_REQUEST_VECTOR_ITEMS, |row, encoded| {
+        encoded.extend_from_slice(&compact::encode_i32(i32::try_from(row.len()).map_err(
+            |_| Error::LimitExceeded {
+                declared: row.len(),
+                limit: MAX_REQUEST_VECTOR_ITEMS,
+            },
+        )?));
+        for header in row {
+            encoded.extend_from_slice(header);
+        }
+        Ok(())
+    })
+}
+
+fn decode_nested_headers_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<Vec<u8>>>> {
+    let staged_chain_count = compact::decode_i32(input)?;
+    if staged_chain_count.value < 0 {
+        return Err(Error::validation(format!(
+            "negative headers-by-heights chain count: {}",
+            staged_chain_count.value
+        )));
+    }
+    let chain_count = usize::try_from(staged_chain_count.value).map_err(|_| {
+        Error::validation(format!(
+            "invalid headers-by-heights chain count conversion: {}",
+            staged_chain_count.value
+        ))
+    })?;
+    if chain_count > MAX_REQUEST_VECTOR_ITEMS {
+        return Err(Error::LimitExceeded {
+            declared: chain_count,
+            limit: MAX_REQUEST_VECTOR_ITEMS,
+        });
+    }
+
+    let mut rest = staged_chain_count.rest;
+    let mut headers = Vec::with_capacity(chain_count);
+    for _ in 0..chain_count {
+        let chain_headers = decode_headers_vector(rest)?;
+        headers.push(chain_headers.value);
+        rest = chain_headers.rest;
+    }
+    Ok(Staging::new(headers, rest))
+}
+
+fn decode_block_header_len(input: &[u8]) -> Result<usize, Error> {
+    let mut rest = input;
+
+    rest = fixed::take(rest, HEADER_NONCE_BYTES).map_err(|_| {
+        Error::validation("invalid block header length: truncated nonce".to_owned())
+    })?
+    .rest;
+    if rest.len() < HEADER_VERSION_BYTES {
+        return Err(Error::validation(
+            "invalid block header length: truncated version byte".to_owned(),
+        ));
+    }
+    rest = &rest[HEADER_VERSION_BYTES..];
+
+    let deps_count = compact::decode_i32(rest)
+        .map_err(|_| Error::validation("invalid block header length: invalid dep count".to_owned()))?;
+    if deps_count.value < 0 {
+        return Err(Error::validation(format!(
+            "negative block header deps count: {}",
+            deps_count.value
+        )));
+    }
+    rest = deps_count.rest;
+    let deps_count = usize::try_from(deps_count.value).map_err(|_| {
+        Error::validation(format!(
+            "invalid block header deps count conversion: {}",
+            deps_count.value
+        ))
+    })?;
+    if deps_count > MAX_REQUEST_VECTOR_ITEMS {
+        return Err(Error::LimitExceeded {
+            declared: deps_count,
+            limit: MAX_REQUEST_VECTOR_ITEMS,
+        });
+    }
+
+    for _ in 0..deps_count {
+        rest = fixed::take(rest, HASH_BYTES).map_err(|_| {
+            Error::validation("invalid block header length: truncated deps hash".to_owned())
+        })?
+        .rest;
+    }
+    rest = fixed::take(rest, HASH_BYTES)
+        .map_err(|_| {
+            Error::validation("invalid block header length: truncated dep-state hash".to_owned())
+        })?
+        .rest;
+    rest = fixed::take(rest, HASH_BYTES)
+        .map_err(|_| {
+            Error::validation("invalid block header length: truncated txs hash".to_owned())
+        })?
+        .rest;
+    let _timestamp = fixed::decode_i64_be(rest)
+        .map_err(|_| Error::validation("invalid block header length: invalid timestamp".to_owned()))?;
+    rest = _timestamp.rest;
+    rest = fixed::take(rest, HEADER_TARGET_BYTES)
+        .map_err(|_| {
+            Error::validation("invalid block header length: truncated target".to_owned())
+        })?
+        .rest;
+
+    input
+        .len()
+        .checked_sub(rest.len())
+        .ok_or_else(|| Error::validation("invalid block header length: exhausted while decoding".to_owned()))
+        .and_then(|consumed| {
+            if consumed == 0 {
+                Err(Error::validation(
+                    "invalid block header length: zero-length header".to_owned(),
+                ))
+            } else {
+                Ok(consumed)
+            }
+        })
+}
+
 fn encode_chain_indexed_txid_vector(
     values: &[(ChainIndex, Vec<TransactionId>)],
 ) -> Result<Vec<u8>, Error> {
@@ -1100,7 +1323,9 @@ fn encode_chain_indexed_txid_vector(
     })
 }
 
-fn decode_chain_indexed_txid_vector(input: &[u8]) -> DecodeResult<'_, Vec<(ChainIndex, Vec<TransactionId>)>> {
+fn decode_chain_indexed_txid_vector(
+    input: &[u8],
+) -> DecodeResult<'_, Vec<(ChainIndex, Vec<TransactionId>)>> {
     let staged_len = compact::decode_i32(input)?;
     if staged_len.value < 0 {
         return Err(Error::validation(format!(
@@ -1147,7 +1372,10 @@ fn decode_txids(input: &[u8]) -> DecodeResult<'_, Vec<TransactionId>> {
         )));
     }
     let len = usize::try_from(staged_len.value).map_err(|_| {
-        Error::validation(format!("invalid txid count conversion: {}", staged_len.value))
+        Error::validation(format!(
+            "invalid txid count conversion: {}",
+            staged_len.value
+        ))
     })?;
     if len > MAX_TX_VECTOR_ITEMS {
         return Err(Error::LimitExceeded {
@@ -1168,11 +1396,15 @@ fn decode_txids(input: &[u8]) -> DecodeResult<'_, Vec<TransactionId>> {
 fn encode_chain_index_range_vector(
     values: &[(ChainIndex, BlockHeightRange)],
 ) -> Result<Vec<u8>, Error> {
-    bounded::encode_vec(values, MAX_REQUEST_VECTOR_ITEMS, |(index, range), encoded| {
-        encoded.extend_from_slice(&encode_chain_index(index)?);
-        encoded.extend_from_slice(&encode_block_height_range(range)?);
-        Ok(())
-    })
+    bounded::encode_vec(
+        values,
+        MAX_REQUEST_VECTOR_ITEMS,
+        |(index, range), encoded| {
+            encoded.extend_from_slice(&encode_chain_index(index)?);
+            encoded.extend_from_slice(&encode_block_height_range(range)?);
+            Ok(())
+        },
+    )
 }
 
 fn decode_chain_index_range_vector(
@@ -1262,7 +1494,9 @@ fn decode_inter_broker_info(input: &[u8]) -> DecodeResult<'_, InterBrokerInfo> {
     clique_bytes.copy_from_slice(&clique_id.value);
     Ok(Staging::new(
         InterBrokerInfo {
-            clique_id: CliqueId { bytes: clique_bytes },
+            clique_id: CliqueId {
+                bytes: clique_bytes,
+            },
             broker_id: broker_id.value,
             broker_num: broker_num.value,
         },
@@ -1292,9 +1526,8 @@ impl InterBrokerInfo {
             return Err(Error::validation("Invalid BrokerInfo"));
         }
 
-        PublicKey::try_from(self.clique_id.bytes.as_ref()).map_err(|_| {
-            Error::validation("Invalid BrokerInfo: invalid clique public key")
-        })?;
+        PublicKey::try_from(self.clique_id.bytes.as_ref())
+            .map_err(|_| Error::validation("Invalid BrokerInfo: invalid clique public key"))?;
 
         Ok(())
     }
@@ -1345,16 +1578,19 @@ impl P2PVersion {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_blocks_response_payload, encode_headers_response_payload, encode_txs_response_payload,
-        decode_blocks_response_payload, decode_headers_response_payload, decode_txs_response_payload,
-        BlocksResponse, HeadersResponse, RequestId, TxsResponse,
+        BlocksResponse, HeadersResponse, RequestId, TxsResponse, decode_blocks_response_payload,
+        decode_headers_by_heights_response_payload, decode_headers_response_payload,
+        decode_txs_response_payload,
+        encode_blocks_response_payload, encode_headers_response_payload,
+        encode_txs_response_payload,
     };
+    use alephium_serde::compact;
 
     #[test]
     fn response_payload_round_trips_are_exact() {
         let headers_response = HeadersResponse {
             id: RequestId { value: 2 },
-            headers: vec![vec![0x21_u8, 0x22_u8]],
+            headers: vec![fake_block_header()],
         };
         let encoded_headers = encode_headers_response_payload(&headers_response)
             .expect("encode headers response fixture");
@@ -1378,10 +1614,144 @@ mod tests {
             id: RequestId { value: 4 },
             txs: vec![vec![0x41_u8, 0x42_u8]],
         };
-        let encoded_txs = encode_txs_response_payload(&txs_response).expect("encode txs response fixture");
+        let encoded_txs =
+            encode_txs_response_payload(&txs_response).expect("encode txs response fixture");
         let decoded_txs =
             decode_txs_response_payload(&encoded_txs).expect("decode txs response fixture");
         assert_eq!(decoded_txs.rest, &[]);
         assert_eq!(decoded_txs.value, txs_response);
+    }
+
+    #[test]
+    fn decode_blocks_response_legacy_compatibility() {
+        let mut blocks_payload = compact::encode_u32(2);
+        blocks_payload.extend_from_slice(&compact::encode_i32(1));
+        blocks_payload.extend_from_slice(&compact::encode_i32(2));
+        blocks_payload.extend_from_slice(&[0x21_u8, 0x22_u8]);
+        let decoded_blocks = decode_blocks_response_payload(&blocks_payload)
+            .expect("decode legacy blocks response");
+        assert_eq!(decoded_blocks.value.id.value, 2);
+        assert_eq!(decoded_blocks.value.blocks, vec![vec![0x21_u8, 0x22_u8]]);
+    }
+
+    #[test]
+    fn decode_blocks_response_raw_singleton() {
+        let mut blocks_payload = compact::encode_u32(3);
+        blocks_payload.push(1);
+        blocks_payload.extend_from_slice(&[0x33_u8, 0x34_u8, 0x35_u8]);
+        let decoded_blocks = decode_blocks_response_payload(&blocks_payload)
+            .expect("decode official-style raw singleton blocks response");
+        assert_eq!(decoded_blocks.value.id.value, 3);
+        assert_eq!(
+            decoded_blocks.value.blocks,
+            vec![vec![0x33_u8, 0x34_u8, 0x35_u8]]
+        );
+    }
+
+    #[test]
+    fn decode_blocks_response_raw_multiitem() {
+        let mut blocks_payload = compact::encode_u32(3);
+        blocks_payload.push(2);
+        blocks_payload.extend_from_slice(&[0x80_u8, 0x00_u8, 0x11_u8, 0x22_u8, 0x33_u8, 0x44_u8]);
+        let decoded_blocks = decode_blocks_response_payload(&blocks_payload)
+            .expect("decode official-style raw multi-item blocks response");
+        assert_eq!(decoded_blocks.value.id.value, 3);
+        assert_eq!(decoded_blocks.value.blocks.len(), 1);
+        assert_eq!(
+            decoded_blocks.value.blocks,
+            vec![vec![0x80_u8, 0x00_u8, 0x11_u8, 0x22_u8, 0x33_u8, 0x44_u8]]
+        );
+    }
+
+    #[test]
+    fn decode_txs_response_legacy_compatibility() {
+        let mut txs_payload = compact::encode_u32(4);
+        txs_payload.extend_from_slice(&compact::encode_i32(1));
+        txs_payload.extend_from_slice(&compact::encode_i32(2));
+        txs_payload.extend_from_slice(&[0x11_u8, 0x12_u8]);
+        let decoded_txs = decode_txs_response_payload(&txs_payload).expect("decode legacy txs response");
+        assert_eq!(decoded_txs.value.id.value, 4);
+        assert_eq!(decoded_txs.value.txs, vec![vec![0x11_u8, 0x12_u8]]);
+    }
+
+    #[test]
+    fn decode_txs_response_raw_singleton() {
+        let mut txs_payload = compact::encode_u32(5);
+        txs_payload.push(1);
+        txs_payload.extend_from_slice(&[0x44_u8, 0x45_u8, 0x46_u8]);
+        let decoded_txs = decode_txs_response_payload(&txs_payload)
+            .expect("decode official-style raw singleton txs response");
+        assert_eq!(decoded_txs.value.id.value, 5);
+        assert_eq!(decoded_txs.value.txs, vec![vec![0x44_u8, 0x45_u8, 0x46_u8]]);
+    }
+
+    #[test]
+    fn decode_headers_response_legacy_compatibility() {
+        let mut headers_payload = compact::encode_u32(2);
+        headers_payload.extend_from_slice(&compact::encode_i32(1));
+        headers_payload.extend_from_slice(&compact::encode_i32(2));
+        headers_payload.extend_from_slice(&[0x21_u8, 0x22_u8]);
+        let decoded_headers = decode_headers_response_payload(&headers_payload)
+            .expect("decode legacy headers response");
+        assert_eq!(decoded_headers.value.id.value, 2);
+        assert_eq!(decoded_headers.value.headers, vec![vec![0x21_u8, 0x22_u8]]);
+    }
+
+    #[test]
+    fn decode_headers_response_official_peer_payload() {
+        let payload = vec![
+            2, 1, 60, 119, 215, 77, 17, 53, 106, 228, 29, 87, 237, 189, 228, 240, 35, 244,
+            119, 78, 78, 183, 232, 254, 243, 160, 0, 7, 224, 102, 224, 223, 92, 50, 12, 236,
+            113, 213, 87, 236, 1, 197, 89, 95, 146, 1, 122, 73, 110, 177, 132, 162, 131, 175,
+            25, 81, 222, 9, 217, 69, 157, 205, 89, 97, 165, 219, 144, 146, 38, 238, 140, 20,
+            206, 6, 202, 219, 38, 107, 167, 113, 204, 130, 90, 188, 81, 73, 118, 219, 131, 171,
+            123, 138, 49, 193, 123, 204, 25, 48, 78, 47, 37, 115, 203, 234, 150, 61, 240, 243,
+            146, 144, 27, 212, 179, 189, 33, 91, 216, 207, 149, 27, 137, 150, 84, 223, 99,
+            207, 161, 251, 70, 23, 184, 122, 104, 158, 179, 28, 50, 39, 98, 116, 28, 234, 35,
+            245, 105, 183, 69, 179, 91, 125, 158, 72, 149, 79, 222, 240, 139, 199, 217, 77,
+            223, 198, 97, 41, 4, 152, 98, 229, 1, 255, 93, 80, 66, 225, 233, 120, 177, 165,
+            29, 40, 226, 56, 50, 20, 68, 169, 16, 113, 88, 150, 238, 60, 188, 140, 79, 68, 50,
+            160, 178, 33, 3, 145, 19, 6, 27, 108, 247, 238, 183, 148, 178, 87, 88, 210, 71,
+            18, 13, 13, 247, 18, 252, 49, 43, 12, 4, 160, 238, 176, 118, 126, 201, 129, 55,
+            183, 64, 4, 125, 124, 94, 143, 100, 70, 53, 49, 130, 139, 112, 21, 203, 234, 234,
+            163, 208, 3, 60, 245, 44, 103, 59, 39, 44, 53, 94, 188, 243, 184, 72, 80, 132,
+            117, 123, 89, 226, 65, 181, 72, 214, 121, 193, 81, 74, 163, 182, 50, 211, 173,
+            121, 71, 173, 130, 230, 203, 24, 1, 87, 62, 19, 63, 125, 86, 22, 19, 124, 120, 64,
+            229, 144, 173, 219, 108, 185, 254, 140, 10, 150, 112, 0, 0, 1, 159, 244, 17, 214,
+            239, 32, 255, 255, 255,
+        ];
+
+        let decoded = decode_headers_response_payload(&payload)
+            .expect("decode official peer headers response payload");
+        assert_eq!(decoded.value.id.value, 2);
+        assert_eq!(decoded.value.headers.len(), 1);
+        assert_eq!(decoded.value.headers[0].len(), 326);
+        assert_eq!(decoded.rest, &[]);
+    }
+
+    #[test]
+    fn decode_headers_by_heights_response_legacy_compatibility() {
+        let mut headers_payload = compact::encode_u32(2);
+        headers_payload.extend_from_slice(&compact::encode_i32(1));
+        headers_payload.extend_from_slice(&compact::encode_i32(1));
+        headers_payload.extend_from_slice(&compact::encode_i32(2));
+        headers_payload.extend_from_slice(&[0x21_u8, 0x22_u8]);
+        let decoded_headers =
+            decode_headers_by_heights_response_payload(&headers_payload)
+                .expect("decode legacy headers-by-heights response");
+        assert_eq!(decoded_headers.value.id.value, 2);
+        assert_eq!(decoded_headers.value.headers, vec![vec![vec![0x21_u8, 0x22_u8]]]);
+    }
+
+    fn fake_block_header() -> Vec<u8> {
+        let mut header = Vec::with_capacity(24 + 1 + 4 + 2 * 32 + 8 + 4);
+        header.extend_from_slice(&[0_u8; 24]);
+        header.push(0x00);
+        header.extend_from_slice(&compact::encode_i32(0));
+        header.extend_from_slice(&[0_u8; 32]);
+        header.extend_from_slice(&[0_u8; 32]);
+        header.extend_from_slice(&0_i64.to_be_bytes());
+        header.extend_from_slice(&[0_u8; 4]);
+        header
     }
 }

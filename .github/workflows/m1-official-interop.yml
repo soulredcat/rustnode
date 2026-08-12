@@ -2,6 +2,17 @@ name: m1-official-interop
 
 on:
   workflow_dispatch:
+    inputs:
+      m2_announcements:
+        description: "M2 announcement strictness (none: default; strict: at least one marker; all: all markers; warn: optional)"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - none
+          - strict
+          - all
+          - warn
   push:
     paths:
       - "UPSTREAM.toml"
@@ -68,7 +79,20 @@ jobs:
           RUST_INTEROP_DURATION_SECONDS: "45"
           RUST_INTEROP_REQUIRE_M2: "1"
         run: |
-          make official-interop-m2
+          case "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.m2_announcements || 'none' }}" in
+            strict)
+              make official-interop-m2-strict-announcements
+              ;;
+            all)
+              make official-interop-m2-all-announcements
+              ;;
+            warn)
+              make official-interop-m2-optional-announcements
+              ;;
+            none|*)
+              make official-interop-m2
+              ;;
+          esac
 
       - name: Upload interoperability artifacts
         uses: actions/upload-artifact@v7

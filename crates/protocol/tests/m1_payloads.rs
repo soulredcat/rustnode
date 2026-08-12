@@ -1,11 +1,11 @@
-use alephium_crypto::{verify, PublicKey, Signature, SIGNATURE_LENGTH};
-use alephium_protocol::message::{
-    decode_frame_exact, decode_raw_message_data, decode_hello_payload, decode_ping_payload,
-    decode_pong_payload, decode_wire_header, encode_hello_payload, encode_ping_payload,
-    encode_pong_payload, encode_wire_header, CURRENT_WIRE_VERSION, NetworkMagic, P2PVersion,
-    ReleaseVersion, RequestId, Ping, Pong,
-};
+use alephium_crypto::{PublicKey, SIGNATURE_LENGTH, Signature, verify};
 use alephium_protocol::message::payload::{HELLO_CODE, PING_CODE, PONG_CODE};
+use alephium_protocol::message::{
+    CURRENT_WIRE_VERSION, NetworkMagic, P2PVersion, Ping, Pong, ReleaseVersion, RequestId,
+    decode_frame_exact, decode_hello_payload, decode_ping_payload, decode_pong_payload,
+    decode_raw_message_data, decode_wire_header, encode_hello_payload, encode_ping_payload,
+    encode_pong_payload, encode_wire_header,
+};
 
 const BROKER_INFO_HASH: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -98,20 +98,24 @@ fn hello_payload_roundtrips_and_passes_handshake_validation() {
     assert_eq!(hello.broker_info.broker_num, 1);
     let expected_clique_id: [u8; alephium_crypto::PUBLIC_KEY_LENGTH] =
         decode_hex(BROKER_ID).try_into().expect("clique-id size");
-    assert_eq!(
-        hello.broker_info.clique_id.bytes,
-        expected_clique_id
-    );
+    assert_eq!(hello.broker_info.clique_id.bytes, expected_clique_id);
     assert_eq!(hello.signature.len(), SIGNATURE_LENGTH);
 
     let expected_hash = decode_hex(BROKER_INFO_HASH);
-    assert_eq!(hello.broker_info.hash().as_slice(), expected_hash.as_slice());
+    assert_eq!(
+        hello.broker_info.hash().as_slice(),
+        expected_hash.as_slice()
+    );
 
-    let signature = Signature::try_from(hello.signature.as_slice()).expect("signature must be 64 bytes");
+    let signature =
+        Signature::try_from(hello.signature.as_slice()).expect("signature must be 64 bytes");
     let pubkey = PublicKey::try_from(hello.broker_info.clique_id.bytes.as_slice())
         .expect("clique public key fixture should be valid");
     assert!(verify(&hello.broker_info.hash(), &signature, &pubkey));
-    assert_eq!(encode_hello_payload(&hello).expect("valid hello should re-encode"), raw);
+    assert_eq!(
+        encode_hello_payload(&hello).expect("valid hello should re-encode"),
+        raw
+    );
 }
 
 #[test]
@@ -122,13 +126,10 @@ fn hello_invalid_variants_are_rejected_with_validation_errors() {
         (HELLO_INVALID_BROKER, "broker"),
     ] {
         let bytes = decode_hex(path);
-        let frame = decode_frame_exact(
-            &bytes,
-            magic(),
-            MAX_DATA_LENGTH,
-        )
-        .expect("invalid hello fixture must be a valid frame");
-        let raw = decode_raw_message_data(frame.data).expect("raw message header in fixture must be valid");
+        let frame = decode_frame_exact(&bytes, magic(), MAX_DATA_LENGTH)
+            .expect("invalid hello fixture must be a valid frame");
+        let raw = decode_raw_message_data(frame.data)
+            .expect("raw message header in fixture must be valid");
         assert_eq!(raw.wire_version, CURRENT_WIRE_VERSION);
         assert_eq!(raw.payload_code, HELLO_CODE);
         let error = decode_hello_payload(raw.payload_body, 1).expect_err("invalid hello must fail");
@@ -147,10 +148,13 @@ fn ping_and_pong_payload_codecs_match_fixtures_and_roundtrip() {
     let ping = decode_ping_payload(ping_body)
         .expect("ping fixture should decode")
         .value;
-    assert_eq!(ping, Ping {
-        id: RequestId { value: 42 },
-        timestamp: 1_700_000_001_000,
-    });
+    assert_eq!(
+        ping,
+        Ping {
+            id: RequestId { value: 42 },
+            timestamp: 1_700_000_001_000,
+        }
+    );
     assert_eq!(encode_ping_payload(&ping), ping_body);
 
     let pong_raw = decode_hex(PONG_PAYLOAD);
@@ -159,9 +163,12 @@ fn ping_and_pong_payload_codecs_match_fixtures_and_roundtrip() {
     let pong = decode_pong_payload(pong_body)
         .expect("pong fixture should decode")
         .value;
-    assert_eq!(pong, Pong {
-        id: RequestId { value: 42 }
-    });
+    assert_eq!(
+        pong,
+        Pong {
+            id: RequestId { value: 42 }
+        }
+    );
     assert_eq!(encode_pong_payload(&pong), pong_body);
 }
 
@@ -175,7 +182,10 @@ fn client_id_and_p2p_parsing_matches_vectors() {
             patch: 0
         })
     );
-    assert_eq!(P2PVersion::from_client_id("rust-alephium/v4.0.0/linux"), Some(P2PVersion::V1));
+    assert_eq!(
+        P2PVersion::from_client_id("rust-alephium/v4.0.0/linux"),
+        Some(P2PVersion::V1)
+    );
     assert_eq!(
         P2PVersion::from_client_id("rust-alephium/v4.0.0/linux/p2p-v2"),
         Some(P2PVersion::V2)

@@ -695,19 +695,19 @@ fn send_headers_request(
 
     let has_locator_input = !locators.is_empty();
     let mut seen = HashSet::new();
-    let request_locators: Vec<BlockHash> = locators
-        .into_iter()
-        .filter(|locator| locator.bytes != [0_u8; 32])
-        .filter(|locator| seen.insert(locator.bytes))
-        .filter(|locator| !session.requested_header_locators.contains(&locator.bytes))
-        .filter_map(|locator| {
-            if session.requested_header_locators.insert(locator.bytes) {
-                Some(locator)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut request_locators = Vec::new();
+
+    for locator in locators {
+        if locator.bytes == [0_u8; 32] {
+            continue;
+        }
+        if !seen.insert(locator.bytes) {
+            continue;
+        }
+        if session.requested_header_locators.insert(locator.bytes) {
+            request_locators.push(locator);
+        }
+    }
 
     if request_locators.is_empty() && has_locator_input {
         return Ok(());
@@ -789,9 +789,10 @@ fn handle_blocks_response(
     session.outstanding_blocks_request = None;
 
     println!(
-        "received BlocksResponse id={} blocks={}",
+        "received BlocksResponse id={} blocks={} bytes={}",
         response.id.value,
-        response.blocks.len()
+        response.blocks.len(),
+        response.blocks.iter().map(|block| block.len()).sum::<usize>()
     );
     session
         .sync_state
@@ -957,8 +958,14 @@ fn maybe_send_txs_request(
         .collect();
 
     if fallback_tx_hashes.is_empty() {
-        println!("TxsRequest skipped; no known tx hashes available for request.");
-        return Ok(());
+        println!("TxsRequest sent with empty tx hash list.");
+        return send_txs_request(
+            stream,
+            config,
+            session,
+            vec![(ChainIndex { from: 0, to: 0 }, Vec::new())],
+            true,
+        );
     }
 
     send_txs_request(
@@ -966,6 +973,7 @@ fn maybe_send_txs_request(
         config,
         session,
         vec![(ChainIndex { from: 0, to: 0 }, fallback_tx_hashes)],
+        false,
     )
 }
 
@@ -974,6 +982,7 @@ fn send_txs_request(
     config: &NodeConfig,
     session: &mut Session,
     request_hashes: Vec<(ChainIndex, Vec<TransactionId>)>,
+    allow_empty: bool,
 ) -> Result<(), FlowError> {
     if request_hashes.is_empty() {
         return Ok(());
@@ -995,7 +1004,7 @@ fn send_txs_request(
                 chain_txs.push(tx);
             }
         }
-        if !chain_txs.is_empty() {
+        if !chain_txs.is_empty() || allow_empty {
             requestable.push((chain_index, chain_txs));
         }
     }
@@ -1247,7 +1256,7 @@ fn handle_new_txhashes(
         session.sync_state.record_announced_txs(&announced_tx_hashes);
         persist_sync_state(session);
     }
-    if let Err(error) = send_txs_request(stream, config, session, request_hashes) {
+    if let Err(error) = send_txs_request(stream, config, session, request_hashes, false) {
         eprintln!("failed to request txs from NewTxHashes: {error}");
     }
 }

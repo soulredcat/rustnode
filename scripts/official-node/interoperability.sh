@@ -20,6 +20,56 @@ DURATION_SECONDS="${RUST_INTEROP_DURATION_SECONDS:-120}"
 OFFICIAL_READY_TIMEOUT="${OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS:-180}"
 REQUIRE_M2="${RUST_INTEROP_REQUIRE_M2:-0}"
 REQUIRE_M2_ANNOUNCEMENTS="${RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS:-0}"
+ANNOUNCEMENTS_CHECK=0
+ANNOUNCEMENTS_REQUIRED=0
+ANNOUNCEMENT_MODE="off"
+OFFICIAL_NODE_AUTO_MINE_FOR_DEV="${OFFICIAL_NODE_AUTO_MINE_FOR_DEV:-0}"
+if [[ -z "${OFFICIAL_NODE_REST_PORT+x}" ]]; then
+  if [[ "${PEER_PORT}" == "19985" ]]; then
+    OFFICIAL_NODE_REST_PORT="12973"
+  else
+    OFFICIAL_NODE_REST_PORT="$((PEER_PORT - 7000))"
+  fi
+else
+  OFFICIAL_NODE_REST_PORT="${OFFICIAL_NODE_REST_PORT}"
+fi
+if [[ -z "${OFFICIAL_NODE_MINER_API_PORT+x}" ]]; then
+  if [[ "${PEER_PORT}" == "19985" ]]; then
+    OFFICIAL_NODE_MINER_API_PORT="10973"
+  else
+    OFFICIAL_NODE_MINER_API_PORT="$((PEER_PORT - 9000))"
+  fi
+else
+  OFFICIAL_NODE_MINER_API_PORT="${OFFICIAL_NODE_MINER_API_PORT}"
+fi
+ANNOUNCEMENT_SEEDER_PID=""
+OFFICIAL_NODE_ENABLE_WALLET="${OFFICIAL_NODE_ENABLE_WALLET:-0}"
+OFFICIAL_NODE_TX_SEEDER_PID=""
+
+case "${REQUIRE_M2_ANNOUNCEMENTS}" in
+  1|strict)
+    ANNOUNCEMENTS_CHECK=1
+    ANNOUNCEMENTS_REQUIRED=1
+    ANNOUNCEMENT_MODE="any"
+    ;;
+  all)
+    ANNOUNCEMENTS_CHECK=1
+    ANNOUNCEMENTS_REQUIRED=1
+    ANNOUNCEMENT_MODE="all"
+    ;;
+  warn|optional)
+    ANNOUNCEMENTS_CHECK=1
+    ANNOUNCEMENTS_REQUIRED=0
+    ANNOUNCEMENT_MODE="warn"
+    ;;
+  0|"")
+    ;;
+  *)
+    echo "Invalid RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS='${REQUIRE_M2_ANNOUNCEMENTS}'."
+    echo "Use one of: 0 (default), 1|strict, all, or warn|optional."
+    exit 1
+    ;;
+esac
 OFFICIAL_CONFIG_FILE="${ROOT_DIR}/config/official-node/user.conf"
 ACTUAL_RESULT="in_progress"
 OPERATOR_NOTES=""
@@ -51,14 +101,21 @@ fi
 EXPECTED_RESULT="required: handshake (Hello) and ping/pong exchange"
 if [[ "${REQUIRE_M2}" -eq 1 ]]; then
   EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response markers"
-  if [[ "${REQUIRE_M2_ANNOUNCEMENTS}" -eq 1 ]]; then
-    EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response + announcement markers"
+  if [[ "${ANNOUNCEMENTS_REQUIRED}" -eq 1 ]]; then
+    if [[ "${ANNOUNCEMENT_MODE}" == "all" ]]; then
+      EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response + all announcement markers"
+    else
+      EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response + at least one announcement marker"
+    fi
+  elif [[ "${ANNOUNCEMENTS_CHECK}" -eq 1 ]]; then
+    EXPECTED_RESULT="required: handshake + ping/pong + M2 request+response (+ optional announcement markers)"
   fi
 fi
 
 is_port_open() {
   local host=$1
   local port=$2
+  local ps_exe=""
 
   if command -v python3 >/dev/null 2>&1; then
     python3 - "${host}" "${port}" <<'PY'
@@ -89,7 +146,13 @@ PY
   fi
 
   if command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -NonInteractive -Command "try { (New-Object System.Net.Sockets.TcpClient('$host',$port)).Dispose(); exit 0 } catch { exit 1 }"
+    ps_exe="powershell.exe"
+  elif [ -x "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]; then
+    ps_exe="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+  fi
+
+  if [[ "${ps_exe}" != "" ]]; then
+    "${ps_exe}" -NoProfile -NonInteractive -Command "try { (New-Object System.Net.Sockets.TcpClient('$host',$port)).Dispose(); exit 0 } catch { exit 1 }"
     return
   fi
 
@@ -99,6 +162,256 @@ PY
     return 0
   fi
   return 1
+}
+
+http_request() {
+  local method=$1
+  local url=$2
+  local body="${3:-}"
+  local code
+  local tmp
+
+  if command -v curl >/dev/null 2>&1; then
+    tmp="$(mktemp)"
+    if [[ "${body}" == "" ]]; then
+      code="$(curl -sS -m 5 -o "${tmp}" -w '%{http_code}' -X "${method}" "${url}" || true)"
+    else
+      code="$(printf '%s' "${body}" | curl -sS -m 5 -H 'Content-Type: application/json' -o "${tmp}" -w '%{http_code}' -X "${method}" -d @- "${url}" || true)"
+    fi
+    if [[ "${code}" == "" ]]; then
+      code="000"
+    fi
+    if [[ "${code}" =~ ^2 ]]; then
+      cat "${tmp}"
+      rm -f "${tmp}"
+      return 0
+    fi
+    rm -f "${tmp}"
+    return 1
+  fi
+
+  local ps_exe=""
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$method" "$url" "$body" <<'PY'
+import sys
+from urllib.request import Request, urlopen
+
+method, url = sys.argv[1], sys.argv[2]
+body = sys.argv[3] if len(sys.argv) > 3 else ""
+payload = body.encode() if body else None
+headers = {"Content-Type": "application/json"} if payload is not None else {}
+try:
+    with urlopen(Request(url, data=payload, method=method, headers=headers), timeout=5) as response:
+        code = response.getcode()
+        if 200 <= code < 300:
+            print(response.read().decode(), end="")
+            raise SystemExit(0)
+        raise SystemExit(1)
+except Exception:
+    raise SystemExit(1)
+PY
+    return
+  fi
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    ps_exe="powershell.exe"
+  elif [ -x "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]; then
+    ps_exe="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+  fi
+
+  if [[ "${ps_exe}" != "" ]]; then
+    if [[ "${body}" == "" ]]; then
+      "${ps_exe}" -NoProfile -NonInteractive -Command "try { \$resp = Invoke-WebRequest -UseBasicParsing -Method '${method}' -Uri '${url}'; if (\$resp.StatusCode -ge 200 -and \$resp.StatusCode -lt 300) { if ('${method}' -eq 'GET') { Write-Output \$resp.Content }; exit 0 } else { exit 1 } } catch { exit 1 }"
+    else
+      "${ps_exe}" -NoProfile -NonInteractive -Command "try { \$resp = Invoke-WebRequest -UseBasicParsing -Method '${method}' -Uri '${url}' -ContentType 'application/json' -Body '${body}'; if (\$resp.StatusCode -ge 200 -and \$resp.StatusCode -lt 300) { Write-Output \$resp.Content; exit 0 } else { exit 1 } } catch { exit 1 }"
+    fi
+    return
+  fi
+
+  return 1
+}
+
+http_post() {
+  local url=$1
+  http_request POST "${url}" "${2:-}"
+}
+
+http_put() {
+  local url=$1
+  http_request PUT "${url}" "${2:-}"
+}
+
+http_get_json() {
+  local url=$1
+  http_request GET "${url}"
+}
+
+extract_json_string() {
+  local json=$1
+  local field=$2
+  printf '%s' "${json}" | sed -n "s/.*\"${field}\":\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
+}
+
+mine_official_block() {
+  local from_group=$1
+  local to_group=$2
+  local query
+  local mine_one_url
+
+  query="fromGroup=${from_group}&toGroup=${to_group}"
+  mine_one_url="http://${PEER_HOST}:${OFFICIAL_NODE_MINER_API_PORT}/miners/cpu-mining/mine-one-block?${query}"
+  if http_post "${mine_one_url}"; then
+    return 0
+  fi
+
+  mine_one_url="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/miners/cpu-mining/mine-one-block?${query}"
+  if http_post "${mine_one_url}"; then
+    return 0
+  fi
+
+  return 1
+}
+
+start_announcement_seed_loop() {
+  local miner_api_ready=0
+  local rest_ready=0
+
+  for _ in $(seq 1 "${OFFICIAL_READY_TIMEOUT}"); do
+    if is_port_open "${PEER_HOST}" "${OFFICIAL_NODE_MINER_API_PORT}"; then
+      miner_api_ready=1
+      break
+    fi
+    if is_port_open "${PEER_HOST}" "${OFFICIAL_NODE_REST_PORT}"; then
+      rest_ready=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "${miner_api_ready}" -eq 0 ]] && [[ "${rest_ready}" -eq 0 ]]; then
+    echo "announcement seeder skipped: official API/Miner API not reachable on ${PEER_HOST}:${OFFICIAL_NODE_MINER_API_PORT} or ${OFFICIAL_NODE_REST_PORT} after ${OFFICIAL_READY_TIMEOUT}s" >&2
+    append_operator_note "announcement seeder failed to start: official API/Miner API not reachable."
+    return 1
+  fi
+
+  echo "starting official block seeder for full announcement coverage (all mode)"
+  (
+    while true; do
+      mine_official_block 0 0 >/dev/null 2>&1 || true
+      mine_official_block 1 1 >/dev/null 2>&1 || true
+      mine_official_block 2 2 >/dev/null 2>&1 || true
+      mine_official_block 3 3 >/dev/null 2>&1 || true
+      sleep 2
+    done
+  ) &
+  ANNOUNCEMENT_SEEDER_PID=$!
+
+  if [[ "${miner_api_ready}" -eq 1 ]]; then
+    append_operator_note "announcement seeder started against ${PEER_HOST}:${OFFICIAL_NODE_MINER_API_PORT}/miners/cpu-mining/mine-one-block"
+  elif [[ "${rest_ready}" -eq 1 ]]; then
+    append_operator_note "announcement seeder started against ${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/miners/cpu-mining/mine-one-block"
+  fi
+}
+
+start_tx_seed_loop() {
+  local wallet_name="interop-tx-seed-$(date +%s)-$((RANDOM + RANDOM))"
+  local wallet_password="interop-tx-seed-pass"
+  local wallet_mnemonic='toward outdoor daughter deny mansion bench water alien crumble mother exchange screen salute antenna abuse key hair crisp debate goose great market core screen'
+  local wallet_restore_url="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/wallets"
+  local wallet_unlock_url="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/wallets/${wallet_name}/unlock"
+  local wallet_addresses_url="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/wallets/${wallet_name}/addresses"
+  local wallet_transfer_url="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}/wallets/${wallet_name}/transfer"
+  local wallet_addresses_json
+  local wallet_active_addr
+  local transfer_payload
+  local restore_ok=0
+  local unlock_ok=0
+  local addresses_ok=0
+  local transfer_ok=0
+  local i
+  local rest_ready=0
+
+  for _ in $(seq 1 "${OFFICIAL_READY_TIMEOUT}"); do
+    if is_port_open "${PEER_HOST}" "${OFFICIAL_NODE_REST_PORT}"; then
+      rest_ready=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "${rest_ready}" -eq 0 ]]; then
+    append_operator_note "tx seeder failed: official REST API not reachable on ${PEER_HOST}:${OFFICIAL_NODE_REST_PORT} after ${OFFICIAL_READY_TIMEOUT}s."
+    return 1
+  fi
+
+  for i in $(seq 1 12); do
+    if http_put \
+      "${wallet_restore_url}" \
+      "{\"password\":\"${wallet_password}\",\"mnemonic\":\"${wallet_mnemonic}\",\"walletName\":\"${wallet_name}\"}"; then
+      restore_ok=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${restore_ok}" -ne 1 ]]; then
+    append_operator_note "tx seeder failed: cannot restore sender wallet."
+    return 1
+  fi
+
+  for i in $(seq 1 12); do
+    if http_post "${wallet_unlock_url}" "{\"password\":\"${wallet_password}\"}"; then
+      unlock_ok=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${unlock_ok}" -ne 1 ]]; then
+    append_operator_note "tx seeder failed: cannot unlock sender wallet."
+    return 1
+  fi
+
+  for i in $(seq 1 12); do
+    wallet_addresses_json="$(http_get_json "${wallet_addresses_url}")"
+    if [[ "${wallet_addresses_json}" != "" ]]; then
+      addresses_ok=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${addresses_ok}" -ne 1 ]]; then
+    append_operator_note "tx seeder failed: cannot query sender wallet addresses."
+    return 1
+  fi
+
+  wallet_active_addr="$(extract_json_string "${wallet_addresses_json}" "activeAddress")"
+  if [[ "${wallet_active_addr}" == "" ]]; then
+    append_operator_note "tx seeder failed: sender wallet active address not found."
+    return 1
+  fi
+
+  transfer_payload="{\"destinations\":[{\"address\":\"${wallet_active_addr}\",\"attoAlphAmount\":\"1\",\"tokens\":[]}]}"
+  for i in $(seq 1 12); do
+    if http_post "${wallet_transfer_url}" "${transfer_payload}"; then
+      transfer_ok=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${transfer_ok}" -ne 1 ]]; then
+    append_operator_note "tx seeder failed: sender wallet transfer request failed."
+    return 1
+  fi
+
+  echo "starting official wallet tx seeder for full announcement coverage (all mode)"
+  (
+    while true; do
+      http_post "${wallet_transfer_url}" "${transfer_payload}" >/dev/null 2>&1 || true
+      sleep 2
+    done
+  ) &
+  OFFICIAL_NODE_TX_SEEDER_PID=$!
+  append_operator_note "tx seeder started for wallet ${wallet_name} against ${wallet_restore_url}"
 }
 
 append_operator_note() {
@@ -146,6 +459,18 @@ cleanup() {
       kill -9 "${pid}" 2>/dev/null || true
     fi
     rm -f "${OFFICIAL_PID_FILE}"
+  fi
+
+  if [[ "${ANNOUNCEMENT_SEEDER_PID}" != "" ]]; then
+    if kill -0 "${ANNOUNCEMENT_SEEDER_PID}" 2>/dev/null; then
+      kill "${ANNOUNCEMENT_SEEDER_PID}" 2>/dev/null || true
+    fi
+  fi
+
+  if [[ "${OFFICIAL_NODE_TX_SEEDER_PID}" != "" ]]; then
+    if kill -0 "${OFFICIAL_NODE_TX_SEEDER_PID}" 2>/dev/null; then
+      kill "${OFFICIAL_NODE_TX_SEEDER_PID}" 2>/dev/null || true
+    fi
   fi
 
   exit "${code}"
@@ -227,7 +552,32 @@ if [[ "${ATTACH_TO_EXISTING}" -eq 0 ]]; then
   fi
 
   "${ROOT_DIR}/scripts/official-node/build.sh"
-  OFFICIAL_NODE_RESET=1 "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
+  case "${ANNOUNCEMENT_MODE}" in
+    all)
+      case "${OFFICIAL_NODE_AUTO_MINE_FOR_DEV}" in
+        1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+          ;;
+        *)
+          OFFICIAL_NODE_AUTO_MINE_FOR_DEV=1
+          append_operator_note "Enabled auto-mine-for-dev for full announcement mode."
+          ;;
+      esac
+      case "${OFFICIAL_NODE_ENABLE_WALLET}" in
+        1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+          ;;
+        *)
+          OFFICIAL_NODE_ENABLE_WALLET=1
+          append_operator_note "Enabled wallet API for full announcement mode."
+          ;;
+      esac
+      ;;
+  esac
+  OFFICIAL_NODE_RESET=1 \
+  OFFICIAL_NODE_AUTO_MINE_FOR_DEV="${OFFICIAL_NODE_AUTO_MINE_FOR_DEV}" \
+  OFFICIAL_NODE_ENABLE_WALLET="${OFFICIAL_NODE_ENABLE_WALLET}" \
+  OFFICIAL_NODE_REST_PORT="${OFFICIAL_NODE_REST_PORT}" \
+  OFFICIAL_NODE_MINER_API_PORT="${OFFICIAL_NODE_MINER_API_PORT}" \
+  "${ROOT_DIR}/scripts/official-node/prepare-home.sh"
 
   (
     "${ROOT_DIR}/scripts/official-node/run.sh"
@@ -273,6 +623,20 @@ else
   echo "attaching to existing peer at ${PEER_ADDRESS} (skip official node startup/cleanup)"
   echo "WARNING: ATTACH mode aktif, script tidak akan menyalakan atau mematikan node Java/official." >&2
   append_operator_note "ATTACH mode aktif; tidak memulai/mematikan proses official/JVM."
+fi
+
+if [[ "${ANNOUNCEMENT_MODE}" == "all" ]]; then
+  if ! start_announcement_seed_loop; then
+    echo "announcement seeder failed in all-announcement mode" >&2
+    cat "${RUST_ERROR_FILE}" >&2
+    exit 1
+  fi
+
+  if ! start_tx_seed_loop; then
+    echo "tx seeder failed in all-announcement mode" >&2
+    cat "${RUST_ERROR_FILE}" >&2
+    exit 1
+  fi
 fi
 
 (
@@ -415,13 +779,26 @@ if [[ "${REQUIRE_M2}" -eq 1 ]]; then
     exit 1
   fi
 
-  if [[ "${REQUIRE_M2_ANNOUNCEMENTS}" -eq 1 ]]; then
-    if [[ "${m2_new_block_seen}" -ne 1 || "${m2_new_header_seen}" -ne 1 || "${m2_new_inv_seen}" -ne 1 || "${m2_new_txhashes_seen}" -ne 1 ]]; then
-      echo "M2 announcement markers not all observed before timeout" >&2
-      append_operator_note "M2 announcement markers missing."
-      cat "${RUST_LOG_FILE}" >&2
-      cat "${RUST_ERROR_FILE}" >&2
-      exit 1
+  if [[ "${ANNOUNCEMENTS_CHECK}" -eq 1 ]]; then
+    announcement_count=$((m2_new_block_seen + m2_new_header_seen + m2_new_inv_seen + m2_new_txhashes_seen))
+    if [[ "${ANNOUNCEMENT_MODE}" == "all" ]]; then
+      if [[ "${m2_new_block_seen}" -ne 1 || "${m2_new_header_seen}" -ne 1 || "${m2_new_inv_seen}" -ne 1 || "${m2_new_txhashes_seen}" -ne 1 ]]; then
+        echo "M2 announcement markers not all observed before timeout" >&2
+        append_operator_note "M2 announcement markers missing."
+        cat "${RUST_LOG_FILE}" >&2
+        cat "${RUST_ERROR_FILE}" >&2
+        exit 1
+      fi
+    elif [[ "${announcement_count}" -eq 0 ]]; then
+      if [[ "${ANNOUNCEMENTS_REQUIRED}" -eq 1 ]]; then
+        echo "M2 announcement markers were not observed before timeout" >&2
+        append_operator_note "No M2 announcement markers observed in strict mode."
+        cat "${RUST_LOG_FILE}" >&2
+        cat "${RUST_ERROR_FILE}" >&2
+        exit 1
+      fi
+      append_operator_note "M2 announcement markers were requested in optional mode and were not observed."
+      echo "M2 announcement markers were not all observed before timeout (optional mode)."
     fi
   fi
 fi

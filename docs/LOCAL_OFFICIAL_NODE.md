@@ -43,9 +43,11 @@ The official node is intentionally disconnected from mainnet/testnet discovery.
 
 - Git
 - Java 17 or newer
-- sbt
+- sbt (required when rebuilding the official JAR)
+- If `sbt` is unavailable and `.local/official-node/jar-path` already points to a valid
+  official assembly JAR from the pinned commit, interoperability scripts can reuse that JAR.
 - Bash
-- Python 3 for the readiness probe (optional; Bash `/dev/tcp` fallback is used when Python is unavailable)
+- Python 3 for readiness probe (optional; Windows bash can fall back to PowerShell socket probe when Python is unavailable)
 
 CI currently verifies Java 17 with the pinned official source.
 
@@ -81,7 +83,9 @@ The selected assembly JAR path is written to:
 .local/official-node/jar-path
 ```
 
-The script fails unless it finds exactly one matching application assembly JAR. It does not guess between multiple candidates.
+`make official-build` builds unless the JAR is already cached in
+`.local/official-node/jar-path` and still valid. The script then reuses the cached JAR
+and still fails if no unique matching JAR is available for that path.
 
 ## Run in foreground
 
@@ -122,8 +126,14 @@ Important choices:
 - API key is disabled only because REST binds to loopback;
 - P2P v2 is disabled until Rust implements and verifies it;
 - the official ping interval is reduced to five seconds for M1 liveness tests.
+- `OFFICIAL_NODE_AUTO_MINE_FOR_DEV` enables local auto-mining in the copied runtime config
+  (`mempool.auto-mine-for-dev = true`) when full-announcement interop is requested;
+- `OFFICIAL_NODE_ENABLE_WALLET` enables wallet APIs in the copied runtime config
+  (`wallet.enabled = true`) when full-announcement interop requires transaction seeding.
 
-`OFFICIAL_NODE_P2P_PORT` overrides the copied runtime config’s P2P bind/internal/coordinator address values.
+`OFFICIAL_NODE_P2P_PORT`, `OFFICIAL_NODE_REST_PORT`, and
+`OFFICIAL_NODE_MINER_API_PORT` override the copied runtime config’s listener ports in
+the `prepare-home.sh` step.
 
 Do not change the runtime copy manually. Change the committed source config, document the reason, then rerun the smoke workflow.
 
@@ -145,9 +155,13 @@ Before committing interoperability evidence:
 
 Do not point malformed-frame tests at public mainnet or testnet peers.
 
-WARNING: this repository’s local interoperability harness is configured to use `19985` by default.
-If Java node Anda memakai port ini, override dengan `OFFICIAL_NODE_P2P_PORT` / `RUST_INTEROP_PEER_PORT` sebelum menjalankan.
-Jangan menjalankan dua node yang bind ke `19985` secara bersamaan; gunakan `RUST_INTEROP_ATTACH_TO_EXISTING=1` saat hanya ingin attach ke Java peer yang sudah jalan.
+WARNING: this repository’s local interoperability harness is configured to use
+`19985`/`12973`/`10973` by default.
+If Java/Alephium uses these ports, override with `OFFICIAL_NODE_P2P_PORT`,
+`OFFICIAL_NODE_REST_PORT`, `OFFICIAL_NODE_MINER_API_PORT`, or
+`RUST_INTEROP_PEER_PORT` before start.
+Jangan menjalankan dua node yang bind ke `19985` secara bersamaan; gunakan
+`RUST_INTEROP_ATTACH_TO_EXISTING=1` saat hanya ingin attach ke Java peer yang sudah jalan.
 
 Do not expose ports `19985`, `12973`, or `10973` beyond loopback for this harness.
 

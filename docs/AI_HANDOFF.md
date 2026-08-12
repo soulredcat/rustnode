@@ -46,7 +46,8 @@ Complete M2 acceptance evidence:
 
 - Add or run official-node interoperability evidence with M2 markers enabled;
 - confirm request/response probe and ChainState behavior is stable over the soak period;
-- optionally run with `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1` after announcement behavior is consistently reproducible;
+- optionally run with `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=1`/`strict` after at least one announcement marker is consistently reproducible,
+  and use `RUST_INTEROP_REQUIRE_M2_ANNOUNCEMENTS=all` for all four announcement markers.
 - document command/output evidence in `docs/WORKLOG.md` with concrete observed markers and exit status.
 
 Latest local execution state:

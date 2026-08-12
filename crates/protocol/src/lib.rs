@@ -8,5 +8,4 @@
 pub mod message;
 
 /// Current implementation status.
-pub const STATUS: &str =
-    "M1 frame codec and M2 payload codec models are implemented; flow now decodes real sync payloads.";
+pub const STATUS: &str = "M1 frame codec and M2 payload codec models are implemented; flow now decodes real sync payloads.";

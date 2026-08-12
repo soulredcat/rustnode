@@ -5,8 +5,8 @@ use blake2::{
     Blake2bVar,
     digest::{Update, VariableOutput},
 };
-use secp256k1::{Message, PublicKey as SecpPublicKey, Secp256k1, SecretKey};
 use secp256k1::ecdsa::Signature as SecpSignature;
+use secp256k1::{Message, PublicKey as SecpPublicKey, Secp256k1, SecretKey};
 
 pub const HASH_LENGTH: usize = 32;
 pub const PRIVATE_KEY_LENGTH: usize = 32;
@@ -33,12 +33,11 @@ impl core::fmt::Display for CryptoError {
                 expected,
                 actual,
             } => {
-                write!(
-                    formatter,
-                    "{kind} must be {expected} bytes (got {actual})"
-                )
+                write!(formatter, "{kind} must be {expected} bytes (got {actual})")
             }
-            Self::InvalidPublicKey => formatter.write_str("invalid compressed secp256k1 public key"),
+            Self::InvalidPublicKey => {
+                formatter.write_str("invalid compressed secp256k1 public key")
+            }
             Self::InvalidPrivateKey => formatter.write_str("invalid secp256k1 private key"),
             Self::InvalidSignature => formatter.write_str("invalid secp256k1 signature"),
         }
