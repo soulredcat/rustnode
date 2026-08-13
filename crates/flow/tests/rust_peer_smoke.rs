@@ -8,28 +8,27 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use alephium_conf::{NodeConfig, NodeIdentity};
-use alephium_crypto::{sign, PrivateKey, PublicKey};
+use alephium_crypto::{PrivateKey, PublicKey, sign};
 use alephium_flow::run;
-use alephium_protocol::message::{
-    decode_frame_prefix, decode_raw_message_data, encode_frame, encode_raw_message_data, FrameDecode,
-    NetworkMagic,
-};
-use alephium_protocol::message::payload::{
-    decode_blocks_request_payload, decode_headers_request_payload, decode_hello_payload,
-    decode_inv_request_payload, decode_ping_payload, decode_txs_request_payload,
-    encode_blocks_response_payload, encode_chain_state_payload,
-    encode_headers_response_payload, encode_hello_payload, encode_inv_response_payload,
-    encode_new_block_hash_payload, encode_new_block_payload, encode_new_header_payload,
-    encode_new_inv_payload, encode_new_txhashes_payload, encode_pong_payload,
-    encode_txs_response_payload, BlockHash, ChainIndex, ChainState, ChainTip, CliqueId,
-    HeadersResponse, Hello, InterBrokerInfo, InvResponse, NewBlock, NewBlockHash, NewHeader, NewInv,
-    NewTxHashes, RequestId, TransactionId, TxsResponse,
-    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, CHAIN_STATE_CODE, HEADERS_REQUEST_CODE,
-    HEADERS_RESPONSE_CODE, HELLO_CODE, INV_REQUEST_CODE, INV_RESPONSE_CODE, NEW_BLOCK_CODE,
-    NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE, NEW_INV_CODE, NEW_TX_HASHES_CODE, PING_CODE, PONG_CODE,
-    TXS_REQUEST_CODE, TXS_RESPONSE_CODE,
-};
 use alephium_protocol::message::payload::Pong as PongPayload;
+use alephium_protocol::message::payload::{
+    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE, BlockHash, CHAIN_STATE_CODE, ChainIndex, ChainState,
+    ChainTip, CliqueId, HEADERS_REQUEST_CODE, HEADERS_RESPONSE_CODE, HELLO_CODE, HeadersResponse,
+    Hello, INV_REQUEST_CODE, INV_RESPONSE_CODE, InterBrokerInfo, InvResponse, NEW_BLOCK_CODE,
+    NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE, NEW_INV_CODE, NEW_TX_HASHES_CODE, NewBlock, NewBlockHash,
+    NewHeader, NewInv, NewTxHashes, PING_CODE, PONG_CODE, RequestId, TXS_REQUEST_CODE,
+    TXS_RESPONSE_CODE, TransactionId, TxsResponse, decode_blocks_request_payload,
+    decode_headers_request_payload, decode_hello_payload, decode_inv_request_payload,
+    decode_ping_payload, decode_txs_request_payload, encode_blocks_response_payload,
+    encode_chain_state_payload, encode_headers_response_payload, encode_hello_payload,
+    encode_inv_response_payload, encode_new_block_hash_payload, encode_new_block_payload,
+    encode_new_header_payload, encode_new_inv_payload, encode_new_txhashes_payload,
+    encode_pong_payload, encode_txs_response_payload,
+};
+use alephium_protocol::message::{
+    FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data, encode_frame,
+    encode_raw_message_data,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum MockEvent {
@@ -102,9 +101,18 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
         }
     }
 
-    assert!(events.contains(&MockEvent::ChainStateSent), "server should send chain state");
-    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
-    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        events.contains(&MockEvent::ChainStateSent),
+        "server should send chain state"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloSent),
+        "server should send hello"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloReceived),
+        "client should send hello to server"
+    );
     assert!(
         events.contains(&MockEvent::InvRequestReceived),
         "client should send InvRequest probe"
@@ -133,8 +141,14 @@ fn full_rust_mock_peer_handshake_and_ping_pong() {
         events.contains(&MockEvent::TxsResponseSent),
         "server should send TxsResponse"
     );
-    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
-    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+    assert!(
+        events.contains(&MockEvent::PingReceived),
+        "mock peer should receive client ping"
+    );
+    assert!(
+        events.contains(&MockEvent::PongSent),
+        "mock peer should send pong response"
+    );
 
     assert!(
         result.is_err(),
@@ -153,14 +167,8 @@ fn full_rust_mock_peer_announcement_followups_are_handled() {
         let config = base_config();
         move || {
             let (stream, _) = listener.accept().expect("mock peer accepted");
-            mock_peer_with_inv_behavior(
-                stream,
-                config,
-                tx,
-                InvPayloadKind::NonEmpty,
-                true,
-            )
-            .expect("mock peer completed");
+            mock_peer_with_inv_behavior(stream, config, tx, InvPayloadKind::NonEmpty, true)
+                .expect("mock peer completed");
         }
     });
 
@@ -189,9 +197,18 @@ fn full_rust_mock_peer_announcement_followups_are_handled() {
         }
     }
 
-    assert!(events.contains(&MockEvent::ChainStateSent), "server should send chain state");
-    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
-    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        events.contains(&MockEvent::ChainStateSent),
+        "server should send chain state"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloSent),
+        "server should send hello"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloReceived),
+        "client should send hello to server"
+    );
     assert!(
         events.contains(&MockEvent::InvRequestReceived),
         "client should send InvRequest probe"
@@ -240,8 +257,14 @@ fn full_rust_mock_peer_announcement_followups_are_handled() {
         events.contains(&MockEvent::TxsResponseSent),
         "server should send TxsResponse"
     );
-    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
-    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+    assert!(
+        events.contains(&MockEvent::PingReceived),
+        "mock peer should receive client ping"
+    );
+    assert!(
+        events.contains(&MockEvent::PongSent),
+        "mock peer should send pong response"
+    );
 
     assert!(
         result.is_err(),
@@ -290,9 +313,18 @@ fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
         }
     }
 
-    assert!(events.contains(&MockEvent::ChainStateSent), "server should send chain state");
-    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
-    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        events.contains(&MockEvent::ChainStateSent),
+        "server should send chain state"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloSent),
+        "server should send hello"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloReceived),
+        "client should send hello to server"
+    );
     assert!(
         events.contains(&MockEvent::InvRequestReceived),
         "client should send InvRequest probe"
@@ -321,8 +353,14 @@ fn full_rust_mock_peer_empty_inv_response_uses_chain_state_locator_fallback() {
         events.contains(&MockEvent::TxsResponseSent),
         "server should send TxsResponse"
     );
-    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
-    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+    assert!(
+        events.contains(&MockEvent::PingReceived),
+        "mock peer should receive client ping"
+    );
+    assert!(
+        events.contains(&MockEvent::PongSent),
+        "mock peer should send pong response"
+    );
 
     assert!(
         result.is_err(),
@@ -371,9 +409,18 @@ fn full_rust_mock_peer_empty_inv_response_without_chain_state_uses_empty_locator
         }
     }
 
-    assert!(!events.contains(&MockEvent::ChainStateSent), "no chain state should be sent");
-    assert!(events.contains(&MockEvent::HelloSent), "server should send hello");
-    assert!(events.contains(&MockEvent::HelloReceived), "client should send hello to server");
+    assert!(
+        !events.contains(&MockEvent::ChainStateSent),
+        "no chain state should be sent"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloSent),
+        "server should send hello"
+    );
+    assert!(
+        events.contains(&MockEvent::HelloReceived),
+        "client should send hello to server"
+    );
     assert!(
         events.contains(&MockEvent::InvRequestReceived),
         "client should send InvRequest probe"
@@ -402,8 +449,14 @@ fn full_rust_mock_peer_empty_inv_response_without_chain_state_uses_empty_locator
         events.contains(&MockEvent::TxsResponseSent),
         "server should send TxsResponse"
     );
-    assert!(events.contains(&MockEvent::PingReceived), "mock peer should receive client ping");
-    assert!(events.contains(&MockEvent::PongSent), "mock peer should send pong response");
+    assert!(
+        events.contains(&MockEvent::PingReceived),
+        "mock peer should receive client ping"
+    );
+    assert!(
+        events.contains(&MockEvent::PongSent),
+        "mock peer should send pong response"
+    );
 
     assert!(
         result.is_err(),
@@ -416,11 +469,7 @@ fn base_config() -> NodeConfig {
 }
 
 #[allow(dead_code)]
-fn mock_peer(
-    stream: TcpStream,
-    config: NodeConfig,
-    events: Sender<MockEvent>,
-) -> io::Result<()> {
+fn mock_peer(stream: TcpStream, config: NodeConfig, events: Sender<MockEvent>) -> io::Result<()> {
     mock_peer_with_inv_behavior(stream, config, events, InvPayloadKind::NonEmpty, false)
 }
 
@@ -478,43 +527,20 @@ fn mock_peer_with_inv_behavior(
             Err(error) => return Err(error),
         }
 
-        while let Some((payload_code, payload)) = pop_frame(&mut inbound, magic, config.max_frame_data)? {
+        while let Some((payload_code, payload)) =
+            pop_frame(&mut inbound, magic, config.max_frame_data)?
+        {
             match payload_code {
                 HELLO_CODE => {
                     decode_hello_payload(&payload, config.configured_groups())
                         .expect("server validates remote hello");
                     events.send(MockEvent::HelloReceived).ok();
                     if send_announcements && !announcements_sent {
-                        send_new_block(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &events,
-                        )?;
-                        send_new_block_hash(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &events,
-                        )?;
-                        send_new_header(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &events,
-                        )?;
-                        send_new_inv(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &events,
-                        )?;
-                        send_new_txhashes(
-                            &mut stream,
-                            magic,
-                            config.max_frame_data,
-                            &events,
-                        )?;
+                        send_new_block(&mut stream, magic, config.max_frame_data, &events)?;
+                        send_new_block_hash(&mut stream, magic, config.max_frame_data, &events)?;
+                        send_new_header(&mut stream, magic, config.max_frame_data, &events)?;
+                        send_new_inv(&mut stream, magic, config.max_frame_data, &events)?;
+                        send_new_txhashes(&mut stream, magic, config.max_frame_data, &events)?;
                         saw_announcement_followup = true;
                         announcements_sent = true;
                     }
@@ -566,7 +592,12 @@ fn mock_peer_with_inv_behavior(
                             .first()
                             .copied()
                             .expect("HeadersRequest locator");
-                        assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                        assert_ne!(
+                            actual,
+                            BlockHash {
+                                bytes: [0x00_u8; 32]
+                            }
+                        );
                         if !saw_announcement_followup {
                             let locator = expected_locator.expect("expected some locator");
                             assert_eq!(actual, locator);
@@ -601,7 +632,12 @@ fn mock_peer_with_inv_behavior(
                             .first()
                             .copied()
                             .expect("BlocksRequest locator");
-                        assert_ne!(actual, BlockHash { bytes: [0x00_u8; 32] });
+                        assert_ne!(
+                            actual,
+                            BlockHash {
+                                bytes: [0x00_u8; 32]
+                            }
+                        );
                         if !saw_announcement_followup {
                             let locator = expected_locator.expect("expected some locator");
                             assert_eq!(actual, locator);
@@ -655,7 +691,12 @@ fn mock_peer_with_inv_behavior(
                 _ => {}
             }
 
-            if saw_inv_request && saw_headers_request && saw_blocks_request && saw_txs_request && saw_ping {
+            if saw_inv_request
+                && saw_headers_request
+                && saw_blocks_request
+                && saw_txs_request
+                && saw_ping
+            {
                 break;
             }
         }
@@ -725,7 +766,9 @@ fn send_inv_response(
 ) -> io::Result<()> {
     let response = InvResponse {
         id: *request_id,
-        hashes: vec![vec![BlockHash { bytes: [0x11_u8; 32] }]],
+        hashes: vec![vec![BlockHash {
+            bytes: [0x11_u8; 32],
+        }]],
     };
     println!("mock peer sending InvResponse id={}", request_id.value);
     let payload = encode_inv_response_payload(&response).expect("encode InvResponse");
@@ -893,8 +936,7 @@ fn send_new_inv(
             bytes: [0x55_u8; 32],
         }]],
     };
-    let payload = encode_new_inv_payload(&new_inv)
-        .expect("mock peer encodes NewInv");
+    let payload = encode_new_inv_payload(&new_inv).expect("mock peer encodes NewInv");
     send_payload(
         stream,
         magic,
@@ -920,8 +962,8 @@ fn send_new_txhashes(
             }],
         )],
     };
-    let payload = encode_new_txhashes_payload(&new_tx_hashes)
-        .expect("mock peer encodes NewTxHashes");
+    let payload =
+        encode_new_txhashes_payload(&new_tx_hashes).expect("mock peer encodes NewTxHashes");
     send_payload(
         stream,
         magic,
@@ -936,8 +978,8 @@ fn send_new_txhashes(
 fn build_hello_payload(config: &NodeConfig) -> Vec<u8> {
     let private_key = PrivateKey::try_from(&config.private_key[..])
         .expect("mock peer has valid private key fixture");
-    let clique_id = PublicKey::try_from(&config.clique_id[..])
-        .expect("mock peer has valid clique id fixture");
+    let clique_id =
+        PublicKey::try_from(&config.clique_id[..]).expect("mock peer has valid clique id fixture");
 
     let broker_info = InterBrokerInfo {
         clique_id: CliqueId {
@@ -999,6 +1041,9 @@ fn pop_frame(
             inbound.drain(0..frame.consumed);
             Ok(Some((payload_code, payload)))
         }
-        Err(error) => Err(io::Error::new(io::ErrorKind::InvalidData, error.to_string())),
+        Err(error) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            error.to_string(),
+        )),
     }
 }

@@ -532,8 +532,8 @@ pub fn encode_headers_response_payload(response: &HeadersResponse) -> Result<Vec
 
 pub fn decode_headers_response_payload(input: &[u8]) -> DecodeResult<'_, HeadersResponse> {
     let id = decode_request_id(input)?;
-    let headers = decode_headers_vector(id.rest)
-        .or_else(|_| decode_length_prefixed_bytes_vector(id.rest))?;
+    let headers =
+        decode_headers_vector(id.rest).or_else(|_| decode_length_prefixed_bytes_vector(id.rest))?;
     Ok(headers.map(|headers| HeadersResponse {
         id: RequestId { value: id.value },
         headers,
@@ -1020,12 +1020,13 @@ fn encode_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
 }
 
 fn encode_raw_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
-    let mut encoded = compact::encode_i32(i32::try_from(values.len()).map_err(|_| {
-        Error::LimitExceeded {
-            declared: values.len(),
-            limit: MAX_REQUEST_VECTOR_ITEMS,
-        }
-    })?);
+    let mut encoded =
+        compact::encode_i32(
+            i32::try_from(values.len()).map_err(|_| Error::LimitExceeded {
+                declared: values.len(),
+                limit: MAX_REQUEST_VECTOR_ITEMS,
+            })?,
+        );
     for value in values {
         if value.len() > MAX_TX_VECTOR_ITEMS {
             return Err(Error::LimitExceeded {
@@ -1039,12 +1040,13 @@ fn encode_raw_byte_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
 }
 
 fn encode_headers_vector(values: &[Vec<u8>]) -> Result<Vec<u8>, Error> {
-    let mut encoded = compact::encode_i32(i32::try_from(values.len()).map_err(|_| {
-        Error::LimitExceeded {
-            declared: values.len(),
-            limit: MAX_REQUEST_VECTOR_ITEMS,
-        }
-    })?);
+    let mut encoded =
+        compact::encode_i32(
+            i32::try_from(values.len()).map_err(|_| Error::LimitExceeded {
+                declared: values.len(),
+                limit: MAX_REQUEST_VECTOR_ITEMS,
+            })?,
+        );
     for value in values {
         if value.len() > MAX_REQUEST_VECTOR_ITEMS {
             return Err(Error::LimitExceeded {
@@ -1240,10 +1242,9 @@ fn decode_nested_headers_vector(input: &[u8]) -> DecodeResult<'_, Vec<Vec<Vec<u8
 fn decode_block_header_len(input: &[u8]) -> Result<usize, Error> {
     let mut rest = input;
 
-    rest = fixed::take(rest, HEADER_NONCE_BYTES).map_err(|_| {
-        Error::validation("invalid block header length: truncated nonce".to_owned())
-    })?
-    .rest;
+    rest = fixed::take(rest, HEADER_NONCE_BYTES)
+        .map_err(|_| Error::validation("invalid block header length: truncated nonce".to_owned()))?
+        .rest;
     if rest.len() < HEADER_VERSION_BYTES {
         return Err(Error::validation(
             "invalid block header length: truncated version byte".to_owned(),
@@ -1251,8 +1252,9 @@ fn decode_block_header_len(input: &[u8]) -> Result<usize, Error> {
     }
     rest = &rest[HEADER_VERSION_BYTES..];
 
-    let deps_count = compact::decode_i32(rest)
-        .map_err(|_| Error::validation("invalid block header length: invalid dep count".to_owned()))?;
+    let deps_count = compact::decode_i32(rest).map_err(|_| {
+        Error::validation("invalid block header length: invalid dep count".to_owned())
+    })?;
     if deps_count.value < 0 {
         return Err(Error::validation(format!(
             "negative block header deps count: {}",
@@ -1274,10 +1276,11 @@ fn decode_block_header_len(input: &[u8]) -> Result<usize, Error> {
     }
 
     for _ in 0..deps_count {
-        rest = fixed::take(rest, HASH_BYTES).map_err(|_| {
-            Error::validation("invalid block header length: truncated deps hash".to_owned())
-        })?
-        .rest;
+        rest = fixed::take(rest, HASH_BYTES)
+            .map_err(|_| {
+                Error::validation("invalid block header length: truncated deps hash".to_owned())
+            })?
+            .rest;
     }
     rest = fixed::take(rest, HASH_BYTES)
         .map_err(|_| {
@@ -1289,19 +1292,20 @@ fn decode_block_header_len(input: &[u8]) -> Result<usize, Error> {
             Error::validation("invalid block header length: truncated txs hash".to_owned())
         })?
         .rest;
-    let _timestamp = fixed::decode_i64_be(rest)
-        .map_err(|_| Error::validation("invalid block header length: invalid timestamp".to_owned()))?;
+    let _timestamp = fixed::decode_i64_be(rest).map_err(|_| {
+        Error::validation("invalid block header length: invalid timestamp".to_owned())
+    })?;
     rest = _timestamp.rest;
     rest = fixed::take(rest, HEADER_TARGET_BYTES)
-        .map_err(|_| {
-            Error::validation("invalid block header length: truncated target".to_owned())
-        })?
+        .map_err(|_| Error::validation("invalid block header length: truncated target".to_owned()))?
         .rest;
 
     input
         .len()
         .checked_sub(rest.len())
-        .ok_or_else(|| Error::validation("invalid block header length: exhausted while decoding".to_owned()))
+        .ok_or_else(|| {
+            Error::validation("invalid block header length: exhausted while decoding".to_owned())
+        })
         .and_then(|consumed| {
             if consumed == 0 {
                 Err(Error::validation(
@@ -1580,9 +1584,8 @@ mod tests {
     use super::{
         BlocksResponse, HeadersResponse, RequestId, TxsResponse, decode_blocks_response_payload,
         decode_headers_by_heights_response_payload, decode_headers_response_payload,
-        decode_txs_response_payload,
-        encode_blocks_response_payload, encode_headers_response_payload,
-        encode_txs_response_payload,
+        decode_txs_response_payload, encode_blocks_response_payload,
+        encode_headers_response_payload, encode_txs_response_payload,
     };
     use alephium_serde::compact;
 
@@ -1628,8 +1631,8 @@ mod tests {
         blocks_payload.extend_from_slice(&compact::encode_i32(1));
         blocks_payload.extend_from_slice(&compact::encode_i32(2));
         blocks_payload.extend_from_slice(&[0x21_u8, 0x22_u8]);
-        let decoded_blocks = decode_blocks_response_payload(&blocks_payload)
-            .expect("decode legacy blocks response");
+        let decoded_blocks =
+            decode_blocks_response_payload(&blocks_payload).expect("decode legacy blocks response");
         assert_eq!(decoded_blocks.value.id.value, 2);
         assert_eq!(decoded_blocks.value.blocks, vec![vec![0x21_u8, 0x22_u8]]);
     }
@@ -1669,7 +1672,8 @@ mod tests {
         txs_payload.extend_from_slice(&compact::encode_i32(1));
         txs_payload.extend_from_slice(&compact::encode_i32(2));
         txs_payload.extend_from_slice(&[0x11_u8, 0x12_u8]);
-        let decoded_txs = decode_txs_response_payload(&txs_payload).expect("decode legacy txs response");
+        let decoded_txs =
+            decode_txs_response_payload(&txs_payload).expect("decode legacy txs response");
         assert_eq!(decoded_txs.value.id.value, 4);
         assert_eq!(decoded_txs.value.txs, vec![vec![0x11_u8, 0x12_u8]]);
     }
@@ -1700,25 +1704,24 @@ mod tests {
     #[test]
     fn decode_headers_response_official_peer_payload() {
         let payload = vec![
-            2, 1, 60, 119, 215, 77, 17, 53, 106, 228, 29, 87, 237, 189, 228, 240, 35, 244,
-            119, 78, 78, 183, 232, 254, 243, 160, 0, 7, 224, 102, 224, 223, 92, 50, 12, 236,
-            113, 213, 87, 236, 1, 197, 89, 95, 146, 1, 122, 73, 110, 177, 132, 162, 131, 175,
-            25, 81, 222, 9, 217, 69, 157, 205, 89, 97, 165, 219, 144, 146, 38, 238, 140, 20,
-            206, 6, 202, 219, 38, 107, 167, 113, 204, 130, 90, 188, 81, 73, 118, 219, 131, 171,
-            123, 138, 49, 193, 123, 204, 25, 48, 78, 47, 37, 115, 203, 234, 150, 61, 240, 243,
-            146, 144, 27, 212, 179, 189, 33, 91, 216, 207, 149, 27, 137, 150, 84, 223, 99,
-            207, 161, 251, 70, 23, 184, 122, 104, 158, 179, 28, 50, 39, 98, 116, 28, 234, 35,
-            245, 105, 183, 69, 179, 91, 125, 158, 72, 149, 79, 222, 240, 139, 199, 217, 77,
-            223, 198, 97, 41, 4, 152, 98, 229, 1, 255, 93, 80, 66, 225, 233, 120, 177, 165,
-            29, 40, 226, 56, 50, 20, 68, 169, 16, 113, 88, 150, 238, 60, 188, 140, 79, 68, 50,
-            160, 178, 33, 3, 145, 19, 6, 27, 108, 247, 238, 183, 148, 178, 87, 88, 210, 71,
-            18, 13, 13, 247, 18, 252, 49, 43, 12, 4, 160, 238, 176, 118, 126, 201, 129, 55,
-            183, 64, 4, 125, 124, 94, 143, 100, 70, 53, 49, 130, 139, 112, 21, 203, 234, 234,
-            163, 208, 3, 60, 245, 44, 103, 59, 39, 44, 53, 94, 188, 243, 184, 72, 80, 132,
-            117, 123, 89, 226, 65, 181, 72, 214, 121, 193, 81, 74, 163, 182, 50, 211, 173,
-            121, 71, 173, 130, 230, 203, 24, 1, 87, 62, 19, 63, 125, 86, 22, 19, 124, 120, 64,
-            229, 144, 173, 219, 108, 185, 254, 140, 10, 150, 112, 0, 0, 1, 159, 244, 17, 214,
-            239, 32, 255, 255, 255,
+            2, 1, 60, 119, 215, 77, 17, 53, 106, 228, 29, 87, 237, 189, 228, 240, 35, 244, 119, 78,
+            78, 183, 232, 254, 243, 160, 0, 7, 224, 102, 224, 223, 92, 50, 12, 236, 113, 213, 87,
+            236, 1, 197, 89, 95, 146, 1, 122, 73, 110, 177, 132, 162, 131, 175, 25, 81, 222, 9,
+            217, 69, 157, 205, 89, 97, 165, 219, 144, 146, 38, 238, 140, 20, 206, 6, 202, 219, 38,
+            107, 167, 113, 204, 130, 90, 188, 81, 73, 118, 219, 131, 171, 123, 138, 49, 193, 123,
+            204, 25, 48, 78, 47, 37, 115, 203, 234, 150, 61, 240, 243, 146, 144, 27, 212, 179, 189,
+            33, 91, 216, 207, 149, 27, 137, 150, 84, 223, 99, 207, 161, 251, 70, 23, 184, 122, 104,
+            158, 179, 28, 50, 39, 98, 116, 28, 234, 35, 245, 105, 183, 69, 179, 91, 125, 158, 72,
+            149, 79, 222, 240, 139, 199, 217, 77, 223, 198, 97, 41, 4, 152, 98, 229, 1, 255, 93,
+            80, 66, 225, 233, 120, 177, 165, 29, 40, 226, 56, 50, 20, 68, 169, 16, 113, 88, 150,
+            238, 60, 188, 140, 79, 68, 50, 160, 178, 33, 3, 145, 19, 6, 27, 108, 247, 238, 183,
+            148, 178, 87, 88, 210, 71, 18, 13, 13, 247, 18, 252, 49, 43, 12, 4, 160, 238, 176, 118,
+            126, 201, 129, 55, 183, 64, 4, 125, 124, 94, 143, 100, 70, 53, 49, 130, 139, 112, 21,
+            203, 234, 234, 163, 208, 3, 60, 245, 44, 103, 59, 39, 44, 53, 94, 188, 243, 184, 72,
+            80, 132, 117, 123, 89, 226, 65, 181, 72, 214, 121, 193, 81, 74, 163, 182, 50, 211, 173,
+            121, 71, 173, 130, 230, 203, 24, 1, 87, 62, 19, 63, 125, 86, 22, 19, 124, 120, 64, 229,
+            144, 173, 219, 108, 185, 254, 140, 10, 150, 112, 0, 0, 1, 159, 244, 17, 214, 239, 32,
+            255, 255, 255,
         ];
 
         let decoded = decode_headers_response_payload(&payload)
@@ -1736,11 +1739,13 @@ mod tests {
         headers_payload.extend_from_slice(&compact::encode_i32(1));
         headers_payload.extend_from_slice(&compact::encode_i32(2));
         headers_payload.extend_from_slice(&[0x21_u8, 0x22_u8]);
-        let decoded_headers =
-            decode_headers_by_heights_response_payload(&headers_payload)
-                .expect("decode legacy headers-by-heights response");
+        let decoded_headers = decode_headers_by_heights_response_payload(&headers_payload)
+            .expect("decode legacy headers-by-heights response");
         assert_eq!(decoded_headers.value.id.value, 2);
-        assert_eq!(decoded_headers.value.headers, vec![vec![vec![0x21_u8, 0x22_u8]]]);
+        assert_eq!(
+            decoded_headers.value.headers,
+            vec![vec![vec![0x21_u8, 0x22_u8]]]
+        );
     }
 
     fn fake_block_header() -> Vec<u8> {
