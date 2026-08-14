@@ -1,0 +1,33 @@
+name: Fast-path task
+description: Bounded Alephium P2P or bot-event improvement
+title: "[fastpath] "
+labels: ["fastpath"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: State the measured latency, correctness, or reliability problem.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify the P2P, request-tracker, IPC, or bot-integration boundary.
+    validations:
+      required: true
+  - type: textarea
+    id: bounds
+    attributes:
+      label: Bounds and failure modes
+      description: Queue limits, timeouts, retries, malformed input, disconnects, and overload behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: Tests, official interoperability, or latency distribution required for completion.
+    validations:
+      required: true

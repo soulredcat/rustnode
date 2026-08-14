@@ -1,0 +1,71 @@
+name: official-fastpath-interop
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "crates/**/*.rs"
+      - ".github/workflows/official-fastpath-interop.yml"
+  pull_request:
+    paths:
+      - "UPSTREAM.toml"
+      - "config/official-node/**"
+      - "scripts/fetch-upstream.sh"
+      - "scripts/official-node/**"
+      - "crates/**/*.rs"
+      - ".github/workflows/official-fastpath-interop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fetch pinned official source
+        run: ./scripts/fetch-upstream.sh
+
+      - name: Set up Java
+        uses: actions/setup-java@v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+          cache-dependency-path: |
+            .upstream/alephium/**/*.sbt
+            .upstream/alephium/project/build.properties
+            .upstream/alephium/project/**/*.scala
+            .upstream/alephium/project/**/*.sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1.5.7
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run official interoperability gate
+        env:
+          RUST_INTEROP_DURATION_SECONDS: "45"
+          RUST_INTEROP_REQUIRE_M2: "0"
+        run: make official-interop-fastpath
+
+      - name: Upload interoperability evidence
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: official-fastpath-interop
+          path: |
+            tests/interoperability/m1/commands.txt
+            tests/interoperability/m1/rust-node.log
+            tests/interoperability/m1/error.txt
+            .local/official-node/official-node.log
+          if-no-files-found: warn
+          retention-days: 14

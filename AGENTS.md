@@ -1,305 +1,86 @@
-# Instructions for Human and AI Coding Agents
+# AGENTS.md
 
-This file is mandatory operational guidance for every coding agent working in this repository.
+## Mission
 
-## 1. Mission
+This repository builds a minimal Alephium transaction fast-path for `soulredcat/alphrustalbitrage`.
 
-Build a Rust implementation of the official Alephium node that is compatible with the existing Scala implementation and network.
+It is not a full node. Do not reintroduce the former M3–M8 full-node roadmap.
 
-Priority order:
+## Read order
 
-1. protocol and consensus compatibility;
-2. a runnable end-to-end vertical slice;
-3. reproducible tests and evidence;
-4. clear module ownership and maintainability;
-5. performance optimization only after parity.
+1. `README.md`
+2. `ARCHITECTURE.md`
+3. `docs/NODE_FOR_BOT.md`
+4. `docs/BOT_INTEGRATION.md`
+5. `TODO.md`
+6. relevant official Alephium source pinned by `UPSTREAM.toml`
 
-A fast incompatible implementation is a failure.
+## Allowed scope
 
-## 2. Required reading before changing code
+- official P2P framing and handshake compatibility;
+- peer lifecycle and liveness;
+- `NewTxHashes`, `TxsRequest`, and `TxsResponse` behavior;
+- bounded request tracking, retries, dedupe, and peer scoring;
+- raw transaction event delivery to a local bot;
+- direct propagation of already signed, locally accepted bot transactions;
+- latency, reliability, and security testing for those paths.
 
-Read, in this order:
+## Forbidden scope
 
-1. `README.md`;
-2. `AGENTS.md` completely;
-3. `TODO.md`;
-4. `TASKS.md`;
-5. `ARCHITECTURE.md`;
-6. `docs/UPSTREAM_MAPPING.md`;
-7. the milestone/runbook document referenced by the active subphase;
-8. `docs/AI_HANDOFF.md`;
-9. the latest relevant entry in `docs/WORKLOG.md`.
+Do not add:
 
-Then inspect Git status, current HEAD, recent commits, CI results, and the exact upstream files/tests required by the active subphase. Do not rely on chat history, memory, or a generic understanding of UTXO/blockchain protocols.
+- full synchronization;
+- BlockFlow/canonical chain state;
+- consensus or PoW/PoLW validation;
+- Ralph/Alphred VM;
+- world-state storage;
+- wallet or trading keys;
+- mining;
+- REST/API parity;
+- explorer/indexer functionality;
+- bot route, ranking, sizing, or profit policy.
 
-## 3. Upstream lock
+## Correctness rules
 
-The compatibility baseline is:
+- The official Alephium implementation remains the wire-format oracle.
+- Do not change official message codes, field order, hashing, signature, or framing semantics.
+- Bound every peer-controlled size, queue, retry count, and in-flight map.
+- Do not panic on peer or IPC input.
+- Do not perform filesystem, database, REST, or JSON work in the transaction hot path.
+- Do not block P2P ingestion on a bot consumer.
+- Raw P2P events are speculative and must never authorize signing.
+- No wallet private key may be introduced into this repository.
 
-```text
-repository: https://github.com/alephium/alephium
-commit:     63bcf6998508025f9538f3377629fe9e66df6c53
-```
+## Architecture rules
 
-Use `./scripts/fetch-upstream.sh` to obtain the pinned source under `.upstream/alephium`.
+- `protocol`, `serde`, and `crypto` own compatibility primitives.
+- `conf` owns configuration and the non-funded P2P identity.
+- `flow` owns fast-path session, request tracking, and IPC only.
+- `app` owns CLI and process lifecycle only.
+- New responsibilities require a focused module; do not rebuild a monolithic `lib.rs`.
 
-Never silently implement against upstream `master`. A baseline change requires:
+## Verification
 
-- an explicit task;
-- a reviewed diff from the old baseline;
-- updated mapping documentation;
-- regenerated affected vectors;
-- rerun interoperability/differential tests.
-
-## 4. Task selection and sequencing rule
-
-`TODO.md` is authoritative for **execution order**. `TASKS.md` is authoritative for **acceptance criteria and evidence**.
-
-An agent must:
-
-1. select the exact subphase named by `TODO.md` under **Current execution pointer**;
-2. verify every declared dependency is checked complete;
-3. work only within that subphase's scope;
-4. avoid implementing later phases or milestones speculatively;
-5. run the global and subphase-specific acceptance commands;
-6. mark a checkbox complete only after required evidence exists;
-7. move the execution pointer to the first incomplete unblocked subphase;
-8. update `TODO.md`, `TASKS.md`, `docs/WORKLOG.md`, and `docs/AI_HANDOFF.md` before ending work.
-
-Exactly one subphase should be marked `[ACTIVE]` in `TODO.md`.
-
-When a subphase is too large, split it into independently testable subphases in `TODO.md` and add corresponding detailed acceptance criteria to `TASKS.md` before coding. Do not silently create a private plan that other agents cannot see.
-
-Do not mark work complete because code was written, compiled once, or passed Rust-only round-trip tests. Mark it complete only when its acceptance criteria and required official/differential evidence have passed.
-
-If the active subphase is blocked, record the exact blocker and leave it open. Do not jump to another milestone unless `TODO.md` is intentionally revised.
-
-## 5. Required implementation workflow
-
-For each wire- or consensus-critical subphase:
-
-### Step A — Identify official behavior
-
-Record the exact upstream source files and tests. Use paths plus the pinned commit, for example:
-
-```text
-protocol/src/main/scala/org/alephium/protocol/message/Message.scala
-@ 63bcf6998508025f9538f3377629fe9e66df6c53
-```
-
-### Step B — Extract observable behavior
-
-Write down:
-
-- canonical input bytes/state;
-- canonical output bytes/state;
-- accepted and rejected cases;
-- length and allocation limits;
-- error behavior relevant to peer handling or consensus;
-- hard-fork/network dependencies.
-
-Do not infer integer encoding, byte order, checksum, hashing, signature format, field order, or limits from names.
-
-### Step C — Create evidence first
-
-Prefer one or more of:
-
-- a golden vector generated by Scala;
-- an upstream test translated into a language-neutral fixture;
-- a captured P2P frame from a locally controlled official node;
-- a differential test harness;
-- historical replay comparison.
-
-A handwritten expected hex string without provenance is weak evidence and must be labeled as such.
-
-### Step D — Implement the narrowest slice
-
-Implement only enough behavior to satisfy the active subphase. Preserve dependency direction and keep I/O orchestration separate from deterministic codec/validation/VM/state code.
-
-### Step E — Verify
-
-Run at minimum:
+Run:
 
 ```bash
-cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
+make check
 ```
 
-Then run the subphase-specific interoperability, differential, replay, or recovery command defined in `TODO.md`/`TASKS.md`.
+For P2P changes, also run:
 
-### Step F — Handoff
-
-Update:
-
-- `TODO.md` checkbox, status marker, and current execution pointer;
-- `TASKS.md` status, acceptance criteria, and evidence;
-- `docs/UPSTREAM_MAPPING.md` when source ownership coverage changes;
-- `docs/WORKLOG.md` with changes, commands, failures, and next subphase;
-- `docs/AI_HANDOFF.md` with the exact factual repository state.
-
-## 6. Prohibited behavior during compatibility phases
-
-Do not:
-
-- redesign BlockFlow;
-- alter protocol constants;
-- change gas or VM behavior;
-- introduce service-node economics;
-- increase TPS limits;
-- replace official cryptography;
-- replace Alephium binary encoding with a generic serialization framework;
-- accept malformed data that upstream rejects;
-- reject valid data that upstream accepts;
-- add speculative parallel execution;
-- optimize before profiling and parity;
-- claim mainnet compatibility from unit tests alone;
-- claim a full node works when it only decodes or relays data;
-- mark a parent phase complete while a required child remains open;
-- bypass the active execution pointer because another task appears easier.
-
-Protocol-changing research belongs after M7 and must be isolated from the compatibility implementation.
-
-## 7. Rust engineering rules
-
-### Safety and correctness
-
-- `unsafe` is forbidden by default.
-- Never panic on peer-controlled input.
-- Never call `unwrap`/`expect` on peer-controlled, disk-controlled, or decoded data in production paths.
-- Check declared lengths before allocating.
-- Bound queues, buffers, collections, recursion, retries, and work derived from untrusted input.
-- Use explicit integer overflow behavior.
-- Do not use floating-point arithmetic in wire, VM, gas, monetary, weight, or consensus calculations.
-- Keep hard-fork and network-dependent behavior explicit and testable.
-- Distinguish protocol errors, peer misbehavior, local I/O failures, storage failures, and internal invariant violations.
-
-### Determinism
-
-- Codec, hashing, validation, VM execution, gas accounting, and state-transition functions should be deterministic and normally synchronous.
-- Async is for sockets, timers, orchestration, cancellation, and scheduled storage work.
-- Parallelism requires deterministic ordering/merge rules and is deferred unless the active compatibility subphase explicitly requires upstream-equivalent concurrency.
-
-### Source traceability
-
-For non-obvious protocol behavior, include a concise source annotation near the implementation or test:
-
-```rust
-// Upstream parity source:
-// protocol/.../Message.scala
-// commit 63bcf6998508025f9538f3377629fe9e66df6c53
+```bash
+make official-interop-fastpath
 ```
 
-Do not paste large Scala sections into comments.
+Required evidence depends on the change:
 
-### APIs and modules
+- official Scala source/test reference;
+- byte-for-byte fixture;
+- Rust/official interoperability log;
+- bounded overload test;
+- latency distribution, not one anecdotal timing.
 
-- Keep official responsibility boundaries where practical.
-- Do not create circular crate dependencies.
-- Keep network transport independent from message codec.
-- Keep protocol models independent from Tokio and HTTP.
-- Keep storage implementation behind logical interfaces once storage work begins.
-- Avoid abstractions that have only one trivial implementation unless they isolate a real boundary.
-- Split monolithic modules when responsibilities become independently testable, but do not refactor beyond the active subphase without evidence that it is necessary.
+## Completion policy
 
-### Dependencies
-
-Before adding a crate dependency, document:
-
-- why the standard library/current workspace is insufficient;
-- whether the dependency enters a consensus/wire-critical path;
-- maintenance/security implications;
-- feature flags actually required.
-
-Do not add multiple libraries for the same concern without removing the obsolete one.
-
-## 8. Testing rules
-
-Required categories eventually include:
-
-```text
-unit
-property/fuzz
-wire vectors
-Rust <-> Scala interoperability
-differential validation
-differential VM
-historical replay
-restart/recovery
-```
-
-For parsers, test at least:
-
-- empty input;
-- truncated input at every field boundary;
-- declared length smaller/larger than available bytes;
-- excessive declared length;
-- invalid enum/payload code;
-- wrong magic/checksum;
-- valid input with trailing bytes when upstream rejects trailing bytes.
-
-For cryptography, use known valid and invalid vectors. Do not test only round trips generated by the Rust implementation itself.
-
-For storage/recovery, inject failure at every logical commit boundary and verify state/tip consistency after restart.
-
-## 9. Honest status language
-
-Use these distinctions precisely:
-
-```text
-decoded       = bytes parsed into a Rust structure
-verified      = cryptographic/basic structural checks passed
-validated     = official protocol/consensus rules passed
-committed     = accepted into the Rust canonical state
-interoperable = accepted by an official Scala peer under the documented test
-full node     = syncs, validates, executes state, persists, and recovers
-```
-
-Do not collapse them into "working."
-
-## 10. Commit and PR expectations
-
-A focused change should include:
-
-- active subphase ID in the commit or PR description;
-- upstream files consulted;
-- behavior implemented;
-- tests/commands executed;
-- known limitations;
-- updated execution/evidence/handoff documents when the subphase completes.
-
-Prefer one coherent subphase per commit or small commit series. Avoid giant ports spanning unrelated upstream modules.
-
-## 11. End-of-session report
-
-Every agent session must leave a `docs/WORKLOG.md` entry containing:
-
-```text
-Date/time:
-Milestone/phase/subphase ID:
-Changed:
-Upstream sources:
-Commands run:
-Evidence produced:
-Known failures/uncertainty:
-Exact next subphase:
-Commit SHA:
-```
-
-An agent that cannot run a required command must say so, leave the checkbox open, and preserve the exact blocker.
-
-## 12. Current target
-
-The immediate technical target is the active M2 subphase recorded in `TODO.md`:
-
-```text
-restore green formatting/CI
-  -> make the official interop workflow reach the harness
-  -> verify ChainState and inventory exchange
-  -> verify Headers/Blocks/Txs request-response
-  -> verify announcement follow-up where reproducible
-  -> close M2 as decode-only interoperability
-```
-
-Do not start canonical model/hash work (M3) until the M2 exit gate is complete.
+A task is complete only when its failure modes are tested. A benchmark does not prove protocol correctness, and a successful decode does not prove transaction validity.

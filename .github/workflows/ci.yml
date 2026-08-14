@@ -14,20 +14,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Verify pinned official Alephium source
-        run: |
-          ./scripts/fetch-upstream.sh
-          test "$(git -C .upstream/alephium rev-parse HEAD)" = "63bcf6998508025f9538f3377629fe9e66df6c53"
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
-      - name: Toolchain versions
-        run: |
-          rustc --version
-          cargo --version
 
       - name: Formatting
         run: cargo fmt --all -- --check
