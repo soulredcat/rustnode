@@ -21,7 +21,7 @@ fn print_usage() {
         "  --ipc-bind <addr>             loopback bot event server (default: {DEFAULT_IPC_BIND_ADDRESS})"
     );
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
-    println!("  --tx-batch-size <n>           maximum transaction IDs per request");
+    println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
     println!("  --event-queue-capacity <n>    bounded IPC event queue");
     println!("  --watch                       reconnect after peer failure");
@@ -98,6 +98,10 @@ fn main() {
             }
             "--tx-batch-size" => {
                 let value = parse_usize("--tx-batch-size", args.next());
+                if value != 1 {
+                    eprintln!("--tx-batch-size must be 1 for canonical raw decoding");
+                    process::exit(2);
+                }
                 config = config.set_tx_request_batch_size(value);
             }
             "--request-timeout-ms" => {

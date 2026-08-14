@@ -13,13 +13,13 @@ use alephium_protocol::message::payload::{
     TXS_REQUEST_CODE, TXS_RESPONSE_CODE, TxsRequest, TxsResponse, decode_chain_state_payload,
     decode_hello_payload, decode_inv_request_payload, decode_inv_response_payload,
     decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload,
-    decode_txs_request_payload, decode_txs_response_payload, encode_hello_payload,
-    encode_inv_request_payload, encode_inv_response_payload, encode_ping_payload,
-    encode_pong_payload, encode_txs_request_payload, encode_txs_response_payload,
+    decode_txs_request_payload, encode_hello_payload, encode_inv_request_payload,
+    encode_inv_response_payload, encode_ping_payload, encode_pong_payload,
+    encode_txs_request_payload, encode_txs_response_payload,
 };
 use alephium_protocol::message::{
-    FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data, encode_frame,
-    encode_raw_message_data,
+    FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data,
+    decode_single_txs_response_payload, encode_frame, encode_raw_message_data,
 };
 use alephium_serde::Error as SerdeError;
 
@@ -112,7 +112,6 @@ fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathEr
         outstanding_inv_request: None,
         tx_tracker: TxRequestTracker::new(
             config.max_inflight_tx_requests,
-            config.tx_request_batch_size,
             config.max_tracked_tx_ids,
             config.tx_request_timeout,
             config.max_tx_request_retries,
@@ -242,7 +241,7 @@ fn process_inbound(
                 handle_txs_request(stream, config, request)?;
             }
             TXS_RESPONSE_CODE => {
-                let response = decode_txs_response_payload(payload)?.finish(payload_len)?;
+                let response = decode_single_txs_response_payload(payload)?.finish(payload_len)?;
                 handle_txs_response(events, session, response);
             }
             NEW_BLOCK_CODE | NEW_HEADER_CODE | NEW_INV_CODE | NEW_BLOCK_HASH_CODE => {}
@@ -398,13 +397,15 @@ fn handle_txs_response(events: &EventSink, session: &mut Session, response: TxsR
         eprintln!("ignored unsolicited TxsResponse id={response_id}");
         return;
     }
+    if completion.malformed_response {
+        eprintln!("rejected malformed TxsResponse id={response_id}");
+        return;
+    }
 
     let observed_at = unix_time_ns().unwrap_or_default();
     for transaction in completion.transactions {
-        let (chain_from, chain_to) = transaction
-            .chain_index
-            .map(|chain| (chain.from, chain.to))
-            .unwrap_or((-1, -1));
+        let chain_from = transaction.chain_index.from;
+        let chain_to = transaction.chain_index.to;
         let _ = events.publish(BotEvent::raw_transaction(
             chain_from,
             chain_to,

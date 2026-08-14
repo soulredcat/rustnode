@@ -29,7 +29,7 @@ pub const DEFAULT_PING_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_IO_POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub const DEFAULT_TX_REQUEST_TIMEOUT: Duration = Duration::from_millis(250);
 pub const DEFAULT_MAX_FRAME_DATA: usize = 1024 * 1024;
-pub const DEFAULT_TX_REQUEST_BATCH_SIZE: usize = 64;
+pub const DEFAULT_TX_REQUEST_BATCH_SIZE: usize = 1;
 pub const DEFAULT_MAX_INFLIGHT_TX_REQUESTS: usize = 8;
 pub const DEFAULT_MAX_TRACKED_TX_IDS: usize = 65_536;
 pub const DEFAULT_MAX_TX_REQUEST_RETRIES: u8 = 2;
@@ -175,7 +175,7 @@ impl NodeConfig {
 
     #[must_use]
     pub fn set_tx_request_batch_size(mut self, value: usize) -> Self {
-        self.tx_request_batch_size = value.max(1);
+        self.tx_request_batch_size = value.min(DEFAULT_TX_REQUEST_BATCH_SIZE).max(1);
         self
     }
 

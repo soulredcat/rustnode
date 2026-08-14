@@ -24,7 +24,7 @@ cargo run --release -p alephium-app -- \
   --peer 127.0.0.1:9973 \
   --ipc-bind 127.0.0.1:19090 \
   --max-inflight 8 \
-  --tx-batch-size 64 \
+  --tx-batch-size 1 \
   --request-timeout-ms 250 \
   --event-queue-capacity 4096 \
   --watch
@@ -137,7 +137,7 @@ Use only for metrics and fetch-race correlation. Do not scan routes yet because 
 
 ### `RawTransaction` (`kind = 3`)
 
-1. Verify `blake2b256(payload)` equals `transaction_id` using the same Alephium transaction-ID semantics.
+1. Decode the canonical `TransactionTemplate`, recompute `unsigned.id`, and require it to equal `transaction_id`; hashing the complete template bytes is incorrect.
 2. Decode using the bot's native transaction/script decoder.
 3. Produce the existing `LiveMempoolTransaction` or a dedicated speculative DTO.
 4. Identify known affected pools and tokens.

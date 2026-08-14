@@ -96,7 +96,7 @@ Start conservatively:
 
 ```text
 max_inflight_tx_requests = 8
-tx_request_batch_size    = 64
+tx_request_batch_size    = 1
 tx_request_timeout       = 250 ms
 max_tx_request_retries   = 2
 event_queue_capacity     = 4096
