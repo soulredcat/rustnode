@@ -1,8 +1,10 @@
 //! Official Alephium P2P message ownership.
 
+pub mod fastpath;
 pub mod frame;
 pub mod payload;
 
+pub use fastpath::decode_single_txs_response_payload;
 pub use frame::{
     CHECKSUM_LENGTH, CURRENT_WIRE_VERSION, ENVELOPE_LENGTH, Frame, FrameDecode,
     LENGTH_FIELD_LENGTH, MAGIC_LENGTH, MAX_PAYLOAD_CODE, NetworkMagic, RawMessageData,
