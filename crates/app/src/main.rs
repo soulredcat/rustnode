@@ -17,7 +17,9 @@ fn print_usage() {
     println!();
     println!("Options:");
     println!("  --peer <addr>                 Alephium P2P peer (default: {DEFAULT_PEER_ADDRESS})");
-    println!("  --ipc-bind <addr>             loopback bot event server (default: {DEFAULT_IPC_BIND_ADDRESS})");
+    println!(
+        "  --ipc-bind <addr>             loopback bot event server (default: {DEFAULT_IPC_BIND_ADDRESS})"
+    );
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           maximum transaction IDs per request");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -129,7 +131,10 @@ fn main() {
 
     let publisher = IpcPublisher::bind(&config.ipc_bind_address, config.event_queue_capacity)
         .unwrap_or_else(|error| {
-            eprintln!("failed to bind bot IPC {}: {error}", config.ipc_bind_address);
+            eprintln!(
+                "failed to bind bot IPC {}: {error}",
+                config.ipc_bind_address
+            );
             process::exit(1);
         });
     let events = publisher.sink();

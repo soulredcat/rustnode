@@ -120,10 +120,7 @@ impl TxRequestTracker {
                 }) {
                     chain_hashes.push(transaction.transaction_id);
                 } else {
-                    hashes.push((
-                        transaction.chain_index,
-                        vec![transaction.transaction_id],
-                    ));
+                    hashes.push((transaction.chain_index, vec![transaction.transaction_id]));
                 }
             }
 
@@ -162,8 +159,8 @@ impl TxRequestTracker {
                 .transactions
                 .iter()
                 .position(|tracked| tracked.transaction_id.bytes == transaction_id);
-            let chain_index = matching_index
-                .map(|index| request.transactions.swap_remove(index).chain_index);
+            let chain_index =
+                matching_index.map(|index| request.transactions.swap_remove(index).chain_index);
 
             self.active_ids.remove(&transaction_id);
             self.mark_received(transaction_id);
@@ -233,10 +230,7 @@ impl TxRequestTracker {
     }
 }
 
-fn allocate_request_id(
-    next_request_id: &mut u32,
-    inflight: &HashMap<u32, InflightRequest>,
-) -> u32 {
+fn allocate_request_id(next_request_id: &mut u32, inflight: &HashMap<u32, InflightRequest>) -> u32 {
     loop {
         let candidate = *next_request_id;
         *next_request_id = (*next_request_id).wrapping_add(1);

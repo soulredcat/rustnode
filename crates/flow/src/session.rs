@@ -12,10 +12,10 @@ use alephium_protocol::message::payload::{
     NEW_INV_CODE, NEW_TX_HASHES_CODE, NewTxHashes, PING_CODE, PONG_CODE, Ping, Pong, RequestId,
     TXS_REQUEST_CODE, TXS_RESPONSE_CODE, TxsRequest, TxsResponse, decode_chain_state_payload,
     decode_hello_payload, decode_inv_request_payload, decode_inv_response_payload,
-    decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload, decode_txs_request_payload,
-    decode_txs_response_payload, encode_hello_payload, encode_inv_request_payload,
-    encode_inv_response_payload, encode_ping_payload, encode_pong_payload, encode_txs_request_payload,
-    encode_txs_response_payload,
+    decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload,
+    decode_txs_request_payload, decode_txs_response_payload, encode_hello_payload,
+    encode_inv_request_payload, encode_inv_response_payload, encode_ping_payload,
+    encode_pong_payload, encode_txs_request_payload, encode_txs_response_payload,
 };
 use alephium_protocol::message::{
     FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data, encode_frame,

@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -76,10 +76,7 @@ impl EventSink {
                 .counters
                 .dropped_without_consumer
                 .load(Ordering::Relaxed),
-            consumer_disconnects: self
-                .counters
-                .consumer_disconnects
-                .load(Ordering::Relaxed),
+            consumer_disconnects: self.counters.consumer_disconnects.load(Ordering::Relaxed),
         }
     }
 }
@@ -125,11 +122,7 @@ impl IpcPublisher {
     }
 }
 
-fn run_publisher(
-    listener: TcpListener,
-    receiver: Receiver<BotEvent>,
-    counters: Arc<IpcCounters>,
-) {
+fn run_publisher(listener: TcpListener, receiver: Receiver<BotEvent>, counters: Arc<IpcCounters>) {
     let mut consumer: Option<TcpStream> = None;
     loop {
         if consumer.is_none() {

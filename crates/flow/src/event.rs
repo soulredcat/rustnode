@@ -138,7 +138,10 @@ impl fmt::Display for EventDecodeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Truncated { expected, actual } => {
-                write!(formatter, "truncated event: expected {expected}, got {actual}")
+                write!(
+                    formatter,
+                    "truncated event: expected {expected}, got {actual}"
+                )
             }
             Self::InvalidMagic(magic) => write!(formatter, "invalid event magic: {magic:?}"),
             Self::UnsupportedVersion(version) => {
@@ -146,7 +149,10 @@ impl fmt::Display for EventDecodeError {
             }
             Self::UnknownKind(kind) => write!(formatter, "unknown event kind: {kind}"),
             Self::TrailingBytes { expected, actual } => {
-                write!(formatter, "event length mismatch: expected {expected}, got {actual}")
+                write!(
+                    formatter,
+                    "event length mismatch: expected {expected}, got {actual}"
+                )
             }
         }
     }
@@ -199,8 +205,11 @@ pub fn decode_event(input: &[u8]) -> Result<BotEvent, EventDecodeError> {
     let chain_to = i32::from_be_bytes(input[28..32].try_into().expect("fixed chain slice"));
     let mut transaction_id = [0u8; 32];
     transaction_id.copy_from_slice(&input[32..64]);
-    let payload_len =
-        u32::from_be_bytes(input[64..68].try_into().expect("fixed payload length slice")) as usize;
+    let payload_len = u32::from_be_bytes(
+        input[64..68]
+            .try_into()
+            .expect("fixed payload length slice"),
+    ) as usize;
     let expected = EVENT_HEADER_LEN.saturating_add(payload_len);
     if input.len() < expected {
         return Err(EventDecodeError::Truncated {
