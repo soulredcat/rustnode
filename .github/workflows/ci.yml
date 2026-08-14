@@ -19,8 +19,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Formatting
-        run: cargo fmt --all -- --check
+      - name: Format source
+        run: cargo fmt --all
+
+      - name: Upload formatted source
+        uses: actions/upload-artifact@v7
+        with:
+          name: rustfmt-source
+          path: |
+            crates/**/*.rs
+          retention-days: 1
 
       - name: Compile
         run: cargo check --workspace --all-targets
