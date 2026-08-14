@@ -4,181 +4,148 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-use alephium_conf::{DEFAULT_PEER_ADDRESS, NodeConfig, resolve_node_identity_path};
-use alephium_flow::run;
+use alephium_conf::{
+    DEFAULT_IPC_BIND_ADDRESS, DEFAULT_PEER_ADDRESS, NodeConfig, resolve_node_identity_path,
+};
+use alephium_flow::{EventSink, IpcPublisher, run};
 
 fn print_usage() {
-    println!("Alephium Rust Node");
+    println!("Alephium Bot Fast-Path");
     println!("Usage:");
-    println!("  alephium-node-rs [peer-address]");
-    println!("  alephium-node-rs --peer <peer-address>");
-    println!("  alephium-node-rs --watch");
-    println!("  alephium-node-rs --help");
+    println!("  alephium-bot-fastpath [peer-address]");
+    println!("  alephium-bot-fastpath --peer <host:port> --ipc-bind <host:port>");
     println!();
     println!("Options:");
-    println!("  --peer <addr>             override peer address (default: {DEFAULT_PEER_ADDRESS})");
-    println!("  --watch                   keep retrying and reconnect when peer is unavailable");
-    println!("  --watch-interval <secs>   delay between retries in watch mode (default: 5)");
-    println!("  --watch-attempts <n>      max watch attempts before exiting (default: unlimited)");
-    println!("  --wallet-status           print persisted local sync/wallet snapshot and exit");
+    println!("  --peer <addr>                 Alephium P2P peer (default: {DEFAULT_PEER_ADDRESS})");
+    println!("  --ipc-bind <addr>             loopback bot event server (default: {DEFAULT_IPC_BIND_ADDRESS})");
+    println!("  --max-inflight <n>            concurrent TxsRequest limit");
+    println!("  --tx-batch-size <n>           maximum transaction IDs per request");
+    println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
+    println!("  --event-queue-capacity <n>    bounded IPC event queue");
+    println!("  --watch                       reconnect after peer failure");
+    println!("  --watch-interval <seconds>    reconnect delay (default: 2)");
+    println!("  --help                        show this help");
 }
 
-fn run_with_retry(config: &NodeConfig, retry_interval: Duration, max_attempts: Option<usize>) -> ! {
-    let mut attempt = 0usize;
+fn parse_usize(flag: &str, value: Option<String>) -> usize {
+    let Some(value) = value else {
+        eprintln!("{flag} requires a value");
+        process::exit(2);
+    };
+    value.parse::<usize>().unwrap_or_else(|error| {
+        eprintln!("invalid {flag} value '{value}': {error}");
+        process::exit(2);
+    })
+}
 
+fn parse_u64(flag: &str, value: Option<String>) -> u64 {
+    let Some(value) = value else {
+        eprintln!("{flag} requires a value");
+        process::exit(2);
+    };
+    value.parse::<u64>().unwrap_or_else(|error| {
+        eprintln!("invalid {flag} value '{value}': {error}");
+        process::exit(2);
+    })
+}
+
+fn run_with_reconnect(config: &NodeConfig, events: &EventSink, interval: Duration) -> ! {
+    let mut attempt = 0u64;
     loop {
-        attempt += 1;
-        println!(
-            "starting rust watch session #{attempt} to {}",
+        attempt = attempt.saturating_add(1);
+        eprintln!(
+            "starting fast-path peer attempt {attempt} against {}",
             config.peer_address
         );
-
-        if let Err(error) = run(config) {
-            eprintln!("flow exited with error: {error}");
+        if let Err(error) = run(config, events) {
+            eprintln!("fast-path session stopped: {error}");
         }
-
-        if let Some(limit) = max_attempts
-            && attempt >= limit
-        {
-            eprintln!("watch mode reached attempt limit ({limit}); exiting");
-            process::exit(1);
-        }
-
-        eprintln!(
-            "watch mode retrying in {}s (attempt {attempt})",
-            retry_interval.as_secs()
-        );
-        thread::sleep(retry_interval);
+        thread::sleep(interval);
     }
 }
 
 fn main() {
-    let mut peer_address = DEFAULT_PEER_ADDRESS.to_owned();
-    let mut watch_mode = false;
-    let mut print_wallet = false;
-    let mut watch_interval = Duration::from_secs(5);
-    let mut watch_attempts: Option<usize> = None;
-
+    let mut config = NodeConfig::default();
+    let mut watch = false;
+    let mut watch_interval = Duration::from_secs(2);
     let mut args = std::env::args().skip(1).peekable();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
+
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
             "--help" | "-h" => {
                 print_usage();
                 return;
             }
             "--peer" => {
-                let Some(next) = args.next() else {
-                    eprintln!("--peer requires an argument: <host:port>");
+                let Some(value) = args.next() else {
+                    eprintln!("--peer requires <host:port>");
                     process::exit(2);
                 };
-                peer_address = next;
+                config = config.set_peer_address(value);
             }
-            arg if arg.starts_with("--peer=") => {
-                peer_address = arg["--peer=".len()..].to_owned();
+            "--ipc-bind" => {
+                let Some(value) = args.next() else {
+                    eprintln!("--ipc-bind requires <host:port>");
+                    process::exit(2);
+                };
+                config = config.set_ipc_bind_address(value);
             }
-            "--watch" => {
-                watch_mode = true;
+            "--max-inflight" => {
+                let value = parse_usize("--max-inflight", args.next());
+                config = config.set_max_inflight_tx_requests(value);
             }
+            "--tx-batch-size" => {
+                let value = parse_usize("--tx-batch-size", args.next());
+                config = config.set_tx_request_batch_size(value);
+            }
+            "--request-timeout-ms" => {
+                let value = parse_u64("--request-timeout-ms", args.next());
+                config = config.set_tx_request_timeout(Duration::from_millis(value));
+            }
+            "--event-queue-capacity" => {
+                let value = parse_usize("--event-queue-capacity", args.next());
+                config = config.set_event_queue_capacity(value);
+            }
+            "--watch" => watch = true,
             "--watch-interval" => {
-                let Some(next) = args.next() else {
-                    eprintln!("--watch-interval requires an argument: <seconds>");
-                    process::exit(2);
-                };
-                let parsed = match next.parse::<u64>() {
-                    Ok(value) => value,
-                    Err(error) => {
-                        eprintln!("invalid --watch-interval value '{next}': {error}");
-                        process::exit(2);
-                    }
-                };
-                watch_interval = Duration::from_secs(parsed);
+                watch_interval = Duration::from_secs(parse_u64("--watch-interval", args.next()));
             }
-            arg if arg.starts_with("--watch-interval=") => {
-                let value = &arg["--watch-interval=".len()..];
-                match value.parse::<u64>() {
-                    Ok(parsed) => watch_interval = Duration::from_secs(parsed),
-                    Err(error) => {
-                        eprintln!("invalid --watch-interval value '{value}': {error}");
-                        process::exit(2);
-                    }
-                }
-            }
-            "--watch-attempts" => {
-                let Some(next) = args.next() else {
-                    eprintln!("--watch-attempts requires an argument: <attempt count>");
-                    process::exit(2);
-                };
-                match next.parse::<usize>() {
-                    Ok(value) => watch_attempts = Some(value),
-                    Err(error) => {
-                        eprintln!("invalid --watch-attempts value '{next}': {error}");
-                        process::exit(2);
-                    }
-                }
-            }
-            arg if arg.starts_with("--watch-attempts=") => {
-                let value = &arg["--watch-attempts=".len()..];
-                match value.parse::<usize>() {
-                    Ok(value) => watch_attempts = Some(value),
-                    Err(error) => {
-                        eprintln!("invalid --watch-attempts value '{value}': {error}");
-                        process::exit(2);
-                    }
-                }
-            }
-            "--wallet-status" => {
-                print_wallet = true;
-            }
-            arg if arg.starts_with("-") => {
-                eprintln!("unknown option: {arg}");
-                eprintln!("run --help for usage");
+            value if value.starts_with('-') => {
+                eprintln!("unknown option: {value}");
                 process::exit(2);
             }
-            arg => {
-                peer_address = arg.to_owned();
+            peer_address => {
+                config = config.set_peer_address(peer_address.to_owned());
             }
         }
     }
 
-    let identity_path = resolve_node_identity_path();
-    if print_wallet {
-        match alephium_flow::load_wallet_snapshot() {
-            Ok(snapshot) => {
-                println!("{snapshot}");
-            }
-            Err(error) => {
-                eprintln!("unable to load wallet snapshot: {error}");
-                process::exit(2);
-            }
-        }
-        return;
-    }
+    config = config
+        .with_node_identity_path(resolve_node_identity_path())
+        .unwrap_or_else(|error| {
+            eprintln!("failed to load P2P identity: {error}");
+            process::exit(1);
+        });
 
-    let config =
-        match NodeConfig::with_peer_address(peer_address).with_node_identity_path(identity_path) {
-            Ok(config) => config,
-            Err(error) => {
-                eprintln!("failed to load node identity: {error}");
-                process::exit(1);
-            }
-        };
+    let publisher = IpcPublisher::bind(&config.ipc_bind_address, config.event_queue_capacity)
+        .unwrap_or_else(|error| {
+            eprintln!("failed to bind bot IPC {}: {error}", config.ipc_bind_address);
+            process::exit(1);
+        });
+    let events = publisher.sink();
 
-    println!("alephium-node-rs");
-    println!(
-        "upstream baseline: {}",
-        alephium_util::UPSTREAM_BASELINE_COMMIT
-    );
+    println!("alephium-bot-fastpath");
+    println!("peer: {}", config.peer_address);
+    println!("bot IPC: {}", config.ipc_bind_address);
+    println!("runtime: {}", alephium_flow::STATUS);
     println!("configuration: {}", alephium_conf::STATUS);
-    println!(
-        "node config: peer={}, client={}",
-        config.peer_address, config.client_id
-    );
-    println!("flow: {}", alephium_flow::STATUS);
 
-    if watch_mode {
-        run_with_retry(&config, watch_interval, watch_attempts);
-    } else if let Err(error) = run(&config) {
-        eprintln!("flow exited with error: {error}");
+    if watch {
+        run_with_reconnect(&config, &events, watch_interval);
+    }
+
+    if let Err(error) = run(&config, &events) {
+        eprintln!("fast-path session stopped: {error}");
         process::exit(1);
     }
 }

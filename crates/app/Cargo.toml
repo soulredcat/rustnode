@@ -6,11 +6,10 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "alephium-node-rs"
+name = "alephium-bot-fastpath"
 path = "src/main.rs"
 
 [dependencies]
-alephium-util = { path = "../util" }
 alephium-conf = { path = "../conf" }
 alephium-flow = { path = "../flow" }
 
