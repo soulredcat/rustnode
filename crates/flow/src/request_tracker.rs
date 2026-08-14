@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use alephium_crypto::hash_blake2b_256;
 use alephium_protocol::message::payload::{ChainIndex, RequestId, TransactionId, TxsRequest};
 
 #[derive(Debug, Clone)]
@@ -14,12 +13,12 @@ struct TrackedTransaction {
 #[derive(Debug)]
 struct InflightRequest {
     sent_at: Instant,
-    transactions: Vec<TrackedTransaction>,
+    transaction: TrackedTransaction,
 }
 
 #[derive(Debug)]
 pub(crate) struct CompletedTransaction {
-    pub(crate) chain_index: Option<ChainIndex>,
+    pub(crate) chain_index: ChainIndex,
     pub(crate) transaction_id: [u8; 32],
     pub(crate) raw_transaction: Vec<u8>,
 }
@@ -30,6 +29,7 @@ pub(crate) struct Completion {
     pub(crate) requeued: usize,
     pub(crate) exhausted: usize,
     pub(crate) unknown_request: bool,
+    pub(crate) malformed_response: bool,
 }
 
 #[derive(Debug)]
@@ -40,7 +40,6 @@ pub(crate) struct TxRequestTracker {
     received_order: VecDeque<[u8; 32]>,
     inflight: HashMap<u32, InflightRequest>,
     max_inflight: usize,
-    batch_size: usize,
     max_tracked_ids: usize,
     max_received_ids: usize,
     request_timeout: Duration,
@@ -50,7 +49,6 @@ pub(crate) struct TxRequestTracker {
 impl TxRequestTracker {
     pub(crate) fn new(
         max_inflight: usize,
-        batch_size: usize,
         max_tracked_ids: usize,
         request_timeout: Duration,
         max_retries: u8,
@@ -63,7 +61,6 @@ impl TxRequestTracker {
             received_order: VecDeque::new(),
             inflight: HashMap::new(),
             max_inflight: max_inflight.max(1),
-            batch_size: batch_size.max(1),
             max_tracked_ids,
             max_received_ids: max_tracked_ids,
             request_timeout: request_timeout.max(Duration::from_millis(1)),
@@ -93,49 +90,34 @@ impl TxRequestTracker {
         true
     }
 
+    /// Builds one transaction per request. Multiple requests may be in flight concurrently.
+    /// This is intentional: the current raw Alephium response decoder cannot safely split
+    /// multiple `TransactionTemplate` values without a typed transaction parser.
     pub(crate) fn build_ready_requests(
         &mut self,
         next_request_id: &mut u32,
         now: Instant,
     ) -> Vec<TxsRequest> {
         let mut requests = Vec::new();
-        while self.inflight.len() < self.max_inflight && !self.pending.is_empty() {
-            let mut transactions = Vec::with_capacity(self.batch_size);
-            for _ in 0..self.batch_size {
-                let Some(transaction) = self.pending.pop_front() else {
-                    break;
-                };
-                transactions.push(transaction);
-            }
-            if transactions.is_empty() {
+        while self.inflight.len() < self.max_inflight {
+            let Some(transaction) = self.pending.pop_front() else {
                 break;
-            }
+            };
 
             let request_id = allocate_request_id(next_request_id, &self.inflight);
-            let mut hashes: Vec<(ChainIndex, Vec<TransactionId>)> = Vec::new();
-            for transaction in &transactions {
-                if let Some((_, chain_hashes)) = hashes.iter_mut().find(|(chain, _)| {
-                    chain.from == transaction.chain_index.from
-                        && chain.to == transaction.chain_index.to
-                }) {
-                    chain_hashes.push(transaction.transaction_id);
-                } else {
-                    hashes.push((transaction.chain_index, vec![transaction.transaction_id]));
-                }
-            }
-
+            let request = TxsRequest {
+                id: RequestId { value: request_id },
+                hashes: vec![(transaction.chain_index, vec![transaction.transaction_id])],
+            };
             let previous = self.inflight.insert(
                 request_id,
                 InflightRequest {
                     sent_at: now,
-                    transactions,
+                    transaction,
                 },
             );
             debug_assert!(previous.is_none());
-            requests.push(TxsRequest {
-                id: RequestId { value: request_id },
-                hashes,
-            });
+            requests.push(request);
         }
         requests
     }
@@ -143,42 +125,49 @@ impl TxRequestTracker {
     pub(crate) fn complete(
         &mut self,
         request_id: u32,
-        raw_transactions: Vec<Vec<u8>>,
+        mut raw_transactions: Vec<Vec<u8>>,
     ) -> Completion {
-        let Some(mut request) = self.inflight.remove(&request_id) else {
+        let Some(request) = self.inflight.remove(&request_id) else {
             return Completion {
                 unknown_request: true,
                 ..Completion::default()
             };
         };
 
-        let mut completion = Completion::default();
-        for raw_transaction in raw_transactions {
-            let transaction_id = hash_blake2b_256(&raw_transaction);
-            let matching_index = request
-                .transactions
-                .iter()
-                .position(|tracked| tracked.transaction_id.bytes == transaction_id);
-            let chain_index =
-                matching_index.map(|index| request.transactions.swap_remove(index).chain_index);
+        if raw_transactions.len() > 1 {
+            let mut completion = Completion {
+                malformed_response: true,
+                ..Completion::default()
+            };
+            if self.retry_or_release(request.transaction) {
+                completion.requeued = 1;
+            } else {
+                completion.exhausted = 1;
+            }
+            return completion;
+        }
 
-            self.active_ids.remove(&transaction_id);
-            self.mark_received(transaction_id);
-            completion.transactions.push(CompletedTransaction {
-                chain_index,
+        let Some(raw_transaction) = raw_transactions.pop() else {
+            let mut completion = Completion::default();
+            if self.retry_or_release(request.transaction) {
+                completion.requeued = 1;
+            } else {
+                completion.exhausted = 1;
+            }
+            return completion;
+        };
+
+        let transaction_id = request.transaction.transaction_id.bytes;
+        self.active_ids.remove(&transaction_id);
+        self.mark_received(transaction_id);
+        Completion {
+            transactions: vec![CompletedTransaction {
+                chain_index: request.transaction.chain_index,
                 transaction_id,
                 raw_transaction,
-            });
+            }],
+            ..Completion::default()
         }
-
-        for transaction in request.transactions {
-            if self.retry_or_release(transaction) {
-                completion.requeued += 1;
-            } else {
-                completion.exhausted += 1;
-            }
-        }
-        completion
     }
 
     pub(crate) fn expire(&mut self, now: Instant) -> (usize, usize) {
@@ -195,12 +184,10 @@ impl TxRequestTracker {
         let mut exhausted = 0;
         for request_id in expired_ids {
             if let Some(request) = self.inflight.remove(&request_id) {
-                for transaction in request.transactions {
-                    if self.retry_or_release(transaction) {
-                        requeued += 1;
-                    } else {
-                        exhausted += 1;
-                    }
+                if self.retry_or_release(request.transaction) {
+                    requeued += 1;
+                } else {
+                    exhausted += 1;
                 }
             }
         }
@@ -247,7 +234,6 @@ fn allocate_request_id(next_request_id: &mut u32, inflight: &HashMap<u32, Inflig
 mod tests {
     use std::time::{Duration, Instant};
 
-    use alephium_crypto::hash_blake2b_256;
     use alephium_protocol::message::payload::{ChainIndex, TransactionId};
 
     use super::TxRequestTracker;
@@ -258,37 +244,60 @@ mod tests {
 
     #[test]
     fn deduplicates_announcements() {
-        let mut tracker = TxRequestTracker::new(2, 8, 64, Duration::from_millis(50), 1);
+        let mut tracker = TxRequestTracker::new(2, 64, Duration::from_millis(50), 1);
         let chain = ChainIndex { from: 0, to: 1 };
         assert!(tracker.enqueue(chain, transaction_id(1)));
         assert!(!tracker.enqueue(chain, transaction_id(1)));
     }
 
     #[test]
-    fn builds_multiple_inflight_requests() {
-        let mut tracker = TxRequestTracker::new(2, 1, 64, Duration::from_millis(50), 1);
+    fn builds_multiple_single_transaction_requests() {
+        let mut tracker = TxRequestTracker::new(2, 64, Duration::from_millis(50), 1);
         let chain = ChainIndex { from: 0, to: 1 };
         assert!(tracker.enqueue(chain, transaction_id(1)));
         assert!(tracker.enqueue(chain, transaction_id(2)));
         let mut next_id = 1;
         let requests = tracker.build_ready_requests(&mut next_id, Instant::now());
         assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request
+                .hashes
+                .iter()
+                .map(|(_, transactions)| transactions.len())
+                .sum::<usize>()
+                == 1
+        }));
     }
 
     #[test]
-    fn maps_raw_transaction_back_to_requested_chain() {
-        let raw = vec![1, 2, 3, 4];
-        let id = hash_blake2b_256(&raw);
-        let mut tracker = TxRequestTracker::new(1, 8, 64, Duration::from_millis(50), 1);
+    fn response_uses_requested_transaction_id_and_chain() {
+        let mut tracker = TxRequestTracker::new(1, 64, Duration::from_millis(50), 1);
         let chain = ChainIndex { from: 2, to: 3 };
-        assert!(tracker.enqueue(chain, TransactionId { bytes: id }));
+        let requested = transaction_id(9);
+        assert!(tracker.enqueue(chain, requested));
         let mut next_id = 1;
         let request = tracker
             .build_ready_requests(&mut next_id, Instant::now())
             .pop()
             .expect("request");
-        let completion = tracker.complete(request.id.value, vec![raw]);
+        let completion = tracker.complete(request.id.value, vec![vec![1, 2, 3, 4]]);
         assert_eq!(completion.transactions.len(), 1);
-        assert_eq!(completion.transactions[0].chain_index, Some(chain));
+        assert_eq!(completion.transactions[0].chain_index, chain);
+        assert_eq!(completion.transactions[0].transaction_id, requested.bytes);
+    }
+
+    #[test]
+    fn rejects_multiple_raw_transactions_for_single_request() {
+        let mut tracker = TxRequestTracker::new(1, 64, Duration::from_millis(50), 1);
+        let chain = ChainIndex { from: 0, to: 0 };
+        assert!(tracker.enqueue(chain, transaction_id(1)));
+        let mut next_id = 1;
+        let request = tracker
+            .build_ready_requests(&mut next_id, Instant::now())
+            .pop()
+            .expect("request");
+        let completion = tracker.complete(request.id.value, vec![vec![1], vec![2]]);
+        assert!(completion.malformed_response);
+        assert!(completion.transactions.is_empty());
     }
 }
