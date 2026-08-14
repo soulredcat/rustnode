@@ -175,7 +175,7 @@ impl NodeConfig {
 
     #[must_use]
     pub fn set_tx_request_batch_size(mut self, value: usize) -> Self {
-        self.tx_request_batch_size = value.min(DEFAULT_TX_REQUEST_BATCH_SIZE).max(1);
+        self.tx_request_batch_size = value.clamp(1, DEFAULT_TX_REQUEST_BATCH_SIZE);
         self
     }
 
