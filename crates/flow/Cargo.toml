@@ -6,7 +6,6 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-alephium-util = { path = "../util" }
 alephium-conf = { path = "../conf" }
 alephium-protocol = { path = "../protocol" }
 alephium-crypto = { path = "../crypto" }
