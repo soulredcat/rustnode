@@ -35,13 +35,14 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 ## N2 — Free endpoints
 
 - [ ] `GET /addresses/{address}/group` natively (pure function of the address).
+- [ ] `GET /infos/node` natively.
 
 ## N3 — Follow the chain
 
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [ ] Start from a recent checkpoint taken from the operator's synced official node.
-- [ ] Keep blocks for a configured window only.
+- [ ] Keep blocks for a configured window only (default 1000 heights per chain; see the retention table in `docs/NIXIA_API_SURFACE.md`).
 - [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
 ## N4 — Native mempool
@@ -63,7 +64,8 @@ Exit gate: state hash matches for every group; this proves the bootstrap path be
 
 - [ ] Ralph VM for the current hard fork only (state starts after bootstrap, so historical rules are not needed).
 - [ ] Apply every followed block; fail closed on any `depStateHash` mismatch.
-- [ ] Prune state to the last 128 heights, like the official `PruneStorageService`.
+- [ ] Prune state to the last 128 heights, like the official `PruneStorageService`, and answer pinned reads (`worldStateBlockHash`) inside that window.
+- [ ] Keep spent outputs for retained blocks (for `rich-details`), DEX factory events permanently, and the sub-contract index permanently.
 - [ ] Events for the indexes on the surface only; native `/events/*`, `blocks-with-events`, `sub-contracts`, `/ws` `contract` notifications.
 
 ## N7 — VM calls and transaction building
