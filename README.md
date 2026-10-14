@@ -1,77 +1,44 @@
-# Alephium Bot Fast-Path
+# rustnode
 
-A minimal Rust P2P sidecar for `soulredcat/alphrustalbitrage`.
+An Alephium node in Rust, built only for the `soulredcat/nixiaproject` arbitrage bot.
 
-This repository is **not an Alephium full-node replacement**. Its only production purpose is to reduce transaction-observation latency for the arbitrage bot while the official Alephium node remains the authority for validation, state, transaction construction, simulation, submission, and confirmation.
+The goal is a node that serves exactly the HTTP and WebSocket endpoints `nixiaproject` calls ([`docs/NIXIA_API_SURFACE.md`](docs/NIXIA_API_SURFACE.md)), with the same responses as the official node, while keeping only the state, blocks, and indexes those endpoints need. The bot switches by changing `ALEPHIUM_NODE_URL` and nothing else; `nixiaproject` itself is never modified from here.
 
-## Responsibilities
-
-The process:
-
-1. connects to an Alephium P2P peer using the official wire protocol;
-2. receives `NewTxHashes` announcements;
-3. immediately issues bounded concurrent `TxsRequest` requests;
-4. receives raw transaction bytes;
-5. emits versioned binary events over loopback TCP to the bot.
-
-It deliberately does **not** implement:
-
-- full historical synchronization;
-- canonical BlockFlow or world state;
-- transaction, block, PoW, or PoLW validation;
-- Ralph/Alphred VM execution;
-- wallet, mining, REST, explorer, or indexer APIs;
-- signing or custody of trading keys.
+Anything the bot does not use is not built, and unused code is deleted.
 
 ## Current status
 
-Available:
+Available today:
 
-- official Alephium frame and payload codecs required by the fast path;
-- signed `Hello` interoperability and `Ping/Pong` liveness;
-- transaction announcement decoding;
-- bounded pending queue;
-- multiple in-flight transaction requests;
-- timeout/retry handling;
-- deduplication;
-- loopback-only binary event publisher.
+- official Alephium frame codec and the payloads the runtime uses (`Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`/`TxsResponse`), checked against Scala-generated vectors;
+- signed `Hello` handshake and `Ping`/`Pong` liveness against the official node;
+- bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limits, timeouts, and retries;
+- a bounded in-memory raw mempool that `GET /mempool/transactions` will be served from.
 
-Still required before real-funds production use:
+Not built yet: the HTTP/WS API, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Every endpoint starts as a proxy to the official node and becomes native only after it matches the official responses on live traffic.
 
-- multi-peer fan-in and peer scoring;
-- shadow latency comparison against the official node WebSocket;
-- integration in `alphrustalbitrage`;
-- soak, overload, reconnect, and event-gap testing;
-- direct transaction propagation after official-node acceptance.
+Until then, `nixiaproject` keeps using the official node directly.
 
 ## Run
 
 ```bash
-cargo run --release -p alephium-app -- \
-  --peer 127.0.0.1:9973 \
-  --ipc-bind 127.0.0.1:19090 \
-  --watch
+cargo run --release -p alephium-app -- --peer 127.0.0.1:9973 --watch
 ```
 
-The default peer remains the isolated interoperability port `127.0.0.1:19985`. Production deployments should set the peer explicitly.
+The default peer is the isolated interoperability port `127.0.0.1:19985`. Production deployments should set the peer explicitly.
 
-## Bot integration
+## Read next
 
-Read:
-
-- [`docs/NODE_FOR_BOT.md`](docs/NODE_FOR_BOT.md) — scope, trust boundaries, event protocol, and deployment model.
-- [`docs/BOT_INTEGRATION.md`](docs/BOT_INTEGRATION.md) — exact steps for `alphrustalbitrage` to consume events.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module boundaries and runtime data flow.
-- [`TODO.md`](TODO.md) — ordered bot-only roadmap.
+- [`docs/NIXIA_API_SURFACE.md`](docs/NIXIA_API_SURFACE.md) — every endpoint and subscription the bot uses, and what each one needs.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — current and target module layout.
+- [`TODO.md`](TODO.md) — staged roadmap with exit gates.
+- [`AGENTS.md`](AGENTS.md) — scope and correctness rules.
 
 ## Quality gates
 
 ```bash
 make check
+make official-interop-fastpath   # for P2P changes
 ```
 
-Wire compatibility must continue to be tested against the pinned official Alephium implementation recorded in `UPSTREAM.toml`.
-
-## Safety
-
-Raw P2P transaction events are speculative. The bot may use them to precompute affected routes, but must not authorize signing or submission solely from these events. The official local node remains the execution gate.
+Compatibility is tested against the pinned official Alephium implementation recorded in `UPSTREAM.toml`.

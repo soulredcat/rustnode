@@ -1,100 +1,79 @@
-# Ordered Fast-Path Roadmap
+# Roadmap — nixiaproject-only node
 
-This roadmap is bot-only. Full-node parity, consensus, VM, wallet, mining, and historical synchronization are permanently out of scope unless the owner explicitly changes the repository mission.
+Each stage either serves more of `docs/NIXIA_API_SURFACE.md` or removes a dependency on the official node. Nothing outside that surface is built. `nixiaproject` is never modified; it only changes `ALEPHIUM_NODE_URL` once N0 is in place.
+
+An endpoint moves from "proxied" to "native" only after the differential check (N1) shows it matching the official node on live traffic.
 
 ## Current pointer
 
 ```text
-F0 — Scope cut and bounded single-peer fast path
-Status: implementation/verification
+N0 — API gateway (proxy everything to the official node)
 ```
 
-## F0 — Scope cut and single-peer MVP
+## Done
 
-- [x] Replace the full-node mission with the bot fast-path mission.
-- [x] Remove full-node runtime behavior and synchronous disk state from the hot path.
-- [x] Keep official Alephium framing, handshake, and transaction payload compatibility.
-- [x] Add bounded transaction announcement deduplication.
-- [x] Add multiple in-flight `TxsRequest` tracking.
-- [x] Add timeout, bounded retry, and exhausted-request release.
-- [x] Add versioned loopback binary event delivery.
-- [ ] Restore green formatting, compile, Clippy, and tests on CI.
-- [ ] Update official interoperability assertions for the reduced runtime.
+- [x] Official frame codec, signed `Hello`, and `Ping`/`Pong` checked against Scala-generated vectors.
+- [x] Bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limit, timeout, retry.
+- [x] Bounded raw mempool fed by acquisition.
+- [x] Removed everything the bot does not use: ALFP/IPC event server, block/header codecs without typed parsing, blake3, peer version parsing, the `util` crate, broken M2 interop modes, and stale milestone docs.
 
-### F0 exit gate
+## N0 — API gateway
 
-```text
-cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-make official-interop-fastpath
-```
+- [ ] `api` crate: HTTP server on the official default port, forwarding every path in the surface to a configured official node, preserving status codes, headers, bodies, and the optional API key.
+- [ ] `/ws` passthrough with JSON-RPC subscriptions forwarded both ways.
+- [ ] Per-endpoint latency and error counters.
 
-## F1 — Bot shadow integration
+Exit gate: `nixiaproject` runs unchanged against rustnode with only `ALEPHIUM_NODE_URL` changed; added latency per request is measured and documented.
 
-- [ ] Add `infrastructure/fastpath` client modules in `alphrustalbitrage`.
-- [ ] Decode ALFP v1 with strict size/version checks.
-- [ ] Add process restart and sequence-gap guard.
-- [ ] Feed `RawTransaction` into the existing script decoder in metrics-only mode.
-- [ ] Correlate Rust event transaction IDs with official-node WebSocket IDs.
-- [ ] Record monotonic end-to-end race timestamps.
+## N1 — Differential checking
 
-### F1 exit gate
+- [ ] Shadow mode per endpoint: serve the official response, compute the native one, and record any difference.
+- [ ] A switch per endpoint from proxied to native, allowed only after a clean comparison window.
 
-- No execution decision changes.
-- Raw transaction ID/decode comparison is deterministic.
-- Every reconnect or sequence gap resets speculative state.
+Exit gate: a native handler can be enabled and rolled back per endpoint without restarting the bot.
 
-## F2 — Speculative affected-route preparation
+## N2 — Free endpoints
 
-- [ ] Build transaction-local affected-pool observations from Rust events.
-- [ ] Apply a speculative virtual reserve overlay with TTL.
-- [ ] Run affected-route discovery and sizing from memory.
-- [ ] Cache prepared opportunities by transaction ID.
-- [ ] Require official-node acceptance before build/preflight/submit.
-- [ ] Invalidate mismatched or expired speculative results.
+- [ ] `GET /addresses/{address}/group` natively (pure function of the address).
 
-### F2 exit gate
+## N3 — Follow the chain
 
-- Shadow opportunities match official-source opportunities within documented rules.
-- No speculative-only transaction can reach signing.
+- [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
+- [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
+- [ ] Start from a recent checkpoint taken from the operator's synced official node.
+- [ ] Keep blocks for a configured window only.
+- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
-## F3 — Multi-peer acquisition
+## N4 — Native mempool
 
-- [ ] Replace the single peer with a bounded peer manager.
-- [ ] Maintain independent session/request state per peer.
-- [ ] Deduplicate announcements globally.
-- [ ] Add latency, success, timeout, and malformed-response peer scores.
-- [ ] Add hedged fetch after a measured delay.
-- [ ] Bound aggregate traffic and memory.
+- [ ] Decode `TransactionTemplate` into the official JSON shape.
+- [ ] Remove transactions once a followed block includes them; expire stale ones like the official node.
+- [ ] Connect to direct mainnet peers (a local official node alone announces in 500 ms batches after its own mempool).
+- [ ] Native `GET /mempool/transactions`; `GET /transactions/status` for mempool and windowed blocks.
 
-### F3 exit gate
+## N5 — State bootstrap
 
-- One slow or malicious peer cannot block other peers.
-- Multi-peer p99 beats the best stable single-peer baseline.
+- [ ] Read world state from a copy of the operator's synced official node data.
+- [ ] Recompute the state root and require it to equal the next block's `depStateHash`.
+- [ ] Native read-only `GET /contracts/{address}/state`, `GET /addresses/{address}/utxos`, `GET /addresses/{address}/balance` at the bootstrap point.
 
-## F4 — Event reliability and observability
+Exit gate: state hash matches for every group; this proves the bootstrap path before any VM work starts.
 
-- [ ] Add process epoch to ALFP protocol v2.
-- [ ] Add explicit overflow/gap events.
-- [ ] Add heartbeat and health snapshot events.
-- [ ] Export Prometheus-compatible counters/histograms outside the hot path.
-- [ ] Add reconnect, overload, malformed-frame, and slow-consumer tests.
-- [ ] Complete a 24–72 hour soak test.
+## N6 — VM and state transition
 
-## F5 — Submission propagation acceleration
+- [ ] Ralph VM for the current hard fork only (state starts after bootstrap, so historical rules are not needed).
+- [ ] Apply every followed block; fail closed on any `depStateHash` mismatch.
+- [ ] Prune state to the last 128 heights, like the official `PruneStorageService`.
+- [ ] Events for the indexes on the surface only; native `/events/*`, `blocks-with-events`, `sub-contracts`, `/ws` `contract` notifications.
 
-- [ ] Accept only already signed transactions that the official node has accepted locally.
-- [ ] Verify transaction ID before propagation.
-- [ ] Announce/relay through selected peers immediately.
-- [ ] Keep official-node submit/status as the canonical workflow.
-- [ ] Add strict rate, size, and ownership policy.
+## N7 — VM calls and transaction building
 
-## F6 — Production release gate
+- [ ] Native `call-contract`, `call-tx-script`, `multicall-contract`.
+- [ ] Native `decode-unsigned-tx`, `contracts/unsigned-tx/execute-script`, `transactions/build`, with the official gas estimation and UTXO selection.
+- [ ] Native `transactions/rich-details`.
 
-- [ ] Security review of P2P and IPC inputs.
-- [ ] Bot signer policy remains independent.
-- [ ] Release build provenance and rollback procedure.
-- [ ] Measured p50/p95/p99 improvement documented.
-- [ ] No unresolved sequence-gap, memory-growth, or retry-storm issue.
+## N8 — Submission and retirement of the official node
+
+- [ ] Native `transactions/submit`: validate and broadcast to peers.
+- [ ] Nothing proxied any more; measure memory and disk against the official node.
+- [ ] Hard-fork readiness procedure: a new official hard fork must be implemented before its activation height.

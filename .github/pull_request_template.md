@@ -1,6 +1,6 @@
-## Task
+## Stage and endpoint
 
-`TASK-ID`
+Roadmap stage from `TODO.md`, and the endpoint(s) from `docs/NIXIA_API_SURFACE.md` this serves.
 
 ## Upstream baseline
 
@@ -52,9 +52,9 @@ paste concise real output/status
 - [ ] No floating-point arithmetic enters protocol/consensus calculations.
 - [ ] No generic serializer is used for official Alephium wire bytes.
 - [ ] Rust status language remains honest (`decoded`, `verified`, `validated`, `committed`, `interoperable`).
-- [ ] `TASKS.md` is updated when status changed.
+- [ ] Nothing outside `docs/NIXIA_API_SURFACE.md` was added; code it no longer needs was deleted.
+- [ ] `TODO.md` is updated when status changed.
 - [ ] `docs/UPSTREAM_MAPPING.md` is updated when an upstream area was implemented.
-- [ ] `docs/WORKLOG.md` contains a handoff entry.
 
 ## Known limitations or uncertainty
 
@@ -62,4 +62,4 @@ paste concise real output/status
 
 ## Exact next task
 
-`TASK-ID` — description
+Next item in `TODO.md`.

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Changes must improve the Alephium transaction fast path used by `alphrustalbitrage`. Full-node features are rejected by design.
+Changes must serve `nixiaproject`'s API surface (`docs/NIXIA_API_SURFACE.md`). Features the bot does not use are rejected, and unused code is deleted.
 
 Read `AGENTS.md`, `ARCHITECTURE.md`, and `TODO.md` first.
 
@@ -10,7 +10,7 @@ Read `AGENTS.md`, `ARCHITECTURE.md`, and `TODO.md` first.
 
 Every change must state:
 
-- the fast-path problem being solved;
+- the endpoint or roadmap stage the change serves;
 - affected hot-path stages;
 - official Alephium wire behavior consulted;
 - memory, latency, and failure impact;
@@ -44,7 +44,7 @@ make official-interop-fastpath
 Examples:
 
 ```text
-fastpath: queue announcements while requests are in flight
-ipc: reject non-loopback bind addresses
 p2p: bound raw transaction response size
+mempool: evict oldest raw transaction when full
+api: proxy GET /mempool/transactions to the official node
 ```

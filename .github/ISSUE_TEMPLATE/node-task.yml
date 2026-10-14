@@ -1,6 +1,6 @@
-name: Fast-path task
-description: Bounded Alephium P2P or bot-event improvement
-title: "[fastpath] "
+name: Node task
+description: Work toward serving nixiaproject's API surface
+title: "[node] "
 labels: ["fastpath"]
 body:
   - type: textarea
@@ -14,7 +14,7 @@ body:
     id: scope
     attributes:
       label: Scope
-      description: Identify the P2P, request-tracker, IPC, or bot-integration boundary.
+      description: Identify the endpoint from docs/NIXIA_API_SURFACE.md or the roadmap stage, and the P2P, API, state, or VM boundary.
     validations:
       required: true
   - type: textarea

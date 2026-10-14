@@ -2,17 +2,13 @@
 
 ## Start here
 
-- [`NODE_FOR_BOT.md`](NODE_FOR_BOT.md) — repository purpose, trust boundaries, and event contract.
-- [`BOT_INTEGRATION.md`](BOT_INTEGRATION.md) — how `alphrustalbitrage` consumes the fast path.
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — runtime modules and dependency boundaries.
-- [`../TODO.md`](../TODO.md) — ordered implementation roadmap.
+- [`NIXIA_API_SURFACE.md`](NIXIA_API_SURFACE.md) — every endpoint and subscription `nixiaproject` uses; the node's specification.
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — current and target module layout.
+- [`../TODO.md`](../TODO.md) — staged roadmap.
 
-## Compatibility references retained
+## Compatibility and testing
 
-- [`M1_WIRE_REFERENCE.md`](M1_WIRE_REFERENCE.md)
-- [`M1_P2P_INTEROP.md`](M1_P2P_INTEROP.md)
-- [`INTEROPERABILITY.md`](INTEROPERABILITY.md)
-- [`LOCAL_OFFICIAL_NODE.md`](LOCAL_OFFICIAL_NODE.md)
-- [`UPSTREAM_MAPPING.md`](UPSTREAM_MAPPING.md)
-
-These files are retained only as protocol/interoperability evidence. They do not restore the former full-node mission.
+- [`INTEROPERABILITY.md`](INTEROPERABILITY.md) — rules for official-node interoperability evidence.
+- [`LOCAL_OFFICIAL_NODE.md`](LOCAL_OFFICIAL_NODE.md) — the isolated local official node used by the interop harness.
+- [`UPSTREAM_MAPPING.md`](UPSTREAM_MAPPING.md) — official source areas behind each implemented responsibility.
+- [`../tests/vectors/m1/README.md`](../tests/vectors/m1/README.md) — Scala-generated wire vectors and their provenance.
