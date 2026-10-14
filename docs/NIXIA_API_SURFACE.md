@@ -72,7 +72,13 @@ If the bot is stopped for longer than the block window, gap recovery cannot rere
 
 ## Served by rustnode today
 
-Every endpoint above, and `/ws`, is accepted by the gateway and proxied to the official node (N0 in `TODO.md`). None is native yet.
+Every endpoint above, and `/ws`, is accepted by the gateway and proxied to the official node (N0 in `TODO.md`), except:
+
+| Route id | Native handler | Default mode |
+| --- | --- | --- |
+| `address-group` | asset addresses (P2PKH, P2MPKH, P2SH); contract, grouped, and invalid addresses are proxied | `shadow` |
+
+Route ids for `--route-mode`: `mempool-transactions`, `contract-state`, `call-contract`, `call-tx-script`, `multicall-contract`, `execute-script`, `decode-unsigned-tx`, `build-transaction`, `submit-transaction`, `transaction-status`, `transaction-rich-details`, `address-balance`, `address-utxos`, `address-group`, `block-by-hash`, `blocks-by-time`, `block-with-events`, `contract-events`, `contract-event-count`, `events-by-tx-id`, `sub-contracts`, `infos-node`, `ws`.
 
 ## What this implies
 

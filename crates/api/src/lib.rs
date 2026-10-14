@@ -2,12 +2,18 @@
 //! HTTP and `/ws` gateway serving the `nixiaproject` API surface.
 //!
 //! Only the endpoints in `docs/NIXIA_API_SURFACE.md` are accepted; everything
-//! else answers `404`/`405`. Accepted requests are forwarded unchanged to the
-//! official node until a native handler replaces them (`TODO.md`, N1+).
+//! else answers `404`/`405`. Each accepted route runs in one mode:
+//! - `proxy`: forwarded unchanged to the official node;
+//! - `shadow`: forwarded, and the native answer is computed and compared with
+//!   the official one, which is what the client receives;
+//! - `native`: answered by rustnode, falling back to the official node for any
+//!   request the native handler declines.
 
 mod metrics;
+mod native;
 mod proxy;
 mod routes;
+mod shadow;
 mod ws;
 
 use std::convert::Infallible;
@@ -40,9 +46,66 @@ pub(crate) type GatewayBody = BoxBody<Bytes, BoxError>;
 
 const METRICS_LOG_INTERVAL: Duration = Duration::from_secs(60);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteMode {
+    Proxy,
+    Shadow,
+    Native,
+}
+
+impl RouteMode {
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "proxy" => Some(Self::Proxy),
+            "shadow" => Some(Self::Shadow),
+            "native" => Some(Self::Native),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Proxy => "proxy",
+            Self::Shadow => "shadow",
+            Self::Native => "native",
+        }
+    }
+}
+
+/// Default modes: `shadow` where a native handler exists, `proxy` elsewhere,
+/// then the `route-id=mode` overrides applied in order.
+fn route_modes(overrides: &[String]) -> Result<[RouteMode; Route::ALL.len()], GatewayError> {
+    let mut modes = Route::ALL.map(|route| {
+        if native::has_handler(route) {
+            RouteMode::Shadow
+        } else {
+            RouteMode::Proxy
+        }
+    });
+    for entry in overrides {
+        let invalid = |reason: &str| GatewayError::InvalidRouteMode(format!("{entry}: {reason}"));
+        let (id, mode) = entry
+            .split_once('=')
+            .ok_or_else(|| invalid("expected route-id=mode"))?;
+        let route = Route::ALL
+            .into_iter()
+            .find(|route| route.id() == id)
+            .ok_or_else(|| invalid("unknown route id"))?;
+        let mode = RouteMode::parse(mode)
+            .ok_or_else(|| invalid("mode must be proxy, shadow, or native"))?;
+        if mode != RouteMode::Proxy && !native::has_handler(route) {
+            return Err(invalid("this route has no native handler yet"));
+        }
+        modes[route.index()] = mode;
+    }
+    Ok(modes)
+}
+
 #[derive(Debug)]
 pub enum GatewayError {
     InvalidUpstream(String),
+    InvalidRouteMode(String),
     Bind(io::Error),
 }
 
@@ -50,6 +113,7 @@ impl fmt::Display for GatewayError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidUpstream(detail) => write!(formatter, "invalid upstream URL: {detail}"),
+            Self::InvalidRouteMode(detail) => write!(formatter, "invalid --route-mode {detail}"),
             Self::Bind(error) => write!(formatter, "cannot bind API listener: {error}"),
         }
     }
@@ -99,6 +163,7 @@ pub(crate) struct State {
     pub(crate) upstream: Upstream,
     pub(crate) client: Client<HttpConnector, Full<Bytes>>,
     pub(crate) metrics: Metrics,
+    pub(crate) modes: [RouteMode; Route::ALL.len()],
 }
 
 pub struct Gateway {
@@ -109,6 +174,7 @@ pub struct Gateway {
 impl Gateway {
     pub async fn bind(config: ApiConfig) -> Result<Self, GatewayError> {
         let upstream = Upstream::parse(&config.upstream_url)?;
+        let modes = route_modes(&config.route_modes)?;
         let listener = TcpListener::bind(&config.bind_address)
             .await
             .map_err(GatewayError::Bind)?;
@@ -127,6 +193,7 @@ impl Gateway {
                 upstream,
                 client,
                 metrics: Metrics::default(),
+                modes,
             }),
         })
     }
@@ -137,6 +204,15 @@ impl Gateway {
 
     pub fn upstream_base(&self) -> &str {
         &self.state.upstream.http_base
+    }
+
+    /// Routes not in `proxy` mode, for the startup log.
+    pub fn non_proxy_routes(&self) -> Vec<(Route, RouteMode)> {
+        Route::ALL
+            .into_iter()
+            .map(|route| (route, self.state.modes[route.index()]))
+            .filter(|(_, mode)| *mode != RouteMode::Proxy)
+            .collect()
     }
 
     /// Accepts connections until the process stops. At most
@@ -201,7 +277,22 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
             upgraded.response
         }
         RouteMatch::Found(matched) => {
-            let forwarded = proxy::forward(state, request).await;
+            let forwarded = match state.modes[matched.index()] {
+                RouteMode::Proxy => proxy::forward(state, request).await,
+                RouteMode::Shadow => shadow::forward_and_compare(state, matched, request).await,
+                RouteMode::Native => {
+                    match native::serve(matched, request.uri().path(), state.config.groups) {
+                        Some(body) => {
+                            state.metrics.record_native(matched);
+                            proxy::Forwarded {
+                                response: json_response(StatusCode::OK, Bytes::from(body)),
+                                upstream_error: false,
+                            }
+                        }
+                        None => proxy::forward(state, request).await,
+                    }
+                }
+            };
             state
                 .metrics
                 .record(matched, started.elapsed(), forwarded.upstream_error);
@@ -222,12 +313,12 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
 }
 
 pub(crate) fn json_error(status: StatusCode, detail: &str) -> Response<GatewayBody> {
-    let body = format!("{{\"detail\":{}}}", json_string(detail));
-    let mut response = Response::new(
-        Full::new(Bytes::from(body))
-            .map_err(|never| match never {})
-            .boxed(),
-    );
+    let body = serde_json::json!({ "detail": detail }).to_string();
+    json_response(status, Bytes::from(body))
+}
+
+pub(crate) fn json_response(status: StatusCode, body: Bytes) -> Response<GatewayBody> {
+    let mut response = Response::new(full_body(body));
     *response.status_mut() = status;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -236,28 +327,12 @@ pub(crate) fn json_error(status: StatusCode, detail: &str) -> Response<GatewayBo
     response
 }
 
+pub(crate) fn full_body(bytes: Bytes) -> GatewayBody {
+    Full::new(bytes).map_err(|never| match never {}).boxed()
+}
+
 pub(crate) fn empty_body() -> GatewayBody {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
-}
-
-fn json_string(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len() + 2);
-    escaped.push('"');
-    for character in text.chars() {
-        match character {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            control if control.is_control() => {
-                escaped.push_str(&format!("\\u{:04x}", u32::from(control)));
-            }
-            other => escaped.push(other),
-        }
-    }
-    escaped.push('"');
-    escaped
 }

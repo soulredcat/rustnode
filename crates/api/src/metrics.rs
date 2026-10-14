@@ -11,6 +11,19 @@ struct RouteCounters {
     upstream_errors: AtomicU64,
     total_micros: AtomicU64,
     max_micros: AtomicU64,
+    native_served: AtomicU64,
+    shadow_matches: AtomicU64,
+    shadow_mismatches: AtomicU64,
+    shadow_declined: AtomicU64,
+}
+
+/// Outcome of comparing a native answer with the official one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShadowResult {
+    Match,
+    Mismatch,
+    /// The native handler deferred this request to the official node.
+    Declined,
 }
 
 #[derive(Debug, Default)]
@@ -25,6 +38,10 @@ pub(crate) struct RouteSnapshot {
     pub(crate) upstream_errors: u64,
     pub(crate) total_micros: u64,
     pub(crate) max_micros: u64,
+    pub(crate) native_served: u64,
+    pub(crate) shadow_matches: u64,
+    pub(crate) shadow_mismatches: u64,
+    pub(crate) shadow_declined: u64,
 }
 
 impl Metrics {
@@ -39,6 +56,28 @@ impl Metrics {
         }
     }
 
+    pub(crate) fn record_native(&self, route: Route) {
+        self.routes[route.index()]
+            .native_served
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a shadow comparison and returns the mismatch count before it.
+    pub(crate) fn record_shadow(&self, route: Route, result: ShadowResult) -> u64 {
+        let counters = &self.routes[route.index()];
+        let counter = match result {
+            ShadowResult::Match => &counters.shadow_matches,
+            ShadowResult::Mismatch => &counters.shadow_mismatches,
+            ShadowResult::Declined => &counters.shadow_declined,
+        };
+        let before = counter.fetch_add(1, Ordering::Relaxed);
+        if result == ShadowResult::Mismatch {
+            before
+        } else {
+            counters.shadow_mismatches.load(Ordering::Relaxed)
+        }
+    }
+
     pub(crate) fn record_rejected(&self) {
         self.rejected.fetch_add(1, Ordering::Relaxed);
     }
@@ -50,6 +89,10 @@ impl Metrics {
             upstream_errors: counters.upstream_errors.load(Ordering::Relaxed),
             total_micros: counters.total_micros.load(Ordering::Relaxed),
             max_micros: counters.max_micros.load(Ordering::Relaxed),
+            native_served: counters.native_served.load(Ordering::Relaxed),
+            shadow_matches: counters.shadow_matches.load(Ordering::Relaxed),
+            shadow_mismatches: counters.shadow_mismatches.load(Ordering::Relaxed),
+            shadow_declined: counters.shadow_declined.load(Ordering::Relaxed),
         }
     }
 
@@ -66,13 +109,25 @@ impl Metrics {
                 continue;
             }
             let average = snapshot.total_micros / snapshot.requests;
-            lines.push(format!(
+            let mut line = format!(
                 "api {}: requests={} upstream_errors={} avg_us={average} max_us={}",
                 route.name(),
                 snapshot.requests,
                 snapshot.upstream_errors,
                 snapshot.max_micros
-            ));
+            );
+            if snapshot.native_served > 0 {
+                line.push_str(&format!(" native={}", snapshot.native_served));
+            }
+            let compared =
+                snapshot.shadow_matches + snapshot.shadow_mismatches + snapshot.shadow_declined;
+            if compared > 0 {
+                line.push_str(&format!(
+                    " shadow_match={} shadow_mismatch={} shadow_declined={}",
+                    snapshot.shadow_matches, snapshot.shadow_mismatches, snapshot.shadow_declined
+                ));
+            }
+            lines.push(line);
         }
         let rejected = self.rejected();
         if rejected > 0 {
@@ -88,7 +143,7 @@ impl Metrics {
 mod tests {
     use std::time::Duration;
 
-    use super::{Metrics, RouteSnapshot};
+    use super::{Metrics, RouteSnapshot, ShadowResult};
     use crate::routes::Route;
 
     #[test]
@@ -104,10 +159,38 @@ mod tests {
                 upstream_errors: 1,
                 total_micros: 40,
                 max_micros: 30,
+                native_served: 0,
+                shadow_matches: 0,
+                shadow_mismatches: 0,
+                shadow_declined: 0,
             }
         );
         assert_eq!(metrics.snapshot(Route::WebSocket).requests, 0);
         assert_eq!(metrics.rejected(), 1);
         assert_eq!(metrics.report().len(), 2);
+    }
+
+    #[test]
+    fn shadow_results_are_counted_separately() {
+        let metrics = Metrics::default();
+        assert_eq!(
+            metrics.record_shadow(Route::AddressGroup, ShadowResult::Mismatch),
+            0
+        );
+        assert_eq!(
+            metrics.record_shadow(Route::AddressGroup, ShadowResult::Mismatch),
+            1
+        );
+        assert_eq!(
+            metrics.record_shadow(Route::AddressGroup, ShadowResult::Match),
+            2
+        );
+        metrics.record_shadow(Route::AddressGroup, ShadowResult::Declined);
+        metrics.record_native(Route::AddressGroup);
+        let snapshot = metrics.snapshot(Route::AddressGroup);
+        assert_eq!(snapshot.shadow_matches, 1);
+        assert_eq!(snapshot.shadow_mismatches, 2);
+        assert_eq!(snapshot.shadow_declined, 1);
+        assert_eq!(snapshot.native_served, 1);
     }
 }

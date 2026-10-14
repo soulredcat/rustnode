@@ -21,6 +21,8 @@ fn print_usage() {
         "  --api-bind <addr>             listen address (default: {DEFAULT_API_BIND_ADDRESS})"
     );
     println!("  --upstream <url>              official node (default: {DEFAULT_UPSTREAM_URL})");
+    println!("  --route-mode <id>=<mode>      proxy, shadow, or native; repeatable");
+    println!("                                (routes with a native handler default to shadow)");
     println!();
     println!("P2P transaction acquisition (only when a peer is given):");
     println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
@@ -87,6 +89,9 @@ fn main() {
             }
             "--api-bind" => api.bind_address = required_value("--api-bind", args.next()),
             "--upstream" => api.upstream_url = required_value("--upstream", args.next()),
+            "--route-mode" => api
+                .route_modes
+                .push(required_value("--route-mode", args.next())),
             "--peer" => {
                 config = config.set_peer_address(required_value("--peer", args.next()));
                 peer_given = true;
@@ -141,6 +146,9 @@ fn main() {
     match gateway.local_addr() {
         Ok(address) => println!("API: http://{address} -> {}", gateway.upstream_base()),
         Err(_) => println!("API: {} -> {}", api.bind_address, gateway.upstream_base()),
+    }
+    for (route, mode) in gateway.non_proxy_routes() {
+        println!("route {} ({}): {}", route.id(), route.name(), mode.name());
     }
 
     if peer_given {

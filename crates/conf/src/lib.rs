@@ -219,6 +219,10 @@ pub struct ApiConfig {
     pub max_connections: usize,
     pub upstream_timeout: Duration,
     pub header_read_timeout: Duration,
+    /// Group count of the network the upstream serves (4 on mainnet).
+    pub groups: u32,
+    /// `route-id=mode` overrides, validated by the gateway at startup.
+    pub route_modes: Vec<String>,
 }
 
 impl Default for ApiConfig {
@@ -231,6 +235,8 @@ impl Default for ApiConfig {
             max_connections: DEFAULT_API_MAX_CONNECTIONS,
             upstream_timeout: DEFAULT_API_UPSTREAM_TIMEOUT,
             header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
+            groups: DEFAULT_CONFIGURED_GROUPS,
+            route_modes: Vec::new(),
         }
     }
 }

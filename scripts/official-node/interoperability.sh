@@ -153,7 +153,7 @@ network_id: ${NETWORK_ID}
 p2p_version: ${P2P_VERSION}
 rust_commit: ${rust_commit}
 rust_build_command: cargo build -p alephium-app
-rust_start_command: cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} ${PEER_ADDRESS}
+rust_start_command: cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native ${PEER_ADDRESS}
 test_duration_seconds: ${DURATION_SECONDS}
 test_duration: ${DURATION_SECONDS}s
 configuration_files: ${OFFICIAL_CONFIG_FILE},${ROOT_DIR}/scripts/official-node/run.sh,${ROOT_DIR}/scripts/official-node/prepare-home.sh
@@ -250,20 +250,48 @@ check_gateway() {
     return 1
   fi
 
+  # Native GET /addresses/{address}/group must answer exactly like the official
+  # node: asset addresses natively, everything else (contract, grouped, invalid)
+  # through the proxy. Addresses: official AddressSpec vectors (P2PKH, P2MPKH,
+  # P2SH), devnet genesis addresses, a contract, a grouped and an invalid one.
+  local address direct via
+  for address in \
+    1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3 \
+    1H7CmpbvGJwgyLzR91wzSJJSkiBC92WDPTWny4gmhQJQc \
+    1DkrQMni2h8KYpvY8t7dECshL66gwnxiR5uD2Udxps6og \
+    131R8ufDhcsu6SRztR9D3m8GUzkWFUPfT78aQ6jgtgzob \
+    2jjvDdgGjC6X9HHMCMHohVfvp1uf3LHQrAGWaufR17P7AFwtxodTxSktqKc2urNEtaoUCy5xXpBUwpZ8QM8Q3e5BYCx \
+    je9CrJD444xMSGDA2yr1XMvugoHuTc6pfYEaPYrKLuYa \
+    rvpeCy7GhsGHq8n6TnB1LjQh4xn1FMHJVXnsdZAniKZA \
+    17Ey9PHogBdGS5361s6WQeTXNG2KNFoEtdkJVJvM7KKwU \
+    1GtpWTB3QEfHZg6Rfr5TCaxRRkLTXhDT1Dtk4Rm8kCPoc \
+    17Tyyh8iG5JQkF7DFPeUXzPbK6JG4FW4erCmXHNA6a9qP \
+    uqa8vVAySDGA5nbt6c5WXYXXuBWPghtDx6C8aE3VFXDr \
+    1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3:1 \
+    not-an-address; do
+    direct="$(curl -sS -m 5 -w ' %{http_code}' "${UPSTREAM_URL}/addresses/${address}/group" | tr -d ' \n\r\t' || true)"
+    via="$(curl -sS -m 5 -w ' %{http_code}' "${via_api}/addresses/${address}/group" | tr -d ' \n\r\t' || true)"
+    if [[ "${direct}" != "${via}" ]]; then
+      echo "native address group differs for ${address}: official ${direct}, rustnode ${via}" >&2
+      return 1
+    fi
+  done
+  echo "native GET /addresses/{address}/group matches the official node"
+
   echo "API gateway passthrough verified against the official node"
   return 0
 }
 
 run_rust_peer() {
   if command -v cargo >/dev/null 2>&1; then
-    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- --api-bind "${API_BIND}" --upstream "${UPSTREAM_URL}" "${PEER_ADDRESS}")
+    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- --api-bind "${API_BIND}" --upstream "${UPSTREAM_URL}" --route-mode address-group=native "${PEER_ADDRESS}")
     return
   fi
 
   if command -v powershell.exe >/dev/null 2>&1; then
     local windows_root
     windows_root="$(wslpath -w "${ROOT_DIR}")"
-    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} ${PEER_ADDRESS} }"
+    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native ${PEER_ADDRESS} }"
     return
   fi
 

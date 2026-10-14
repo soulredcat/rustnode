@@ -24,7 +24,28 @@ pub(crate) struct Forwarded {
     pub(crate) upstream_error: bool,
 }
 
-pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwarded {
+/// A request that could not be forwarded, rendered as a JSON error reply.
+pub(crate) struct Failure {
+    status: StatusCode,
+    detail: String,
+    upstream_error: bool,
+}
+
+impl From<Failure> for Forwarded {
+    fn from(failure: Failure) -> Self {
+        Self {
+            response: json_error(failure.status, &failure.detail),
+            upstream_error: failure.upstream_error,
+        }
+    }
+}
+
+/// Sends the request to the official node. Hop-by-hop headers are already
+/// stripped from the returned response.
+pub(crate) async fn send(
+    state: &State,
+    request: Request<Incoming>,
+) -> Result<Response<Incoming>, Failure> {
     let (parts, body) = request.into_parts();
 
     let declared_too_large = parts
@@ -34,7 +55,10 @@ pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwar
         .and_then(|value| value.parse::<u64>().ok())
         .is_some_and(|length| length > state.config.max_request_bytes as u64);
     if declared_too_large {
-        return client_error(StatusCode::PAYLOAD_TOO_LARGE, "request body too large");
+        return Err(client_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "request body too large",
+        ));
     }
 
     let body = match Limited::new(body, state.config.max_request_bytes)
@@ -43,9 +67,17 @@ pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwar
     {
         Ok(collected) => collected.to_bytes(),
         Err(error) if error.is::<http_body_util::LengthLimitError>() => {
-            return client_error(StatusCode::PAYLOAD_TOO_LARGE, "request body too large");
+            return Err(client_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request body too large",
+            ));
         }
-        Err(_) => return client_error(StatusCode::BAD_REQUEST, "could not read request body"),
+        Err(_) => {
+            return Err(client_error(
+                StatusCode::BAD_REQUEST,
+                "could not read request body",
+            ));
+        }
     };
 
     let path_and_query = parts
@@ -53,7 +85,10 @@ pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwar
         .path_and_query()
         .map_or("/", |value| value.as_str());
     let Ok(uri) = format!("{}{path_and_query}", state.upstream.http_base).parse::<Uri>() else {
-        return client_error(StatusCode::BAD_REQUEST, "invalid request target");
+        return Err(client_error(
+            StatusCode::BAD_REQUEST,
+            "invalid request target",
+        ));
     };
 
     let mut upstream_request = Request::new(Full::new(body));
@@ -70,28 +105,30 @@ pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwar
         state.client.request(upstream_request),
     )
     .await;
-    let upstream_response = match sent {
-        Ok(Ok(response)) => response,
-        Ok(Err(error)) => {
-            return upstream_failure(
-                StatusCode::BAD_GATEWAY,
-                &format!("official node unavailable: {error}"),
-            );
+    match sent {
+        Ok(Ok(mut response)) => {
+            strip_hop_by_hop(response.headers_mut());
+            Ok(response)
         }
-        Err(_) => {
-            return upstream_failure(
-                StatusCode::GATEWAY_TIMEOUT,
-                "official node did not answer in time",
-            );
-        }
-    };
+        Ok(Err(error)) => Err(upstream_failure(
+            StatusCode::BAD_GATEWAY,
+            &format!("official node unavailable: {error}"),
+        )),
+        Err(_) => Err(upstream_failure(
+            StatusCode::GATEWAY_TIMEOUT,
+            "official node did not answer in time",
+        )),
+    }
+}
 
-    let (mut parts, body) = upstream_response.into_parts();
-    strip_hop_by_hop(&mut parts.headers);
-    let body = body.map_err(Into::into).boxed();
-    Forwarded {
-        response: Response::from_parts(parts, body),
-        upstream_error: false,
+/// Forwards the request and streams the official response back.
+pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwarded {
+    match send(state, request).await {
+        Ok(response) => Forwarded {
+            response: response.map(|body| body.map_err(Into::into).boxed()),
+            upstream_error: false,
+        },
+        Err(failure) => failure.into(),
     }
 }
 
@@ -115,16 +152,18 @@ fn strip_hop_by_hop(headers: &mut HeaderMap<HeaderValue>) {
     }
 }
 
-fn client_error(status: StatusCode, detail: &str) -> Forwarded {
-    Forwarded {
-        response: json_error(status, detail),
+fn client_error(status: StatusCode, detail: &str) -> Failure {
+    Failure {
+        status,
+        detail: detail.to_owned(),
         upstream_error: false,
     }
 }
 
-fn upstream_failure(status: StatusCode, detail: &str) -> Forwarded {
-    Forwarded {
-        response: json_error(status, detail),
+pub(crate) fn upstream_failure(status: StatusCode, detail: &str) -> Failure {
+    Failure {
+        status,
+        detail: detail.to_owned(),
         upstream_error: true,
     }
 }

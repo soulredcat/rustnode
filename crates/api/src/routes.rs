@@ -64,6 +64,36 @@ impl Route {
         self as usize
     }
 
+    /// Short identifier used by `--route-mode`.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::MempoolTransactions => "mempool-transactions",
+            Self::ContractState => "contract-state",
+            Self::CallContract => "call-contract",
+            Self::CallTxScript => "call-tx-script",
+            Self::MulticallContract => "multicall-contract",
+            Self::ExecuteScript => "execute-script",
+            Self::DecodeUnsignedTx => "decode-unsigned-tx",
+            Self::BuildTransaction => "build-transaction",
+            Self::SubmitTransaction => "submit-transaction",
+            Self::TransactionStatus => "transaction-status",
+            Self::TransactionRichDetails => "transaction-rich-details",
+            Self::AddressBalance => "address-balance",
+            Self::AddressUtxos => "address-utxos",
+            Self::AddressGroup => "address-group",
+            Self::BlockByHash => "block-by-hash",
+            Self::BlocksByTime => "blocks-by-time",
+            Self::BlockWithEvents => "block-with-events",
+            Self::ContractEvents => "contract-events",
+            Self::ContractEventCount => "contract-event-count",
+            Self::EventsByTxId => "events-by-tx-id",
+            Self::SubContracts => "sub-contracts",
+            Self::InfosNode => "infos-node",
+            Self::WebSocket => "ws",
+        }
+    }
+
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -395,6 +425,14 @@ mod tests {
                 "{method} {path}"
             );
         }
+    }
+
+    #[test]
+    fn route_ids_are_unique() {
+        let mut ids: Vec<&str> = Route::ALL.iter().map(|route| route.id()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), Route::ALL.len());
     }
 
     #[test]

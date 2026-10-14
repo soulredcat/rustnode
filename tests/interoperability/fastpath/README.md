@@ -34,7 +34,7 @@ The run passes only when the Rust log contains both markers before the deadline:
 - `received valid Hello` — the official Hello decoded and its broker signature verified;
 - `received matching pong` — a Ping/Pong round trip completed.
 
-It then checks the API gateway against the same official node: `GET /infos/node` returns official build info, `GET /mempool/transactions` returns the same body as a direct request, and `GET /infos/self-clique` (outside the surface) answers `404`. These checks need `curl`.
+It then checks the API gateway against the same official node: `GET /infos/node` returns official build info, `GET /mempool/transactions` returns the same body as a direct request, and `GET /infos/self-clique` (outside the surface) answers `404`. With `address-group` in `native` mode, `GET /addresses/{address}/group` must return the official status and body for every address in the check list (asset addresses answered natively; contract, grouped, and invalid ones proxied). These checks need `curl`.
 
 Transaction-announcement interop (`NewTxHashes` → `TxsRequest` → raw transaction)
 is not asserted yet; see `TODO.md`.

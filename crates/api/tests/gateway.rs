@@ -87,6 +87,9 @@ async fn echo(state: &Upstream, request: Request<Incoming>) -> Response<Full<Byt
     if query.contains("slow=1") {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+    if path.ends_with("/group") {
+        return Response::new(Full::new(Bytes::from_static(b"{\"group\":3}")));
+    }
     if query.contains("txId=missing") {
         let mut response =
             Response::new(Full::new(Bytes::from_static(b"{\"detail\":\"not found\"}")));
@@ -414,4 +417,94 @@ async fn measure_added_latency() {
             percentile(&proxied, p).saturating_sub(percentile(&direct, p))
         );
     }
+}
+
+/// Official `AddressSpec` P2PKH vector; its group is 1 on a 4-group network.
+const P2PKH_ADDRESS: &str = "1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3";
+
+#[tokio::test]
+async fn native_address_group_is_answered_without_upstream() {
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
+        config.route_modes = vec!["address-group=native".to_owned()];
+    })
+    .await;
+
+    let (status, body) = send(
+        "GET",
+        format!("http://{gateway}/addresses/{P2PKH_ADDRESS}/group"),
+        b"",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "{\"group\":1}");
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn native_mode_defers_addresses_it_cannot_answer() {
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
+        config.route_modes = vec!["address-group=native".to_owned()];
+    })
+    .await;
+
+    let (status, body) = send(
+        "GET",
+        format!("http://{gateway}/addresses/{P2PKH_ADDRESS}:2/group"),
+        b"",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "{\"group\":3}");
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn shadow_mode_always_returns_the_official_answer() {
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |_| {}).await;
+
+    let (status, body) = send(
+        "GET",
+        format!("http://{gateway}/addresses/{P2PKH_ADDRESS}/group"),
+        b"",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "{\"group\":3}");
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn invalid_route_modes_are_rejected() {
+    for entry in [
+        "address-group",
+        "unknown-route=native",
+        "address-group=fast",
+        "mempool-transactions=native",
+        "mempool-transactions=shadow",
+    ] {
+        let config = ApiConfig {
+            bind_address: "127.0.0.1:0".to_owned(),
+            route_modes: vec![entry.to_owned()],
+            ..ApiConfig::default()
+        };
+        assert!(Gateway::bind(config).await.is_err(), "{entry}");
+    }
+    let config = ApiConfig {
+        bind_address: "127.0.0.1:0".to_owned(),
+        route_modes: vec![
+            "mempool-transactions=proxy".to_owned(),
+            "address-group=proxy".to_owned(),
+        ],
+        ..ApiConfig::default()
+    };
+    assert!(Gateway::bind(config).await.is_ok());
 }

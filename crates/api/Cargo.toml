@@ -10,10 +10,16 @@ workspace = true
 
 [dependencies]
 alephium-conf = { path = "../conf" }
+alephium-protocol = { path = "../protocol" }
+alephium-serde = { path = "../serde" }
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = { version = "0.1", default-features = false }
 hyper = { version = "1", features = ["server", "client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time", "sync", "io-util"] }
 tokio-tungstenite = "0.30"
+
+[dev-dependencies]
+alephium-crypto = { path = "../crypto" }

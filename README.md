@@ -14,7 +14,9 @@ Available today:
 - official Alephium frame codec and the payloads the runtime uses (`Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`/`TxsResponse`), checked against Scala-generated vectors and a live official node in CI;
 - bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limits, timeouts, and retries, into a bounded raw mempool.
 
-Not built yet: native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses on live traffic, so the official node is still required behind the gateway.
+- **Native handlers with shadow checking** (N1/N2): `GET /addresses/{address}/group` is computed by rustnode for asset addresses (P2PKH, P2MPKH, P2SH), checked against the official `AddressSpec` vectors and against the real official node in CI. Contract, grouped, and invalid addresses still go to the official node.
+
+Not built yet: the other native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses on live traffic, so the official node is still required behind the gateway.
 
 ## Run
 
@@ -35,6 +37,16 @@ ALEPHIUM_NODE_URL=http://127.0.0.1:22973
 P2P transaction acquisition runs only when a peer is given (`--peer <host:port>`, add `--watch` to reconnect). It feeds the raw mempool for the future native `GET /mempool/transactions` and is not needed by the gateway. `--help` lists every option.
 
 The gateway logs per-endpoint request counts and latency to stderr every 60 seconds.
+
+### Taking an endpoint native
+
+Each route runs in one of three modes, set with `--route-mode <id>=<mode>` (ids are listed by `docs/NIXIA_API_SURFACE.md` and in the startup log):
+
+- `proxy`: forwarded to the official node;
+- `shadow` (default for routes with a native handler): the bot still gets the official answer; rustnode computes its own and logs `shadow_match` / `shadow_mismatch` counts, plus details of the first mismatches;
+- `native`: rustnode answers; anything its handler cannot answer exactly like the official node is still forwarded.
+
+Run in `shadow` through a full trading session. When the log shows `shadow_mismatch=0`, switch that route with, for example, `--route-mode address-group=native`. Switching back is the same flag with `shadow` or `proxy`.
 
 ## Read next
 

@@ -27,6 +27,9 @@ crates/
 │       ├── routes.rs           the nixiaproject surface; anything else is 404/405
 │       ├── proxy.rs            HTTP forward with body limit, timeout, hop-by-hop stripping
 │       ├── ws.rs               /ws upgrade and frame relay in both directions
+│       ├── shadow.rs           official answer to the client, native answer compared as JSON
+│       ├── native/             native handlers; a handler returns None to defer to upstream
+│       │   └── address.rs      asset-address group (P2PKH, P2MPKH, P2SH)
 │       ├── metrics.rs          per-route counts and latency, logged every 60 s
 │       └── lib.rs              listener, connection limit, header-read timeout
 ├── serde/      exact Alephium wire codecs
@@ -51,6 +54,8 @@ Planned crates, each added only when its stage starts: `chain` (block following 
 The binary always runs the gateway; P2P acquisition runs only when a peer is given.
 
 Bounds: request bodies up to 4 MiB (`413` above), `/ws` messages up to 16 MiB, at most 512 concurrent connections, a 10 s header-read timeout, and a 60 s upstream timeout (`504`). An unreachable official node gives `502`. Responses are streamed back, not buffered. Hop-by-hop headers are dropped in both directions; `X-API-KEY` is forwarded, including on `/ws`.
+
+Route modes: `proxy`, `shadow`, `native` per route (`--route-mode id=mode`). Routes with a native handler default to `shadow`. In `native` mode a handler that cannot answer exactly like the official node (for example a contract address, which needs state) returns `None` and the request is proxied, so error bodies always come from the official node.
 
 `/ws` relays text, binary, and close frames both ways. Ping and Pong stay hop-local, because each side's WebSocket library answers them itself.
 

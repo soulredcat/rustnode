@@ -7,7 +7,7 @@ An endpoint moves from "proxied" to "native" only after the differential check (
 ## Current pointer
 
 ```text
-N1 — Differential checking
+N3 — Follow the chain
 ```
 
 ## Done
@@ -30,15 +30,15 @@ Exit gate: the operator run above; the measurement is done.
 
 ## N1 — Differential checking
 
-- [ ] Shadow mode per endpoint: serve the official response, compute the native one, and record any difference.
-- [ ] A switch per endpoint from proxied to native, allowed only after a clean comparison window.
+- [x] Shadow mode per endpoint: serve the official response, compute the native one, compare as JSON, count matches/mismatches/declined, and log the first mismatches.
+- [x] `--route-mode id=proxy|shadow|native` per route; routes with a native handler default to `shadow`; native handlers defer what they cannot answer exactly.
 
-Exit gate: a native handler can be enabled and rolled back per endpoint without restarting the bot.
+Exit gate: a native handler can be enabled and rolled back per endpoint without restarting the bot. Met: the switch is a rustnode flag; the bot keeps the same `ALEPHIUM_NODE_URL`.
 
 ## N2 — Free endpoints
 
-- [ ] `GET /addresses/{address}/group` natively (pure function of the address).
-- [ ] `GET /infos/node` natively.
+- [x] `GET /addresses/{address}/group` natively for asset addresses (P2PKH, P2MPKH, P2SH), matching the official `AddressSpec` vectors and the official node in `make official-interop-fastpath`. Contract addresses need state and stay proxied until N5.
+- [ ] `GET /infos/node` stays proxied while the official node is behind the gateway; it reports rustnode's own build info only after N8.
 
 ## N3 — Follow the chain
 

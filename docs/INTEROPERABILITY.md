@@ -43,7 +43,8 @@ The harness builds the pinned official node, starts it on an isolated devnet, ru
 
 - `received valid Hello` — the official Hello decoded and its broker signature verified;
 - `received matching pong` — a Ping/Pong round trip completed;
-- the API gateway, pointed at the same official node, returns official build info for `GET /infos/node`, returns the same body as the official node for `GET /mempool/transactions`, and answers `404` for `GET /infos/self-clique`, which is outside the surface.
+- the API gateway, pointed at the same official node, returns official build info for `GET /infos/node`, returns the same body as the official node for `GET /mempool/transactions`, and answers `404` for `GET /infos/self-clique`, which is outside the surface;
+- with `address-group` in `native` mode, `GET /addresses/{address}/group` returns exactly the official status and body for P2PKH, P2MPKH, and P2SH vectors, devnet genesis addresses, a contract address, a grouped address, and an invalid one.
 
 Artifacts, the run manifest, and environment variables are described in `tests/interoperability/fastpath/README.md`. CI runs the same target in `.github/workflows/official-fastpath-interop.yml`.
 
