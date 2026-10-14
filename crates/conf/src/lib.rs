@@ -35,6 +35,17 @@ pub const DEFAULT_MAX_TX_REQUEST_RETRIES: u8 = 2;
 /// Official `mempool-capacity-per-chain` (2000) times the 16 chains of a 4-group network.
 pub const DEFAULT_MAX_MEMPOOL_TXS: usize = 32_000;
 
+/// Where `nixiaproject` points `ALEPHIUM_NODE_URL`. Distinct from the official
+/// node's default REST port (12973) so both can run on one host.
+pub const DEFAULT_API_BIND_ADDRESS: &str = "127.0.0.1:22973";
+/// The official node that serves every endpoint not yet native.
+pub const DEFAULT_UPSTREAM_URL: &str = "http://127.0.0.1:12973";
+pub const DEFAULT_API_MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_API_MAX_WS_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_API_MAX_CONNECTIONS: usize = 512;
+pub const DEFAULT_API_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(60);
+pub const DEFAULT_API_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub const NODE_IDENTITY_PATH_ENV: &str = "RUSTNODE_IDENTITY_PATH";
 pub const DEFAULT_NODE_IDENTITY_PATH: &str = ".local/rustnode/node-identity.bin";
 
@@ -195,6 +206,32 @@ impl NodeConfig {
     #[must_use]
     pub const fn configured_groups(&self) -> u32 {
         self.configured_groups
+    }
+}
+
+/// HTTP and `/ws` gateway settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiConfig {
+    pub bind_address: String,
+    pub upstream_url: String,
+    pub max_request_bytes: usize,
+    pub max_ws_message_bytes: usize,
+    pub max_connections: usize,
+    pub upstream_timeout: Duration,
+    pub header_read_timeout: Duration,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: DEFAULT_API_BIND_ADDRESS.to_owned(),
+            upstream_url: DEFAULT_UPSTREAM_URL.to_owned(),
+            max_request_bytes: DEFAULT_API_MAX_REQUEST_BYTES,
+            max_ws_message_bytes: DEFAULT_API_MAX_WS_MESSAGE_BYTES,
+            max_connections: DEFAULT_API_MAX_CONNECTIONS,
+            upstream_timeout: DEFAULT_API_UPSTREAM_TIMEOUT,
+            header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
+        }
     }
 }
 

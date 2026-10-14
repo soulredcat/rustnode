@@ -7,7 +7,7 @@ An endpoint moves from "proxied" to "native" only after the differential check (
 ## Current pointer
 
 ```text
-N0 — API gateway (proxy everything to the official node)
+N1 — Differential checking
 ```
 
 ## Done
@@ -19,11 +19,14 @@ N0 — API gateway (proxy everything to the official node)
 
 ## N0 — API gateway
 
-- [ ] `api` crate: HTTP server on the official default port, forwarding every path in the surface to a configured official node, preserving status codes, headers, bodies, and the optional API key.
-- [ ] `/ws` passthrough with JSON-RPC subscriptions forwarded both ways.
-- [ ] Per-endpoint latency and error counters.
+- [x] `api` crate: HTTP server (default `127.0.0.1:22973`) forwarding every path in the surface to a configured official node, preserving status codes, headers, bodies, and the optional API key; everything else `404`/`405`.
+- [x] `/ws` passthrough with JSON-RPC subscriptions forwarded both ways.
+- [x] Per-endpoint latency and error counters, logged every 60 s.
+- [x] Integration tests against a mock official node; passthrough also checked against the real official node in `make official-interop-fastpath`.
+- [x] Added latency measured: p50 56–67 µs, p99 126–193 µs (`ARCHITECTURE.md` §4).
+- [ ] Operator run: `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, watched for a full trading session.
 
-Exit gate: `nixiaproject` runs unchanged against rustnode with only `ALEPHIUM_NODE_URL` changed; added latency per request is measured and documented.
+Exit gate: the operator run above; the measurement is done.
 
 ## N1 — Differential checking
 

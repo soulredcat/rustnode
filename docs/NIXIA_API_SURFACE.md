@@ -70,6 +70,10 @@ If the bot is stopped for longer than the block window, gap recovery cannot rere
 - `WALLET_REBALANCE_EXPLORER_API_URL` points `chain/alephium/src/wallet_activity.rs` at an explorer backend, not at the node. Out of scope.
 - Every other official endpoint (wallet, miners, multisig, utils, other `infos`, ...) answers `404` from `rustnode`.
 
+## Served by rustnode today
+
+Every endpoint above, and `/ws`, is accepted by the gateway and proxied to the official node (N0 in `TODO.md`). None is native yet.
+
 ## What this implies
 
 Only `GET /addresses/{address}/group` and `GET /infos/node` are free. Everything else needs blocks, mempool, world state, the VM, or indexes, so the node must follow the chain and execute every block. See `TODO.md` for the staged plan, which serves each endpoint natively only after it matches the official node on live traffic.

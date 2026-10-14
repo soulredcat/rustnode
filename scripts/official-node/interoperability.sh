@@ -33,8 +33,11 @@ if [[ -z "${OFFICIAL_NODE_MINER_API_PORT+x}" ]]; then
   fi
 fi
 
+API_BIND="${RUST_INTEROP_API_BIND:-127.0.0.1:22973}"
+UPSTREAM_URL="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}"
+
 OFFICIAL_CONFIG_FILE="${ROOT_DIR}/config/official-node/user.conf"
-EXPECTED_RESULT="required: handshake (Hello) and ping/pong exchange"
+EXPECTED_RESULT="required: handshake (Hello), ping/pong exchange, and API gateway passthrough"
 ACTUAL_RESULT="in_progress"
 OPERATOR_NOTES=""
 NETWORK_ID="unknown"
@@ -150,7 +153,7 @@ network_id: ${NETWORK_ID}
 p2p_version: ${P2P_VERSION}
 rust_commit: ${rust_commit}
 rust_build_command: cargo build -p alephium-app
-rust_start_command: cargo run -p alephium-app -- ${PEER_ADDRESS}
+rust_start_command: cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} ${PEER_ADDRESS}
 test_duration_seconds: ${DURATION_SECONDS}
 test_duration: ${DURATION_SECONDS}s
 configuration_files: ${OFFICIAL_CONFIG_FILE},${ROOT_DIR}/scripts/official-node/run.sh,${ROOT_DIR}/scripts/official-node/prepare-home.sh
@@ -204,16 +207,63 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+http_status() {
+  curl -sS -m 5 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || echo "000"
+}
+
+# The gateway must pass allowlisted requests through unchanged and refuse the rest.
+check_gateway() {
+  local via_api="http://${API_BIND}"
+  local direct_body via_body status
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl not found; API gateway checks skipped" >&2
+    append_operator_note "API gateway checks skipped: curl missing."
+    return 0
+  fi
+
+  for _ in $(seq 1 30); do
+    if [[ "$(http_status "${UPSTREAM_URL}/infos/node")" == "200" && "$(http_status "${via_api}/infos/node")" == "200" ]]; then
+      break
+    fi
+    sleep 1
+  done
+
+  via_body="$(curl -sS -m 5 "${via_api}/infos/node" || true)"
+  if [[ "${via_body}" != *releaseVersion* ]]; then
+    echo "gateway GET /infos/node did not return official build info: ${via_body}" >&2
+    return 1
+  fi
+
+  direct_body="$(curl -sS -m 5 "${UPSTREAM_URL}/mempool/transactions" || true)"
+  via_body="$(curl -sS -m 5 "${via_api}/mempool/transactions" || true)"
+  if [[ "$(http_status "${via_api}/mempool/transactions")" != "200" || "${direct_body}" != "${via_body}" ]]; then
+    echo "gateway GET /mempool/transactions differs from the official node" >&2
+    echo "direct: ${direct_body}" >&2
+    echo "via gateway: ${via_body}" >&2
+    return 1
+  fi
+
+  status="$(http_status "${via_api}/infos/self-clique")"
+  if [[ "$(http_status "${UPSTREAM_URL}/infos/self-clique")" != "200" || "${status}" != "404" ]]; then
+    echo "gateway did not refuse an endpoint outside the nixiaproject surface (got ${status})" >&2
+    return 1
+  fi
+
+  echo "API gateway passthrough verified against the official node"
+  return 0
+}
+
 run_rust_peer() {
   if command -v cargo >/dev/null 2>&1; then
-    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- "${PEER_ADDRESS}")
+    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- --api-bind "${API_BIND}" --upstream "${UPSTREAM_URL}" "${PEER_ADDRESS}")
     return
   fi
 
   if command -v powershell.exe >/dev/null 2>&1; then
     local windows_root
     windows_root="$(wslpath -w "${ROOT_DIR}")"
-    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- ${PEER_ADDRESS} }"
+    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} ${PEER_ADDRESS} }"
     return
   fi
 
@@ -330,3 +380,9 @@ if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 ]]; then
 fi
 
 echo "interop window reached with Hello+Ping/Pong observed"
+
+if ! check_gateway; then
+  append_operator_note "API gateway checks failed."
+  cat "${RUST_ERROR_FILE}" >&2
+  exit 1
+fi

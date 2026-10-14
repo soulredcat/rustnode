@@ -34,6 +34,8 @@ The run passes only when the Rust log contains both markers before the deadline:
 - `received valid Hello` — the official Hello decoded and its broker signature verified;
 - `received matching pong` — a Ping/Pong round trip completed.
 
+It then checks the API gateway against the same official node: `GET /infos/node` returns official build info, `GET /mempool/transactions` returns the same body as a direct request, and `GET /infos/self-clique` (outside the surface) answers `404`. These checks need `curl`.
+
 Transaction-announcement interop (`NewTxHashes` → `TxsRequest` → raw transaction)
 is not asserted yet; see `TODO.md`.
 
@@ -44,6 +46,7 @@ is not asserted yet; see `TODO.md`.
 - `RUST_INTEROP_DURATION_SECONDS` (default `120`)
 - `RUST_INTEROP_ATTACH_TO_EXISTING` (`1` to skip official-node lifecycle management)
 - `RUST_INTEROP_DIR` — artifact folder (default: this folder)
+- `RUST_INTEROP_API_BIND` (default `127.0.0.1:22973`) — gateway listen address; its upstream is the official REST port
 - `OFFICIAL_NODE_P2P_PORT`, `OFFICIAL_NODE_REST_PORT`, `OFFICIAL_NODE_MINER_API_PORT` — runtime config port overrides applied by `prepare-home.sh`
 - `OFFICIAL_NODE_STATE_DIR`, `ALEPHIUM_UPSTREAM_DIR`
 - `OFFICIAL_NODE_STARTUP_TIMEOUT_SECONDS` (default `180`)

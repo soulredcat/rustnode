@@ -14,6 +14,7 @@ Only official areas behind code that exists in this repository are mapped here. 
 | `TxsRequest` | official payload and broker download path | `crates/protocol`, `crates/flow/src/request_tracker.rs`, `session.rs` |
 | `TxsResponse` raw transaction bytes | official payload and broker response path | `crates/protocol`, `crates/flow/src/session.rs`, `crates/flow/src/mempool.rs` |
 | `ChainState` | official payload definitions | `crates/protocol`, `crates/flow/src/session.rs` |
+| REST and `/ws` endpoints on the nixiaproject surface (proxied, not native) | `app/src/main/scala/org/alephium/app/RestServer.scala`, `app/src/main/scala/org/alephium/app/ws/` | `crates/api` |
 
 ## Not mapped yet
 

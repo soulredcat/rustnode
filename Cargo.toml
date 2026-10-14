@@ -5,6 +5,7 @@ members = [
     "crates/protocol",
     "crates/conf",
     "crates/flow",
+    "crates/api",
     "crates/app",
 ]
 default-members = ["crates/app"]

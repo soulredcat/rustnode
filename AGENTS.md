@@ -52,6 +52,7 @@ Out of scope:
 - `protocol`, `serde`, and `crypto` own compatibility primitives, limited to what the runtime uses.
 - `conf` owns configuration and the non-funded P2P identity.
 - `flow` owns the P2P session, request tracking, and the raw mempool.
+- `api` owns the HTTP and `/ws` gateway: the allowlist, the upstream proxy, and native handlers as they arrive.
 - `app` owns CLI and process lifecycle only.
 - New responsibilities (API server, storage, state, VM) get their own focused crate; do not rebuild a monolithic `lib.rs`.
 

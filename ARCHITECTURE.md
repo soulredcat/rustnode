@@ -22,6 +22,13 @@ Migration is endpoint by endpoint. The proxy keeps the bot fully working while e
 
 ```text
 crates/
+├── api/        HTTP and /ws gateway: allowlist, upstream proxy, per-route counters
+│   └── src/
+│       ├── routes.rs           the nixiaproject surface; anything else is 404/405
+│       ├── proxy.rs            HTTP forward with body limit, timeout, hop-by-hop stripping
+│       ├── ws.rs               /ws upgrade and frame relay in both directions
+│       ├── metrics.rs          per-route counts and latency, logged every 60 s
+│       └── lib.rs              listener, connection limit, header-read timeout
 ├── serde/      exact Alephium wire codecs
 ├── crypto/     Blake2b hashing and secp256k1 handshake signatures
 ├── protocol/   official P2P frames and the payloads the runtime uses
@@ -37,9 +44,19 @@ crates/
 
 `protocol` decodes only `Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`, and single-item `TxsResponse`. The full official payload code table is kept so block and header messages are recognized by code and dropped. Block and header codecs come back with typed parsing and official vectors when block following is built (`TODO.md`).
 
-Planned crates, each added only when its stage starts: `api` (HTTP and `/ws`, proxy, differential checks), `chain` (block following and fork choice), `state` (pruned world state and bootstrap), `vm` (Ralph execution).
+Planned crates, each added only when its stage starts: `chain` (block following and fork choice), `state` (pruned world state and bootstrap), `vm` (Ralph execution). Native handlers and differential checks live in `api`.
 
-## 4. Transaction acquisition
+## 4. Gateway
+
+The binary always runs the gateway; P2P acquisition runs only when a peer is given.
+
+Bounds: request bodies up to 4 MiB (`413` above), `/ws` messages up to 16 MiB, at most 512 concurrent connections, a 10 s header-read timeout, and a 60 s upstream timeout (`504`). An unreachable official node gives `502`. Responses are streamed back, not buffered. Hop-by-hop headers are dropped in both directions; `X-API-KEY` is forwarded, including on `/ws`.
+
+`/ws` relays text, binary, and close frames both ways. Ping and Pong stay hop-local, because each side's WebSocket library answers them itself.
+
+Measured added latency (release build, mock upstream on loopback, 5,000 sequential `GET /mempool/transactions` per run, three runs on a 4-vCPU container): p50 56–67 µs, p95 111–118 µs, p99 126–193 µs. Reproduce with `cargo test --release -p alephium-api --test gateway -- --ignored --nocapture`.
+
+## 5. Transaction acquisition
 
 ```text
 NewTxHashes from peer
@@ -66,7 +83,7 @@ The raw mempool holds unvalidated `TransactionTemplate` bytes. Serving `GET /mem
 
 At the pinned baseline the official node announces a transaction to peers only after its own mempool accepts it, and flushes announcements in batches (`batch-broadcast-txs-frequency = 500 milli`). While this node's only peer is a local official node, it therefore sees transactions later than that node's own mempool. Acquisition only leads when connected directly to other mainnet peers.
 
-## 5. Hot-path invariants
+## 6. Hot-path invariants
 
 From `NewTxHashes` receipt until the transaction is in the raw mempool:
 
@@ -75,7 +92,7 @@ From `NewTxHashes` receipt until the transaction is in the raw mempool:
 - no unbounded queue or map;
 - no wallet/private-key access.
 
-## 6. Failure handling
+## 7. Failure handling
 
 - Peer disconnect: the session returns an error; `--watch` reconnects. The raw mempool survives reconnects.
 - Request timeout: missing transaction IDs are requeued up to the retry limit.

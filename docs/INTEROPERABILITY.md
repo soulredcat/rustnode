@@ -42,7 +42,8 @@ make official-interop-fastpath
 The harness builds the pinned official node, starts it on an isolated devnet, runs the rustnode against it, and asserts:
 
 - `received valid Hello` — the official Hello decoded and its broker signature verified;
-- `received matching pong` — a Ping/Pong round trip completed.
+- `received matching pong` — a Ping/Pong round trip completed;
+- the API gateway, pointed at the same official node, returns official build info for `GET /infos/node`, returns the same body as the official node for `GET /mempool/transactions`, and answers `404` for `GET /infos/self-clique`, which is outside the surface.
 
 Artifacts, the run manifest, and environment variables are described in `tests/interoperability/fastpath/README.md`. CI runs the same target in `.github/workflows/official-fastpath-interop.yml`.
 
