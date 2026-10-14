@@ -1,11 +1,7 @@
 #![forbid(unsafe_code)]
-//! Official Alephium protocol models and messages.
-//!
-//! The current implementation covers the M1 message envelope and raw message
-//! header/code boundary. Payload models, networking, validation, transactions,
-//! blocks, and VM semantics are not implemented yet.
+//! Official Alephium P2P framing and the payload subset used by the bot fast
+//! path: handshake, liveness, inventory readiness, chain state, transaction
+//! announcements, and transaction fetch. Block and header sync payloads are
+//! recognized by code only and never decoded.
 
 pub mod message;
-
-/// Current implementation status.
-pub const STATUS: &str = "M1 frame codec and M2 payload codec models are implemented; flow now decodes real sync payloads.";

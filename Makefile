@@ -1,4 +1,4 @@
-.PHONY: check fmt check-build clippy test run upstream official-build official-run official-smoke \
+.PHONY: check fmt check-build clippy test run upstream official-build official-run \
         official-interop-fastpath m1-vectors
 
 check: fmt check-build clippy test
@@ -26,9 +26,6 @@ official-build:
 
 official-run:
 	./scripts/official-node/run.sh
-
-official-smoke:
-	./scripts/official-node/smoke.sh
 
 official-interop-fastpath:
 	./scripts/official-node/interoperability.sh

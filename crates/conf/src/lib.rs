@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Configuration and persisted P2P identity for the Alephium bot fast-path peer.
+//! Configuration and persisted P2P identity for the `nixiaproject`-only node.
 
 use std::env;
 use std::fmt;
@@ -13,11 +13,10 @@ use std::os::unix::fs::PermissionsExt;
 
 use alephium_crypto::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH, PrivateKey, PublicKey};
 
-pub const STATUS: &str = "bot fast-path peer configuration";
+pub const STATUS: &str = "nixiaproject-only node configuration";
 
 pub const NETWORK_MAGIC_BYTES: [u8; 4] = [0xa2, 0xfd, 0xc6, 0xbb];
 pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19985";
-pub const DEFAULT_IPC_BIND_ADDRESS: &str = "127.0.0.1:19090";
 pub const DEFAULT_NETWORK_ID: u8 = 2;
 pub const DEFAULT_CONFIGURED_GROUPS: u32 = 4;
 pub const DEFAULT_BROKER_ID: i32 = 0;
@@ -33,7 +32,8 @@ pub const DEFAULT_TX_REQUEST_BATCH_SIZE: usize = 1;
 pub const DEFAULT_MAX_INFLIGHT_TX_REQUESTS: usize = 8;
 pub const DEFAULT_MAX_TRACKED_TX_IDS: usize = 65_536;
 pub const DEFAULT_MAX_TX_REQUEST_RETRIES: u8 = 2;
-pub const DEFAULT_EVENT_QUEUE_CAPACITY: usize = 4096;
+/// Official `mempool-capacity-per-chain` (2000) times the 16 chains of a 4-group network.
+pub const DEFAULT_MAX_MEMPOOL_TXS: usize = 32_000;
 
 pub const NODE_IDENTITY_PATH_ENV: &str = "RUSTNODE_IDENTITY_PATH";
 pub const DEFAULT_NODE_IDENTITY_PATH: &str = ".local/rustnode/node-identity.bin";
@@ -98,7 +98,6 @@ impl From<io::Error> for NodeIdentityError {
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
     pub peer_address: String,
-    pub ipc_bind_address: String,
     pub network_magic: [u8; 4],
     pub configured_groups: u32,
     pub client_id: String,
@@ -115,7 +114,7 @@ pub struct NodeConfig {
     pub max_inflight_tx_requests: usize,
     pub max_tracked_tx_ids: usize,
     pub max_tx_request_retries: u8,
-    pub event_queue_capacity: usize,
+    pub max_mempool_txs: usize,
     pub network_id: u8,
 }
 
@@ -123,7 +122,6 @@ impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             peer_address: DEFAULT_PEER_ADDRESS.to_owned(),
-            ipc_bind_address: DEFAULT_IPC_BIND_ADDRESS.to_owned(),
             network_magic: NETWORK_MAGIC_BYTES,
             configured_groups: DEFAULT_CONFIGURED_GROUPS,
             client_id: CLIENT_ID.to_owned(),
@@ -140,7 +138,7 @@ impl Default for NodeConfig {
             max_inflight_tx_requests: DEFAULT_MAX_INFLIGHT_TX_REQUESTS,
             max_tracked_tx_ids: DEFAULT_MAX_TRACKED_TX_IDS,
             max_tx_request_retries: DEFAULT_MAX_TX_REQUEST_RETRIES,
-            event_queue_capacity: DEFAULT_EVENT_QUEUE_CAPACITY,
+            max_mempool_txs: DEFAULT_MAX_MEMPOOL_TXS,
             network_id: DEFAULT_NETWORK_ID,
         }
     }
@@ -162,12 +160,6 @@ impl NodeConfig {
     }
 
     #[must_use]
-    pub fn set_ipc_bind_address(mut self, ipc_bind_address: impl Into<String>) -> Self {
-        self.ipc_bind_address = ipc_bind_address.into();
-        self
-    }
-
-    #[must_use]
     pub fn set_max_inflight_tx_requests(mut self, value: usize) -> Self {
         self.max_inflight_tx_requests = value.max(1);
         self
@@ -182,12 +174,6 @@ impl NodeConfig {
     #[must_use]
     pub fn set_tx_request_timeout(mut self, value: Duration) -> Self {
         self.tx_request_timeout = value.max(Duration::from_millis(1));
-        self
-    }
-
-    #[must_use]
-    pub fn set_event_queue_capacity(mut self, value: usize) -> Self {
-        self.event_queue_capacity = value.max(1);
         self
     }
 

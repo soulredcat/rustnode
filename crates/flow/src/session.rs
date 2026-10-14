@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::sync::PoisonError;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use alephium_conf::NodeConfig;
@@ -23,11 +24,10 @@ use alephium_protocol::message::{
 };
 use alephium_serde::Error as SerdeError;
 
-use crate::event::BotEvent;
-use crate::ipc::EventSink;
+use crate::mempool::{RawMempoolTx, SharedRawMempool};
 use crate::request_tracker::TxRequestTracker;
 
-pub const STATUS: &str = "Alephium transaction-announcement fast path enabled";
+pub const STATUS: &str = "Alephium P2P transaction acquisition enabled";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionState {
@@ -86,18 +86,7 @@ impl From<SerdeError> for FastPathError {
     }
 }
 
-pub fn run(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathError> {
-    let result = run_session(config, events);
-    if let Err(error) = &result {
-        let _ = events.publish(BotEvent::peer_disconnected(
-            &error.to_string(),
-            unix_time_ns().unwrap_or_default(),
-        ));
-    }
-    result
-}
-
-fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathError> {
+pub fn run(config: &NodeConfig, mempool: &SharedRawMempool) -> Result<(), FastPathError> {
     let mut stream = TcpStream::connect(&config.peer_address)?;
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(config.io_poll_interval))?;
@@ -153,7 +142,7 @@ fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathEr
             &magic,
             &mut stream,
             config,
-            events,
+            mempool,
             &mut inbound,
             &mut session,
         )?;
@@ -186,7 +175,7 @@ fn process_inbound(
     magic: &NetworkMagic,
     stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
+    mempool: &SharedRawMempool,
     inbound: &mut Vec<u8>,
     session: &mut Session,
 ) -> Result<(), FastPathError> {
@@ -211,7 +200,7 @@ fn process_inbound(
         let payload = raw.payload_body;
         let payload_len = payload.len();
         match raw.payload_code {
-            HELLO_CODE => handle_hello(stream, config, events, session, payload)?,
+            HELLO_CODE => handle_hello(stream, config, session, payload)?,
             PING_CODE => {
                 let ping = decode_ping_payload(payload)?.finish(payload_len)?;
                 handle_ping(stream, config, session, ping)?;
@@ -234,7 +223,7 @@ fn process_inbound(
             }
             NEW_TX_HASHES_CODE => {
                 let hashes = decode_new_txhashes_payload(payload)?.finish(payload_len)?;
-                handle_new_tx_hashes(stream, config, events, session, hashes)?;
+                handle_new_tx_hashes(stream, config, session, hashes)?;
             }
             TXS_REQUEST_CODE => {
                 let request = decode_txs_request_payload(payload)?.finish(payload_len)?;
@@ -242,7 +231,7 @@ fn process_inbound(
             }
             TXS_RESPONSE_CODE => {
                 let response = decode_single_txs_response_payload(payload)?.finish(payload_len)?;
-                handle_txs_response(events, session, response);
+                handle_txs_response(mempool, session, response);
             }
             NEW_BLOCK_CODE | NEW_HEADER_CODE | NEW_INV_CODE | NEW_BLOCK_HASH_CODE => {}
             unsupported if session.state == SessionState::Established => {
@@ -262,7 +251,6 @@ fn process_inbound(
 fn handle_hello(
     stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
     session: &mut Session,
     payload: &[u8],
 ) -> Result<(), FastPathError> {
@@ -279,10 +267,6 @@ fn handle_hello(
         hello.client_id, hello.broker_info.broker_num, hello.broker_info.broker_id
     );
     session.state = SessionState::Established;
-    let _ = events.publish(BotEvent::peer_connected(
-        &config.peer_address,
-        unix_time_ns()?,
-    ));
     send_readiness_probe(stream, config, session)
 }
 
@@ -335,22 +319,14 @@ fn handle_chain_state(state: ChainState) {
 fn handle_new_tx_hashes(
     stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
     session: &mut Session,
     announcement: NewTxHashes,
 ) -> Result<(), FastPathError> {
-    let observed_at = unix_time_ns()?;
     let mut accepted = 0usize;
     for (chain_index, transaction_ids) in announcement.hashes {
         for transaction_id in transaction_ids {
             if session.tx_tracker.enqueue(chain_index, transaction_id) {
                 accepted = accepted.saturating_add(1);
-                let _ = events.publish(BotEvent::transaction_announced(
-                    chain_index.from,
-                    chain_index.to,
-                    transaction_id.bytes,
-                    observed_at,
-                ));
             }
         }
     }
@@ -390,7 +366,7 @@ fn flush_tx_requests(
     Ok(())
 }
 
-fn handle_txs_response(events: &EventSink, session: &mut Session, response: TxsResponse) {
+fn handle_txs_response(mempool: &SharedRawMempool, session: &mut Session, response: TxsResponse) {
     let response_id = response.id.value;
     let completion = session.tx_tracker.complete(response_id, response.txs);
     if completion.unknown_request {
@@ -402,17 +378,20 @@ fn handle_txs_response(events: &EventSink, session: &mut Session, response: TxsR
         return;
     }
 
-    let observed_at = unix_time_ns().unwrap_or_default();
-    for transaction in completion.transactions {
-        let chain_from = transaction.chain_index.from;
-        let chain_to = transaction.chain_index.to;
-        let _ = events.publish(BotEvent::raw_transaction(
-            chain_from,
-            chain_to,
-            transaction.transaction_id,
-            transaction.raw_transaction,
-            observed_at,
-        ));
+    if !completion.transactions.is_empty() {
+        let seen_at_unix_ms = now_millis().unwrap_or_default();
+        let mut pool = mempool.lock().unwrap_or_else(PoisonError::into_inner);
+        for transaction in completion.transactions {
+            pool.insert(
+                transaction.transaction_id,
+                RawMempoolTx {
+                    chain_from: transaction.chain_index.from,
+                    chain_to: transaction.chain_index.to,
+                    raw: transaction.raw_transaction,
+                    seen_at_unix_ms,
+                },
+            );
+        }
     }
 
     if completion.requeued > 0 || completion.exhausted > 0 {
@@ -552,12 +531,4 @@ fn now_millis() -> Result<i64, FastPathError> {
         .map_err(|error| FastPathError::Protocol(format!("invalid system time: {error}")))?;
     i64::try_from(duration.as_millis())
         .map_err(|error| FastPathError::Protocol(format!("timestamp overflow: {error}")))
-}
-
-fn unix_time_ns() -> Result<u64, FastPathError> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| FastPathError::Protocol(format!("invalid system time: {error}")))?;
-    u64::try_from(duration.as_nanos())
-        .map_err(|error| FastPathError::Protocol(format!("nanosecond timestamp overflow: {error}")))
 }

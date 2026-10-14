@@ -47,16 +47,6 @@ impl core::fmt::Display for CryptoError {
 impl std::error::Error for CryptoError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Blake2bHash(pub [u8; HASH_LENGTH]);
-
-impl Blake2bHash {
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8; HASH_LENGTH] {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrivateKey([u8; PRIVATE_KEY_LENGTH]);
 
 impl PrivateKey {
@@ -158,20 +148,6 @@ pub fn hash_blake2b_256(bytes: &[u8]) -> [u8; HASH_LENGTH] {
     out
 }
 
-pub fn hash_blake3(bytes: &[u8]) -> [u8; HASH_LENGTH] {
-    let mut out = [0u8; HASH_LENGTH];
-    out.copy_from_slice(blake3::hash(bytes).as_bytes());
-    out
-}
-
-pub fn hash_blake3_double(bytes: &[u8]) -> [u8; HASH_LENGTH] {
-    hash_blake3(&hash_blake3(bytes))
-}
-
-pub fn hash_blake2b(bytes: &[u8]) -> Blake2bHash {
-    Blake2bHash(hash_blake2b_256(bytes))
-}
-
 pub fn sign(message: &[u8], private_key: &PrivateKey) -> Result<Signature, CryptoError> {
     if message.len() != HASH_LENGTH {
         return Err(CryptoError::InvalidLength {
@@ -226,17 +202,4 @@ pub fn verify(message: &[u8], signature: &Signature, public_key: &PublicKey) -> 
     let signature = normalized_signature;
 
     secp.verify_ecdsa(&message, &signature, &key).is_ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{hash_blake2b_256, hash_blake3, hash_blake3_double};
-
-    #[test]
-    fn blake3_double_hash_matches_composition() {
-        let bytes = b"alephium-header";
-        let first = hash_blake3(bytes);
-        assert_eq!(hash_blake3_double(bytes), hash_blake3(&first));
-        assert_ne!(hash_blake2b_256(bytes), first);
-    }
 }

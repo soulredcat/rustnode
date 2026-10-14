@@ -54,7 +54,6 @@ jobs:
       - name: Run official interoperability gate
         env:
           RUST_INTEROP_DURATION_SECONDS: "45"
-          RUST_INTEROP_REQUIRE_M2: "0"
         run: make official-interop-fastpath
 
       - name: Upload interoperability evidence
@@ -63,9 +62,9 @@ jobs:
         with:
           name: official-fastpath-interop
           path: |
-            tests/interoperability/m1/commands.txt
-            tests/interoperability/m1/rust-node.log
-            tests/interoperability/m1/error.txt
+            tests/interoperability/fastpath/commands.txt
+            tests/interoperability/fastpath/rust-node.log
+            tests/interoperability/fastpath/error.txt
             .local/official-node/official-node.log
           if-no-files-found: warn
           retention-days: 14

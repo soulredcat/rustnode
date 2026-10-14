@@ -6,7 +6,6 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-alephium-util = { path = "../util" }
 alephium-serde = { path = "../serde" }
 alephium-crypto = { path = "../crypto" }
 

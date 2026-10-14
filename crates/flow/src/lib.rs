@@ -1,19 +1,14 @@
 #![forbid(unsafe_code)]
-//! Alephium P2P transaction fast path for `alphrustalbitrage`.
+//! Alephium P2P runtime for the `nixiaproject`-only node.
 //!
-//! This crate is intentionally not a full node. It owns only:
+//! It owns:
 //! - official Alephium P2P framing and session liveness;
 //! - immediate transaction-announcement fetch with bounded concurrency; and
-//! - versioned loopback IPC events for a local bot process.
+//! - the bounded raw mempool that `GET /mempool/transactions` will be served from.
 
-mod event;
-mod ipc;
+mod mempool;
 mod request_tracker;
 mod session;
 
-pub use event::{
-    BotEvent, EVENT_HEADER_LEN, EVENT_MAGIC, EVENT_PROTOCOL_VERSION, EventDecodeError,
-    EventEncodeError, EventKind, decode_event, encode_event,
-};
-pub use ipc::{EventSink, IpcPublisher, IpcStats, PublishOutcome};
+pub use mempool::{RawMempool, RawMempoolTx, SharedRawMempool};
 pub use session::{FastPathError, STATUS, run};
