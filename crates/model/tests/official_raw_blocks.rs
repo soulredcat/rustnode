@@ -7,7 +7,11 @@
 //!  cargo test -p alephium-model --test official_raw_blocks -- --ignored --nocapture`
 
 use alephium_model::hash::from_hex;
-use alephium_model::{Block, BlockHeader, Hash, deserialize, serialize};
+use std::collections::BTreeMap;
+
+use alephium_model::{
+    Block, BlockHeader, Hash, LockupScript, TxOutput, UnlockScript, deserialize, serialize,
+};
 
 struct Node {
     url: String,
@@ -46,6 +50,7 @@ fn every_official_block_round_trips() {
         .unwrap_or(u64::MAX);
 
     let (mut blocks, mut transactions, mut scripts) = (0usize, 0usize, 0usize);
+    let mut kinds = BTreeMap::<&'static str, usize>::new();
     for from in 0..groups {
         for to in 0..groups {
             let height = node.get(&format!(
@@ -78,6 +83,30 @@ fn every_official_block_round_trips() {
                             "chain index {hash}"
                         );
                     }
+                    for tx in &block.transactions {
+                        for input in &tx.unsigned.inputs {
+                            *kinds.entry(unlock_kind(&input.unlock_script)).or_default() += 1;
+                        }
+                        let outputs = tx
+                            .unsigned
+                            .fixed_outputs
+                            .iter()
+                            .map(|o| (&o.lockup_script, !o.tokens.is_empty()));
+                        for (lockup, with_tokens) in outputs {
+                            *kinds.entry(lockup_kind(lockup)).or_default() += 1;
+                            if with_tokens {
+                                *kinds.entry("asset output with tokens").or_default() += 1;
+                            }
+                        }
+                        for output in &tx.generated_outputs {
+                            if let TxOutput::Contract(contract) = output {
+                                *kinds.entry("contract output").or_default() += 1;
+                                if !contract.tokens.is_empty() {
+                                    *kinds.entry("contract output with tokens").or_default() += 1;
+                                }
+                            }
+                        }
+                    }
                     blocks += 1;
                     transactions += block.transactions.len();
                     scripts += block
@@ -90,5 +119,29 @@ fn every_official_block_round_trips() {
         }
     }
     println!("{blocks} blocks, {transactions} transactions ({scripts} with scripts) round-tripped");
+    println!("seen: {kinds:?}");
     assert!(blocks > 0);
+}
+
+fn unlock_kind(unlock: &UnlockScript) -> &'static str {
+    match unlock {
+        UnlockScript::P2pkh(_) => "unlock P2PKH",
+        UnlockScript::P2mpkh(_) => "unlock P2MPKH",
+        UnlockScript::P2sh { .. } => "unlock P2SH",
+        UnlockScript::SameAsPrevious => "unlock SameAsPrevious",
+        UnlockScript::PoLW(_) => "unlock PoLW",
+        UnlockScript::P2pk => "unlock P2PK",
+        UnlockScript::P2hmpk { .. } => "unlock P2HMPK",
+    }
+}
+
+fn lockup_kind(lockup: &LockupScript) -> &'static str {
+    match lockup {
+        LockupScript::P2pkh(_) => "lockup P2PKH",
+        LockupScript::P2mpkh { .. } => "lockup P2MPKH",
+        LockupScript::P2sh(_) => "lockup P2SH",
+        LockupScript::P2c(_) => "lockup P2C",
+        LockupScript::P2pk { .. } => "lockup P2PK",
+        LockupScript::P2hmpk { .. } => "lockup P2HMPK",
+    }
 }
