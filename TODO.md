@@ -47,6 +47,8 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 ## N3 — Follow the chain
 
+Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 10,000-height window; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
+
 - [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.

@@ -93,6 +93,48 @@ pub fn decode_headers_by_heights_response(
     finish(&reader, (id, headers))
 }
 
+/// `BlocksRequest`: request id, then block hashes (v4.7 fetches announced
+/// blocks this way).
+#[must_use]
+pub fn encode_blocks_request(id: u32, hashes: &[alephium_model::Hash]) -> Vec<u8> {
+    let mut out = compact::encode_u32(id);
+    let length = i32::try_from(hashes.len()).unwrap_or(i32::MAX);
+    out.extend_from_slice(&compact::encode_i32(length));
+    for hash in hashes {
+        out.extend_from_slice(&hash.0);
+    }
+    out
+}
+
+/// `BlocksResponse`: request id, then blocks.
+pub fn decode_blocks_response(payload: &[u8]) -> Result<(u32, Vec<Block>), Error> {
+    let mut reader = Reader::new(payload);
+    let id = decode_id(&mut reader)?;
+    let blocks = Vec::<Block>::decode(&mut reader)?;
+    finish(&reader, (id, blocks))
+}
+
+/// `NewBlockHash`: the announced block hash.
+pub fn decode_new_block_hash(payload: &[u8]) -> Result<alephium_model::Hash, Error> {
+    alephium_model::deserialize(payload)
+}
+
+/// `ChainState`: one `ChainTip(hash, height, weight)` per chain, in chain
+/// index order; the weight is a Java `BigInteger` as `AVector[Byte]`.
+#[must_use]
+pub fn encode_chain_state(tips: &[(alephium_model::Hash, i32, Vec<u8>)]) -> Vec<u8> {
+    let length = i32::try_from(tips.len()).unwrap_or(i32::MAX);
+    let mut out = compact::encode_i32(length);
+    for (hash, height, weight) in tips {
+        out.extend_from_slice(&hash.0);
+        out.extend_from_slice(&compact::encode_i32(*height));
+        let weight_length = i32::try_from(weight.len()).unwrap_or(i32::MAX);
+        out.extend_from_slice(&compact::encode_i32(weight_length));
+        out.extend_from_slice(weight);
+    }
+    out
+}
+
 /// `NewBlock`: the bare serialized block.
 pub fn decode_new_block(payload: &[u8]) -> Result<Block, Error> {
     alephium_model::deserialize(payload)
@@ -130,5 +172,26 @@ mod tests {
             Ok((7, vec![vec![]]))
         );
         assert!(decode_blocks_and_uncles_by_heights_response(&[0x07, 0x00, 0x00]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod chain_state_tests {
+    use crate::message::payload::decode_chain_state_payload;
+
+    /// `ChainState(AVector(ChainTip(hash, 300, Weight(5))))`: compact count,
+    /// 32-byte hash, compact height (`0x412c`), weight as `AVector[Byte]`.
+    #[test]
+    fn chain_tip_height_is_a_compact_int() {
+        let mut payload = vec![0x01];
+        payload.extend([0xab; 32]);
+        payload.extend([0x41, 0x2c, 0x01, 0x05]);
+        let state = decode_chain_state_payload(&payload)
+            .expect("decode")
+            .finish(payload.len())
+            .expect("exact");
+        assert_eq!(state.tips.len(), 1);
+        assert_eq!(state.tips[0].height, 300);
+        assert_eq!(state.tips[0].weight, vec![5]);
     }
 }

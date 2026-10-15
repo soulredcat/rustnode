@@ -9,6 +9,7 @@ publish = false
 workspace = true
 
 [dependencies]
+alephium-chain = { path = "../chain" }
 alephium-conf = { path = "../conf" }
 alephium-model = { path = "../model" }
 alephium-protocol = { path = "../protocol" }

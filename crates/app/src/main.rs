@@ -9,7 +9,7 @@ use alephium_conf::{
     API_KEY_ENV, ApiConfig, DEFAULT_API_BIND_ADDRESS, DEFAULT_UPSTREAM_URL, NodeConfig,
     resolve_node_identity_path,
 };
-use alephium_flow::{RawMempool, SharedRawMempool, run};
+use alephium_flow::{RawMempool, SharedChainStore, SharedRawMempool, run};
 
 fn print_usage() {
     println!("rustnode: Alephium node for nixiaproject");
@@ -29,6 +29,7 @@ fn print_usage() {
     println!();
     println!("P2P transaction acquisition (only when a peer is given):");
     println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
+    println!("  --network-id <id>             0 mainnet (default), 1 testnet, other ids devnet");
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -61,7 +62,12 @@ fn parse_u64(flag: &str, value: Option<String>) -> u64 {
     })
 }
 
-fn run_with_reconnect(config: &NodeConfig, mempool: &SharedRawMempool, interval: Duration) -> ! {
+fn run_with_reconnect(
+    config: &NodeConfig,
+    mempool: &SharedRawMempool,
+    chain: &SharedChainStore,
+    interval: Duration,
+) -> ! {
     let mut attempt = 0u64;
     loop {
         attempt = attempt.saturating_add(1);
@@ -69,7 +75,7 @@ fn run_with_reconnect(config: &NodeConfig, mempool: &SharedRawMempool, interval:
             "starting P2P peer attempt {attempt} against {}",
             config.peer_address
         );
-        if let Err(error) = run(config, mempool) {
+        if let Err(error) = run(config, mempool, Some(chain)) {
             eprintln!("P2P session stopped: {error}");
         }
         thread::sleep(interval);
@@ -77,7 +83,7 @@ fn run_with_reconnect(config: &NodeConfig, mempool: &SharedRawMempool, interval:
 }
 
 fn main() {
-    let mut config = NodeConfig::default();
+    let mut config = NodeConfig::default().set_network_id(0);
     let mut api = ApiConfig::default();
     let mut peer_given = false;
     let mut watch = false;
@@ -98,6 +104,14 @@ fn main() {
             "--peer" => {
                 config = config.set_peer_address(required_value("--peer", args.next()));
                 peer_given = true;
+            }
+            "--network-id" => {
+                let value = parse_u64("--network-id", args.next());
+                let Ok(network_id) = u8::try_from(value) else {
+                    eprintln!("--network-id must be at most 255");
+                    process::exit(2);
+                };
+                config = config.set_network_id(network_id);
             }
             "--max-inflight" => {
                 let value = parse_usize("--max-inflight", args.next());
@@ -133,6 +147,9 @@ fn main() {
     api.api_key = std::env::var(API_KEY_ENV)
         .ok()
         .filter(|key| !key.is_empty());
+    api.network_id = config.network_id;
+    // Followed blocks, written by the P2P session and read by native handlers.
+    let chain: SharedChainStore = std::sync::Arc::default();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -141,12 +158,15 @@ fn main() {
             eprintln!("failed to start async runtime: {error}");
             process::exit(1);
         });
-    let gateway = runtime
+    let mut gateway = runtime
         .block_on(Gateway::bind(api.clone()))
         .unwrap_or_else(|error| {
             eprintln!("{error}");
             process::exit(1);
         });
+    if peer_given {
+        gateway = gateway.with_chain(chain.clone());
+    }
 
     println!("rustnode");
     println!("configuration: {}", alephium_conf::STATUS);
@@ -173,9 +193,9 @@ fn main() {
         let mempool = RawMempool::shared(config.max_mempool_txs);
         thread::spawn(move || {
             if watch {
-                run_with_reconnect(&config, &mempool, watch_interval);
+                run_with_reconnect(&config, &mempool, &chain, watch_interval);
             }
-            if let Err(error) = run(&config, &mempool) {
+            if let Err(error) = run(&config, &mempool, Some(&chain)) {
                 eprintln!("P2P session stopped: {error}");
                 process::exit(1);
             }

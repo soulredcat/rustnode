@@ -168,6 +168,17 @@ pub(crate) struct State {
     pub(crate) client: Client<HttpConnector, Full<Bytes>>,
     pub(crate) metrics: Metrics,
     pub(crate) modes: [RouteMode; Route::ALL.len()],
+    pub(crate) chain: Option<alephium_chain::SharedChainStore>,
+}
+
+impl State {
+    pub(crate) fn native_context(&self) -> native::Context<'_> {
+        native::Context {
+            groups: self.config.groups,
+            network: alephium_model::network::Network::from_id(self.config.network_id),
+            chain: self.chain.as_ref(),
+        }
+    }
 }
 
 pub struct Gateway {
@@ -198,8 +209,18 @@ impl Gateway {
                 client,
                 metrics: Metrics::default(),
                 modes,
+                chain: None,
             }),
         })
+    }
+
+    /// Serves native handlers that read followed blocks from `chain`.
+    #[must_use]
+    pub fn with_chain(mut self, chain: alephium_chain::SharedChainStore) -> Self {
+        if let Some(state) = Arc::get_mut(&mut self.state) {
+            state.chain = Some(chain);
+        }
+        self
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -286,7 +307,9 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
                 RouteMode::Shadow => shadow::forward_and_compare(state, matched, request).await,
                 RouteMode::Native => {
                     let native = api_key_accepted(state, &request)
-                        .then(|| native::serve(matched, request.uri().path(), state.config.groups))
+                        .then(|| {
+                            native::serve(matched, request.uri().path(), &state.native_context())
+                        })
                         .flatten();
                     match native {
                         Some(body) => {

@@ -153,7 +153,7 @@ network_id: ${NETWORK_ID}
 p2p_version: ${P2P_VERSION}
 rust_commit: ${rust_commit}
 rust_build_command: cargo build -p alephium-app
-rust_start_command: cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native ${PEER_ADDRESS}
+rust_start_command: cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native --network-id 2 ${PEER_ADDRESS}
 test_duration_seconds: ${DURATION_SECONDS}
 test_duration: ${DURATION_SECONDS}s
 configuration_files: ${OFFICIAL_CONFIG_FILE},${ROOT_DIR}/scripts/official-node/run.sh,${ROOT_DIR}/scripts/official-node/prepare-home.sh
@@ -284,14 +284,14 @@ check_gateway() {
 
 run_rust_peer() {
   if command -v cargo >/dev/null 2>&1; then
-    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- --api-bind "${API_BIND}" --upstream "${UPSTREAM_URL}" --route-mode address-group=native "${PEER_ADDRESS}")
+    (cd "${ROOT_DIR}" && cargo run -p alephium-app -- --api-bind "${API_BIND}" --upstream "${UPSTREAM_URL}" --route-mode address-group=native --network-id 2 "${PEER_ADDRESS}")
     return
   fi
 
   if command -v powershell.exe >/dev/null 2>&1; then
     local windows_root
     windows_root="$(wslpath -w "${ROOT_DIR}")"
-    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native ${PEER_ADDRESS} }"
+    powershell.exe -NoProfile -NonInteractive -Command "& { Set-Location -LiteralPath '${windows_root}'; cargo run -p alephium-app -- --api-bind ${API_BIND} --upstream ${UPSTREAM_URL} --route-mode address-group=native --network-id 2 ${PEER_ADDRESS} }"
     return
   fi
 

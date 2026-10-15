@@ -6,7 +6,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+alephium-chain = { path = "../chain" }
 alephium-conf = { path = "../conf" }
+alephium-model = { path = "../model" }
 alephium-protocol = { path = "../protocol" }
 alephium-crypto = { path = "../crypto" }
 alephium-serde = { path = "../serde" }

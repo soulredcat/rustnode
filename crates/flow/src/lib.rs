@@ -9,6 +9,8 @@
 mod mempool;
 mod request_tracker;
 mod session;
+pub mod sync;
 
 pub use mempool::{RawMempool, RawMempoolTx, SharedRawMempool};
 pub use session::{FastPathError, STATUS, run};
+pub use sync::{BlockSync, SharedChainStore};

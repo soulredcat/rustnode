@@ -21,13 +21,14 @@ pub const DEFAULT_NETWORK_ID: u8 = 2;
 pub const DEFAULT_CONFIGURED_GROUPS: u32 = 4;
 pub const DEFAULT_BROKER_ID: i32 = 0;
 pub const DEFAULT_BROKER_NUM: i32 = 1;
-pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v1";
+pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v2";
 
 pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(5);
 pub const DEFAULT_PING_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_IO_POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub const DEFAULT_TX_REQUEST_TIMEOUT: Duration = Duration::from_millis(250);
-pub const DEFAULT_MAX_FRAME_DATA: usize = 1024 * 1024;
+/// Block download responses carry up to 800 blocks.
+pub const DEFAULT_MAX_FRAME_DATA: usize = 64 * 1024 * 1024;
 pub const DEFAULT_TX_REQUEST_BATCH_SIZE: usize = 1;
 pub const DEFAULT_MAX_INFLIGHT_TX_REQUESTS: usize = 8;
 pub const DEFAULT_MAX_TRACKED_TX_IDS: usize = 65_536;
@@ -158,7 +159,27 @@ impl Default for NodeConfig {
     }
 }
 
+/// `NetworkConfig.magicBytes`: the sum of the eight big-endian ints of
+/// Blake2b(`alephium-{network id}`).
+#[must_use]
+pub fn network_magic(network_id: u8) -> [u8; 4] {
+    let hash = alephium_crypto::hash_blake2b_256(format!("alephium-{network_id}").as_bytes());
+    let sum = hash
+        .chunks(4)
+        .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .fold(0i32, i32::wrapping_add);
+    sum.to_be_bytes()
+}
+
 impl NodeConfig {
+    /// Network id and the frame magic derived from it.
+    #[must_use]
+    pub fn set_network_id(mut self, network_id: u8) -> Self {
+        self.network_id = network_id;
+        self.network_magic = network_magic(network_id);
+        self
+    }
+
     #[must_use]
     pub fn with_peer_address(peer_address: impl Into<String>) -> Self {
         Self {
@@ -226,6 +247,8 @@ pub struct ApiConfig {
     pub groups: u32,
     /// `route-id=mode` overrides, validated by the gateway at startup.
     pub route_modes: Vec<String>,
+    /// Network of the official node and the followed chain (0 mainnet).
+    pub network_id: u8,
     /// The official node's `api-key`, if it has one (from [`API_KEY_ENV`]).
     /// Natively answered requests must carry exactly this key.
     pub api_key: Option<String>,
@@ -243,6 +266,7 @@ impl Default for ApiConfig {
             header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
             groups: DEFAULT_CONFIGURED_GROUPS,
             route_modes: Vec::new(),
+            network_id: 0,
             api_key: None,
         }
     }
@@ -335,4 +359,16 @@ fn set_restrictive_permissions(path: &Path) -> io::Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NETWORK_MAGIC_BYTES, network_magic};
+
+    #[test]
+    fn network_magic_matches_the_official_derivation() {
+        assert_eq!(network_magic(2), NETWORK_MAGIC_BYTES);
+        assert_eq!(network_magic(0), [0xb0, 0xa6, 0x80, 0x8e]);
+        assert_eq!(network_magic(1), [0xd7, 0x72, 0x8c, 0x8e]);
+    }
 }

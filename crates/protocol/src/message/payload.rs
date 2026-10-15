@@ -377,7 +377,8 @@ fn decode_weight(input: &[u8]) -> DecodeResult<'_, Vec<u8>> {
 
 fn decode_chain_tip(input: &[u8]) -> DecodeResult<'_, ChainTip> {
     let hash = decode_hash(input)?;
-    let height = fixed::decode_i32_be(hash.rest)?;
+    // `Serde[Int]`: compact signed int, as in `ChainTip.serde`.
+    let height = compact::decode_i32(hash.rest)?;
     let weight = decode_weight(height.rest)?;
     let tip = ChainTip {
         hash: hash.value,

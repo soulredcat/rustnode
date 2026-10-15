@@ -7,9 +7,13 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use alephium_model::{Block, BlockHeader, Hash, TimeStamp, U256};
+
+/// The store shared by the P2P session (writer) and the API (readers);
+/// `None` until the genesis blocks have arrived.
+pub type SharedChainStore = Arc<RwLock<Option<ChainStore>>>;
 
 /// `ALPH.GenesisTimestamp`.
 pub const GENESIS_TIMESTAMP: TimeStamp = TimeStamp(1_231_006_505_000);
@@ -212,6 +216,18 @@ impl ChainStore {
             }
         }
         Some((best.0, best.1))
+    }
+
+    /// The heaviest tip as `(hash, height, weight)`, for `ChainState`.
+    #[must_use]
+    pub fn chain_tip(&self, from: u32, to: u32) -> (Hash, u32, U256) {
+        let (hash, height) = self.max_weight_tip(from, to).unwrap_or((Hash::ZERO, 0));
+        let weight = self
+            .entries
+            .get(&hash)
+            .and_then(|entry| entry.weight)
+            .unwrap_or(U256::ZERO);
+        (hash, height, weight)
     }
 
     /// `BlockChain.maxHeightByWeight`.

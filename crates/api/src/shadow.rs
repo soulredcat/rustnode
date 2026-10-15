@@ -24,7 +24,7 @@ pub(crate) async fn forward_and_compare(
     request: Request<Incoming>,
 ) -> Forwarded {
     let path = request.uri().path().to_owned();
-    let native = native::serve(route, &path, state.config.groups);
+    let native = native::serve(route, &path, &state.native_context());
 
     let upstream = match proxy::send(state, request).await {
         Ok(response) => response,
