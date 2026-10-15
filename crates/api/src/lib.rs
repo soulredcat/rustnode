@@ -9,6 +9,7 @@
 //! - `native`: answered by rustnode, falling back to the official node for any
 //!   request the native handler declines.
 
+pub mod json;
 mod metrics;
 mod native;
 mod proxy;

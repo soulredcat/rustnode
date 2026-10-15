@@ -414,3 +414,13 @@ if ! check_gateway; then
   cat "${RUST_ERROR_FILE}" >&2
   exit 1
 fi
+
+# Block encoding and JSON, checked against every block the official node holds.
+if ! (cd "${ROOT_DIR}" && RUSTNODE_OFFICIAL_URL="${UPSTREAM_URL}" \
+  cargo test -p alephium-model --test official_raw_blocks -- --ignored --nocapture &&
+  RUSTNODE_OFFICIAL_URL="${UPSTREAM_URL}" \
+  cargo test -p alephium-api --test official_block_json -- --ignored --nocapture); then
+  append_operator_note "block encoding or JSON differs from the official node."
+  exit 1
+fi
+echo "block encoding and JSON verified against the official node"

@@ -5,12 +5,14 @@
 //! The pinned official implementation (`UPSTREAM.toml`) is the oracle; every
 //! type is checked against blocks produced by the official node.
 
+pub mod address;
 pub mod block;
 pub mod codec;
 pub mod hash;
 pub mod instr;
 mod instr_table;
 pub mod lockup;
+pub mod network;
 pub mod script;
 pub mod tx;
 pub mod val;
