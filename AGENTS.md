@@ -6,6 +6,8 @@
 
 It serves exactly the HTTP and WebSocket surface that `nixiaproject` uses, listed in `docs/NIXIA_API_SURFACE.md`, with the same paths, parameters, and JSON shapes as the official node, optimized and pruned for that bot. Switching the bot over must require only changing its `ALEPHIUM_NODE_URL`.
 
+rustnode is the bot's permanent node: once it is complete, the operator shuts the official node down. It is independent of the official node at run time and follows the chain from Alephium peers itself. The operator's synced official node is used only for a one-time bootstrap (state, recent blocks, permanent indexes, verified against `depStateHash`) and, during development, as the oracle for differential checks. Until rustnode is complete, the bot keeps using the official node directly; the upstream proxy is a transition and verification tool, removed at N8.
+
 `nixiaproject` is read-only for this repository. Never require a change there.
 
 ## Read order
@@ -26,7 +28,7 @@ In scope, as the roadmap reaches them:
 - following the chain from a verified starting point, with header PoW checks;
 - world state and Ralph VM execution needed for the endpoints on the surface;
 - bootstrapping state from an operator's fully synced official node data, verified against block `depStateHash`;
-- the HTTP and `/ws` endpoints in `docs/NIXIA_API_SURFACE.md`, and an upstream proxy to the official node for endpoints not yet served natively;
+- the HTTP and `/ws` endpoints in `docs/NIXIA_API_SURFACE.md`, and, until N8, an upstream proxy to the official node for endpoints not yet served natively;
 - pruned storage as listed in the retention table of `docs/NIXIA_API_SURFACE.md`: current state plus 128 heights for reorgs and pinned reads, recent blocks and events in a configured window (default 10,000 heights per chain), and the few permanent exceptions the bot needs.
 
 Out of scope:

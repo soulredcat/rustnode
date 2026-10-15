@@ -4,6 +4,8 @@ An Alephium node in Rust, built only for the `soulredcat/nixiaproject` arbitrage
 
 The goal is a node that serves exactly the HTTP and WebSocket endpoints `nixiaproject` calls ([`docs/NIXIA_API_SURFACE.md`](docs/NIXIA_API_SURFACE.md)), with the same responses as the official node, while keeping only the state, blocks, and indexes those endpoints need. The bot switches by changing `ALEPHIUM_NODE_URL` and nothing else; `nixiaproject` itself is never modified from here.
 
+rustnode is meant to become the bot's only node: it follows the chain from Alephium peers on its own, after a one-time bootstrap from the operator's synced official node, and the official node is then shut down. Until rustnode is complete (`TODO.md`, N8), keep the bot on the official node.
+
 Anything the bot does not use is not built, and unused code is deleted.
 
 ## Current status
@@ -16,9 +18,11 @@ Available today:
 
 - **Native handlers with shadow checking** (N1/N2): `GET /addresses/{address}/group` is computed by rustnode by default for asset addresses (P2PKH, P2MPKH, P2SH), checked against the official `AddressSpec` vectors and against the real official node in CI. Contract, grouped, and invalid addresses still go to the official node.
 
-Not built yet: the other native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses on live traffic, so the official node is still required behind the gateway.
+Not built yet: the other native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses, so for now rustnode still needs the official node behind it.
 
 ## Run
+
+During development the bot stays on the official node. Running rustnode in front of it, as below, is optional: it lets you check rustnode's answers against the bot's live traffic before the final switch.
 
 Start the official node as usual (REST on `127.0.0.1:12973`) with the settings in [`config/official-node/nixia.conf`](config/official-node/nixia.conf) merged into its `user.conf`: WebSocket, the event log, and the indexes the bot reads are all off by default in the official node. Use official v4.7.0 or newer: v4.6.0 sometimes accepts a WebSocket and then never answers on it (fixed upstream in `5c40f665a`), which leaves a subscription silent until the bot's idle timeout reconnects, and v4.7.0 is the version whose OpenAPI has the `mempool` flag the bot sends on `/addresses/{address}/balance`. Then:
 
@@ -26,7 +30,7 @@ Start the official node as usual (REST on `127.0.0.1:12973`) with the settings i
 cargo run --release -p alephium-app -- --api-bind 127.0.0.1:22973 --upstream http://127.0.0.1:12973
 ```
 
-Point the bot at it by changing one line in `nixiaproject`'s `.env`:
+To send the bot through it, change one line in `nixiaproject`'s `.env`:
 
 ```dotenv
 ALEPHIUM_NODE_URL=http://127.0.0.1:22973

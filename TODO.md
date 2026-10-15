@@ -1,8 +1,10 @@
 # Roadmap — nixiaproject-only node
 
-Each stage either serves more of `docs/NIXIA_API_SURFACE.md` or removes a dependency on the official node. Nothing outside that surface is built. `nixiaproject` is never modified; it only changes `ALEPHIUM_NODE_URL` once N0 is in place.
+Each stage either serves more of `docs/NIXIA_API_SURFACE.md` or removes a dependency on the official node. Nothing outside that surface is built. `nixiaproject` is never modified.
 
-An endpoint moves from "proxied" to "native" only after the differential check (N1) shows it matching the official node on live traffic.
+End state: rustnode is the bot's only node and the official node is shut down. Until then the bot keeps using the official node directly; rustnode is built alongside it and checked against it. The official node's data is used once, for the bootstrap (N3, N5); after that rustnode follows the chain from Alephium peers on its own.
+
+An endpoint moves from "proxied" to "native" only after the differential check (N1) shows it matching the official node.
 
 ## Current pointer
 
@@ -27,9 +29,9 @@ N3 — Follow the chain
 - [x] End-to-end on a devnet with the official v4.7.2 release: every endpoint and `/ws` with real chain data, `nixiaproject`'s own client crate, restart, and load (`docs/INTEROPERABILITY.md`).
 - [x] Upstream refusals keep the official status: a rejected WebSocket upgrade returns the official `401`/`404`, not `502`.
 - [x] Native answers honour the official API key (`RUSTNODE_API_KEY`); other requests are forwarded.
-- [ ] Operator run: `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, watched for a full trading session.
+- [ ] Optional before N8: an operator run of `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, to compare native handlers on the bot's live traffic. The bot otherwise stays on the official node until N8.
 
-Exit gate: the operator run above; the measurement is done.
+Exit gate: met by the devnet end-to-end check; the measurement is done.
 
 ## N1 — Differential checking
 
@@ -45,6 +47,7 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 ## N3 — Follow the chain
 
+- [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [ ] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis; fill the block window from that node's data, then follow new blocks from peers.
@@ -84,5 +87,6 @@ Exit gate: state hash matches for every group; this proves the bootstrap path be
 ## N8 — Submission and retirement of the official node
 
 - [ ] Native `transactions/submit`: validate and broadcast to peers.
-- [ ] Nothing proxied any more; measure memory and disk against the official node.
+- [ ] Nothing proxied any more: delete the upstream proxy and shadow mode; measure memory and disk against the official node.
+- [ ] Switch: `nixiaproject`'s `ALEPHIUM_NODE_URL` points at rustnode, and the operator shuts the official node down.
 - [ ] Hard-fork readiness procedure: a new official hard fork must be implemented before its activation height.

@@ -16,7 +16,9 @@ rustnode state ── pruned world state, bootstrapped from a synced official no
                   checked against block depStateHash; recent blocks and events only
 ```
 
-Migration is endpoint by endpoint. The proxy keeps the bot fully working while each native handler is compared against the official node on live traffic. The official node can be retired only when nothing is proxied any more.
+This is the shape during development. Migration is endpoint by endpoint: the proxy lets rustnode answer the whole surface while each native handler is compared against the official node. Meanwhile the bot keeps using the official node directly.
+
+End state (N8): nothing is proxied, the proxy is deleted, the bot's `ALEPHIUM_NODE_URL` points at rustnode, and the official node is shut down. rustnode then depends only on Alephium peers; the official node's data was used once, for the bootstrap.
 
 ## 3. Crates today
 
