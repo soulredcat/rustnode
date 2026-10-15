@@ -325,13 +325,23 @@ impl ChainStore {
 
     /// `BlockFlow.calWeightUnsafe(header)`.
     fn calc_weight(&self, header: &BlockHeader, from: u32) -> Result<Option<U256>, AddError> {
+        let intra_dep = header.deps[(self.groups - 1 + from) as usize];
+        let Some(intra_weight) = self.entries.get(&intra_dep).and_then(|entry| entry.weight) else {
+            return Ok(None);
+        };
+        Ok(Some(
+            intra_weight.saturating_add(self.weight_increment(header, from)?),
+        ))
+    }
+
+    /// The weight a block adds on top of its intra-group dependency: its diff
+    /// blocks' header weights plus its own (`calWeightUnsafe` minus the
+    /// intra-dep weight).
+    fn weight_increment(&self, header: &BlockHeader, from: u32) -> Result<U256, AddError> {
         let groups = self.groups as usize;
         let in_deps = &header.deps[..groups - 1];
         let out_deps = &header.deps[groups - 1..];
         let intra_dep = out_deps[from as usize];
-        let Some(intra_weight) = self.entries.get(&intra_dep).and_then(|entry| entry.weight) else {
-            return Ok(None);
-        };
 
         // getFlowTipsUnsafe(intraDep, targetGroup)
         let intra_in_tips: Vec<Hash> = (0..self.groups)
@@ -354,11 +364,143 @@ impl ChainStore {
             diffs.extend(self.hashes_between(new, old)?);
         }
 
-        let mut weight = intra_weight;
+        let mut increment = header_weight(header);
         for diff in &diffs {
-            weight = weight.saturating_add(header_weight(self.header(diff)?));
+            increment = increment.saturating_add(header_weight(self.header(diff)?));
         }
-        Ok(Some(weight.saturating_add(header_weight(header))))
+        Ok(increment)
+    }
+
+    /// Starts from a checkpoint instead of genesis: `blocks` holds, per
+    /// height, the hashes the official node lists (canonical first). Heights
+    /// and canonical order are taken as given; weights stay unknown until
+    /// [`seed_weight`](Self::seed_weight).
+    pub fn import_checkpoint(&mut self, from: u32, to: u32, height: u32, blocks: Vec<Block>) {
+        let chain = self.chain(from, to);
+        let mut hashes = Vec::with_capacity(blocks.len());
+        for block in blocks {
+            let hash = block.hash();
+            hashes.push(hash);
+            self.entries.entry(hash).or_insert_with(|| Entry {
+                block: Arc::new(block),
+                from,
+                to,
+                height,
+                weight: None,
+            });
+        }
+        let at_height = self.heights[chain].entry(height).or_default();
+        for hash in hashes {
+            if !at_height.contains(&hash) {
+                at_height.push(hash);
+            }
+        }
+    }
+
+    /// After a checkpoint import: tips are the blocks without a child, within
+    /// the tip-prune duration of the newest block of their chain.
+    pub fn finish_checkpoint(&mut self) {
+        let mut parents = std::collections::HashSet::new();
+        for entry in self.entries.values() {
+            if entry.block.header.timestamp != GENESIS_TIMESTAMP {
+                parents.insert(entry.block.header.deps[(self.groups - 1 + entry.to) as usize]);
+            }
+        }
+        for chain in 0..self.tips.len() {
+            let newest = self.heights[chain]
+                .values()
+                .flatten()
+                .filter_map(|hash| self.entries.get(hash))
+                .map(|entry| entry.block.header.timestamp.0)
+                .max()
+                .unwrap_or(0);
+            let tips: HashMap<Hash, TimeStamp> = self.heights[chain]
+                .values()
+                .flatten()
+                .filter(|hash| !parents.contains(*hash))
+                .filter_map(|hash| self.entries.get(hash).map(|entry| (*hash, entry)))
+                .filter(|(_, entry)| entry.block.header.timestamp.0 + TIPS_PRUNE_MILLIS >= newest)
+                .map(|(hash, entry)| (hash, entry.block.header.timestamp))
+                .collect();
+            self.tips[chain] = tips;
+        }
+    }
+
+    /// Sets a known weight (from a peer's `ChainState`) and derives the
+    /// others: backwards along intra-group chains (`weight(parent) =
+    /// weight(block) - increment(block)`), then forwards with `calWeight`.
+    /// Returns how many weights became known.
+    pub fn seed_weight(&mut self, hash: &Hash, weight: U256) -> usize {
+        let Some(entry) = self.entries.get_mut(hash) else {
+            return 0;
+        };
+        if entry.weight.is_some() {
+            return 0;
+        }
+        entry.weight = Some(weight);
+        let mut derived = 1;
+
+        // Backwards: an intra-group block's intra dependency is its parent.
+        let mut current = *hash;
+        while let Some(entry) = self.entries.get(&current) {
+            if entry.from != entry.to || entry.block.header.timestamp == GENESIS_TIMESTAMP {
+                break;
+            }
+            let (Some(weight), header, from) = (entry.weight, &entry.block.header, entry.from)
+            else {
+                break;
+            };
+            let parent = header.deps[(self.groups - 1 + entry.to) as usize];
+            let Ok(increment) = self.weight_increment(header, from) else {
+                break;
+            };
+            match self.entries.get_mut(&parent) {
+                Some(parent_entry) if parent_entry.weight.is_none() => {
+                    parent_entry.weight = Some(weight.saturating_sub(increment));
+                    derived += 1;
+                    current = parent;
+                }
+                _ => break,
+            }
+        }
+
+        // Forwards, in timestamp order, until nothing more can be computed.
+        let mut unknown: Vec<(TimeStamp, Hash)> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.weight.is_none())
+            .map(|(hash, entry)| (entry.block.header.timestamp, *hash))
+            .collect();
+        unknown.sort_unstable();
+        loop {
+            let mut progress = false;
+            unknown.retain(|(_, hash)| {
+                let entry = &self.entries[hash];
+                match self.calc_weight(&entry.block.header, entry.from) {
+                    Ok(Some(weight)) => {
+                        if let Some(entry) = self.entries.get_mut(hash) {
+                            entry.weight = Some(weight);
+                        }
+                        derived += 1;
+                        progress = true;
+                        false
+                    }
+                    _ => true,
+                }
+            });
+            if !progress {
+                break;
+            }
+        }
+        derived
+    }
+
+    /// Whether a block's weight is known.
+    #[must_use]
+    pub fn has_weight(&self, hash: &Hash) -> bool {
+        self.entries
+            .get(hash)
+            .is_some_and(|entry| entry.weight.is_some())
     }
 
     /// Adds a block whose dependencies are all known: PoW, chain index,
@@ -388,7 +530,10 @@ impl ChainStore {
 
         let parent = header.deps[(self.groups - 1 + to) as usize];
         let height = self.height(&parent)? + 1;
-        let weight = self.calc_weight(header, from)?;
+        // After a checkpoint start the diff blocks of a weight can reach below
+        // the kept window; the block is still valid and its weight comes from
+        // a peer's ChainState later (seed_weight).
+        let weight = self.calc_weight(header, from).unwrap_or(None);
         let chain = self.chain(from, to);
 
         // checkCanonicality against the current tips (the parent included).

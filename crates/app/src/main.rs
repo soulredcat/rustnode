@@ -30,6 +30,7 @@ fn print_usage() {
     println!("P2P transaction acquisition (only when a peer is given):");
     println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
     println!("  --network-id <id>             0 mainnet (default), 1 testnet, other ids devnet");
+    println!("  --window <heights>            heights kept per chain (default: 10000)");
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -88,6 +89,7 @@ fn main() {
     let mut peer_given = false;
     let mut watch = false;
     let mut watch_interval = Duration::from_secs(2);
+    let mut window = alephium_chain::DEFAULT_WINDOW;
     let mut args = std::env::args().skip(1);
 
     while let Some(argument) = args.next() {
@@ -112,6 +114,10 @@ fn main() {
                     process::exit(2);
                 };
                 config = config.set_network_id(network_id);
+            }
+            "--window" => {
+                let value = parse_u64("--window", args.next());
+                window = u32::try_from(value).unwrap_or(u32::MAX).max(128);
             }
             "--max-inflight" => {
                 let value = parse_usize("--max-inflight", args.next());
@@ -191,7 +197,25 @@ fn main() {
         println!("peer: {}", config.peer_address);
         println!("runtime: {}", alephium_flow::STATUS);
         let mempool = RawMempool::shared(config.max_mempool_txs);
+        let bootstrap_source =
+            alephium_flow::bootstrap::Source::new(&api.upstream_url, api.api_key.clone());
         thread::spawn(move || {
+            // One-time start from the official node's recent blocks; without
+            // it, blocks are followed from genesis over P2P.
+            match alephium_flow::bootstrap::bootstrap(
+                &bootstrap_source,
+                config.configured_groups,
+                config.network_id,
+                window,
+                8,
+            ) {
+                Ok(store) => {
+                    *chain
+                        .write()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(store);
+                }
+                Err(error) => eprintln!("bootstrap from the official node failed: {error}"),
+            }
             if watch {
                 run_with_reconnect(&config, &mempool, &chain, watch_interval);
             }

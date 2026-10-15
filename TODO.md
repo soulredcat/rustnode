@@ -52,8 +52,8 @@ Done so far: block, header, and transaction encoding and JSON identical to the o
 - [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
-- [ ] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis; fill the block window from that node's data, then follow new blocks from peers.
-- [ ] Keep blocks for a configured window only (default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
+- [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.
+- [x] Keep blocks for a configured window only (`--window`, default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`). In memory for now; restarts bootstrap again.
 - [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
 ## N4 — Native mempool

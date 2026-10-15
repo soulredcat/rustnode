@@ -34,6 +34,7 @@ name = "alephium-app"
 version = "0.0.1"
 dependencies = [
  "alephium-api",
+ "alephium-chain",
  "alephium-conf",
  "alephium-flow",
  "tokio",
@@ -73,6 +74,8 @@ dependencies = [
  "alephium-model",
  "alephium-protocol",
  "alephium-serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]

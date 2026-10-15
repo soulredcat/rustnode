@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 alephium-api = { path = "../api" }
+alephium-chain = { path = "../chain" }
 alephium-conf = { path = "../conf" }
 alephium-flow = { path = "../flow" }
 tokio = { version = "1", features = ["rt-multi-thread"] }

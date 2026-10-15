@@ -75,7 +75,7 @@ impl BlockSync {
     /// Records the peer's tips and, for tips we already hold, checks that our
     /// computed weight equals the peer's.
     pub fn on_chain_state(&mut self, tips: &[ChainTip]) {
-        let store = self.chain.read().unwrap_or_else(PoisonError::into_inner);
+        let mut store = self.chain.write().unwrap_or_else(PoisonError::into_inner);
         for tip in tips {
             let hash = Hash(tip.hash.bytes);
             let (from, to) = BlockHeader::chain_index(&hash, self.groups);
@@ -83,9 +83,18 @@ impl BlockSync {
             if let Some(slot) = self.peer_tips.get_mut(index) {
                 *slot = Some((tip.height, hash, tip.weight.clone()));
             }
-            if let Some(entry) = store.as_ref().and_then(|store| store.get(&hash))
-                && let Some(weight) = entry.weight
-            {
+            let Some(store) = store.as_mut() else {
+                continue;
+            };
+            if store.get(&hash).is_some() && !store.has_weight(&hash) {
+                // A checkpoint start: weights come from the peer's tips.
+                if let Some(weight) = weight_from_bytes(&tip.weight) {
+                    let derived = store.seed_weight(&hash, weight);
+                    println!("seeded weights from {}: {derived} known", hash.to_hex());
+                }
+                continue;
+            }
+            if let Some(weight) = store.get(&hash).and_then(|entry| entry.weight) {
                 self.weight_checks += 1;
                 if big_integer_bytes(weight) != tip.weight {
                     self.weight_mismatches += 1;
@@ -279,6 +288,25 @@ impl BlockSync {
     }
 }
 
+/// A non-negative Java `BigInteger` that fits 256 bits.
+#[must_use]
+pub fn weight_from_bytes(bytes: &[u8]) -> Option<alephium_model::U256> {
+    if bytes.first().is_some_and(|byte| byte & 0x80 != 0) {
+        return None;
+    }
+    let start = bytes
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(bytes.len());
+    let significant = &bytes[start..];
+    if significant.len() > 32 {
+        return None;
+    }
+    let mut padded = [0u8; 32];
+    padded[32 - significant.len()..].copy_from_slice(significant);
+    Some(alephium_model::U256::from_be_bytes(padded))
+}
+
 /// `Weight` serde: Java `BigInteger.toByteArray`, minimal two's complement.
 #[must_use]
 pub fn big_integer_bytes(value: alephium_model::U256) -> Vec<u8> {
@@ -296,7 +324,7 @@ pub fn big_integer_bytes(value: alephium_model::U256) -> Vec<u8> {
 mod tests {
     use alephium_model::U256;
 
-    use super::big_integer_bytes;
+    use super::{big_integer_bytes, weight_from_bytes};
 
     #[test]
     fn weights_encode_like_java_big_integers() {
@@ -304,5 +332,9 @@ mod tests {
         assert_eq!(big_integer_bytes(U256::from(127u8)), vec![127]);
         assert_eq!(big_integer_bytes(U256::from(128u8)), vec![0, 128]);
         assert_eq!(big_integer_bytes(U256::from(0x0102u16)), vec![1, 2]);
+        for value in [U256::ZERO, U256::from(128u8), U256::MAX] {
+            assert_eq!(weight_from_bytes(&big_integer_bytes(value)), Some(value));
+        }
+        assert_eq!(weight_from_bytes(&[0xff]), None);
     }
 }

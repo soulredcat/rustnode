@@ -6,6 +6,7 @@
 //! - immediate transaction-announcement fetch with bounded concurrency; and
 //! - the bounded raw mempool that `GET /mempool/transactions` will be served from.
 
+pub mod bootstrap;
 mod mempool;
 mod request_tracker;
 mod session;
