@@ -47,7 +47,7 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
-- [ ] Start from a recent checkpoint taken from the operator's synced official node.
+- [ ] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis; fill the block window from that node's data, then follow new blocks from peers.
 - [ ] Keep blocks for a configured window only (default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
 - [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
@@ -61,6 +61,7 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 ## N5 — State bootstrap
 
 - [ ] Read world state from a copy of the operator's synced official node data.
+- [ ] Copy the permanent data the same way: DEX factory events and the sub-contract index from index 0, which the bot reads in full.
 - [ ] Recompute the state root and require it to equal the next block's `depStateHash`.
 - [ ] Native read-only `GET /contracts/{address}/state`, `GET /addresses/{address}/utxos`, `GET /addresses/{address}/balance` at the bootstrap point.
 
