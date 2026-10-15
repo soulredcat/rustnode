@@ -50,12 +50,19 @@ jobs:
         uses: sbt/setup-sbt@v1.5.7
 
       - name: Generate vectors from official Scala code
-        run: ./scripts/generate-m1-vectors.sh
+        run: M1_VECTOR_OUTPUT_DIR="${RUNNER_TEMP}/m1-vectors" ./scripts/generate-m1-vectors.sh
+
+      - name: Check committed fixtures against the pinned official code
+        run: |
+          # manifest.tsv records the generator's commit; every other committed
+          # fixture must be byte-identical to what the current pin generates.
+          grep -v ' ./manifest.tsv$' tests/vectors/m1/generated/COMMITTED_SHA256SUMS \
+            | (cd "${RUNNER_TEMP}/m1-vectors" && sha256sum -c --strict -)
 
       - name: Upload generated fixtures
         uses: actions/upload-artifact@v7
         with:
           name: m1-official-scala-vectors
-          path: tests/vectors/m1/generated
+          path: ${{ runner.temp }}/m1-vectors
           if-no-files-found: error
           retention-days: 14

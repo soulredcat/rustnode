@@ -17,7 +17,7 @@ import org.alephium.serde.CompactInteger
 import org.alephium.util.{Bytes, Hex, TimeStamp, U32}
 
 object RustNodeM1VectorGenerator {
-  private val UpstreamCommit = "63bcf6998508025f9538f3377629fe9e66df6c53"
+  private val UpstreamCommit = "76a71237e295693e760a15f3eb5d6566f2a13d93"
   private val ClientId       = "rust-alephium/v4.0.0/linux/p2p-v1"
   private val HelloTime      = TimeStamp.unsafe(1700000000000L)
   private val PingTime       = TimeStamp.unsafe(1700000001000L)

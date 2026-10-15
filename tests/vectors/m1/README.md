@@ -8,7 +8,7 @@ make m1-vectors
 
 The generator:
 
-1. checks out official Alephium commit `63bcf6998508025f9538f3377629fe9e66df6c53` (v4.6.0+5; the handshake and liveness formats it covers are unchanged in the current pin, v4.7.2);
+1. checks out the pinned official Alephium commit from `UPSTREAM.toml` (v4.7.2). The committed fixtures were generated at `63bcf6998508025f9538f3377629fe9e66df6c53` (v4.6.0+5); the `m1-vectors` workflow regenerates them at the current pin and requires every committed fixture except `manifest.tsv` to be byte-identical;
 2. temporarily compiles `tools/upstream/m1/RustNodeM1VectorGenerator.scala` inside the official `tools` module;
 3. writes deterministic fixtures under `tests/vectors/m1/generated`;
 4. removes the temporary upstream source;

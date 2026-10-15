@@ -6,7 +6,7 @@ UPSTREAM_DIR="${ALEPHIUM_UPSTREAM_DIR:-${ROOT_DIR}/.upstream/alephium}"
 OUTPUT_DIR="${M1_VECTOR_OUTPUT_DIR:-${ROOT_DIR}/tests/vectors/m1/generated}"
 SOURCE_FILE="${ROOT_DIR}/tools/upstream/m1/RustNodeM1VectorGenerator.scala"
 TARGET_FILE="${UPSTREAM_DIR}/tools/src/main/scala/org/alephium/tools/RustNodeM1VectorGenerator.scala"
-EXPECTED_COMMIT="63bcf6998508025f9538f3377629fe9e66df6c53"
+EXPECTED_COMMIT="76a71237e295693e760a15f3eb5d6566f2a13d93"
 
 command -v git >/dev/null 2>&1 || { echo "git is required" >&2; exit 1; }
 command -v java >/dev/null 2>&1 || { echo "Java 17+ is required" >&2; exit 1; }
