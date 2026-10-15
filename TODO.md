@@ -48,7 +48,7 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [ ] Start from a recent checkpoint taken from the operator's synced official node.
-- [ ] Keep blocks for a configured window only (default 1000 heights per chain; see the retention table in `docs/NIXIA_API_SURFACE.md`).
+- [ ] Keep blocks for a configured window only (default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
 - [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
 ## N4 — Native mempool

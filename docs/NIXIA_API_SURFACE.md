@@ -57,13 +57,13 @@ Legend for **needs**: `B` recent blocks, `M` mempool, `S` world state, `VM` Ralp
 | Data | Keep | Why |
 | --- | --- | --- |
 | World state | current, plus the last 128 heights per chain | reorgs and pinned reads (same window as the official `PruneStorageService`) |
-| Blocks and their events | the last 1000 heights per chain (about 2.2 hours at the 8 s Danube block time) | event-refresh gap recovery, block-tx audit, status and events of the bot's own recent transactions |
+| Blocks and their events | the last 10,000 heights per chain: 160,000 blocks over 16 chains, about 22 hours at the 8 s Danube block time | event-refresh gap recovery, block-tx audit, status and events of the bot's own recent transactions |
 | Spent outputs of transactions in retained blocks | same window as blocks | `rich-details` resolves every input, and an input can be much older than the window |
 | Events of the DEX factory contracts the bot scans | permanently | `background/token-discovery` reads factory events from index 0 |
 | Sub-contract index | permanently | factory sub-contracts are listed from index 0 |
 | Mempool | official limits (2000 per chain) | `GET /mempool/transactions` |
 
-If the bot is stopped for longer than the block window, gap recovery cannot reread the gap and the bot must reload state, as it already does after a long stop. Raise the window if longer stops must be tolerated.
+If the bot is stopped for longer than the block window (about 22 hours), gap recovery cannot reread the gap and the bot must reload state, as it already does after a long stop. The window is configurable; it must not go below the 128 heights of the state window, and raising it only costs disk, since blocks are looked up by hash or height.
 
 ## Not served
 

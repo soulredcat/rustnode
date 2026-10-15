@@ -27,7 +27,7 @@ In scope, as the roadmap reaches them:
 - world state and Ralph VM execution needed for the endpoints on the surface;
 - bootstrapping state from an operator's fully synced official node data, verified against block `depStateHash`;
 - the HTTP and `/ws` endpoints in `docs/NIXIA_API_SURFACE.md`, and an upstream proxy to the official node for endpoints not yet served natively;
-- pruned storage as listed in the retention table of `docs/NIXIA_API_SURFACE.md`: current state plus 128 heights for reorgs and pinned reads, recent blocks and events in a configured window (default 1000 heights per chain), and the few permanent exceptions the bot needs.
+- pruned storage as listed in the retention table of `docs/NIXIA_API_SURFACE.md`: current state plus 128 heights for reorgs and pinned reads, recent blocks and events in a configured window (default 10,000 heights per chain), and the few permanent exceptions the bot needs.
 
 Out of scope:
 
