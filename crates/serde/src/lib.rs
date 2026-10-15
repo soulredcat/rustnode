@@ -12,7 +12,3 @@ pub mod staging;
 
 pub use error::Error;
 pub use staging::{DecodeResult, Staging};
-
-/// Current implementation status.
-pub const STATUS: &str =
-    "M1 primitive codec implemented; message framing and payloads are not implemented";

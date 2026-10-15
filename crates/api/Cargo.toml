@@ -1,0 +1,28 @@
+[package]
+name = "alephium-api"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+alephium-chain = { path = "../chain" }
+alephium-conf = { path = "../conf" }
+alephium-model = { path = "../model" }
+alephium-protocol = { path = "../protocol" }
+alephium-serde = { path = "../serde" }
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+http-body-util = { version = "0.1", default-features = false }
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time", "sync", "io-util"] }
+tokio-tungstenite = "0.30"
+
+[dev-dependencies]
+alephium-crypto = { path = "../crypto" }
+ureq = "2"

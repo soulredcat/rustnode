@@ -1,10 +1,9 @@
 use alephium_crypto::{PublicKey, SIGNATURE_LENGTH, Signature, verify};
 use alephium_protocol::message::payload::{HELLO_CODE, PING_CODE, PONG_CODE};
 use alephium_protocol::message::{
-    CURRENT_WIRE_VERSION, NetworkMagic, P2PVersion, Ping, Pong, ReleaseVersion, RequestId,
-    decode_frame_exact, decode_hello_payload, decode_ping_payload, decode_pong_payload,
-    decode_raw_message_data, decode_wire_header, encode_hello_payload, encode_ping_payload,
-    encode_pong_payload, encode_wire_header,
+    CURRENT_WIRE_VERSION, NetworkMagic, Ping, Pong, RequestId, decode_frame_exact,
+    decode_hello_payload, decode_ping_payload, decode_pong_payload, decode_raw_message_data,
+    encode_hello_payload, encode_ping_payload, encode_pong_payload, encode_raw_message_data,
 };
 
 const BROKER_INFO_HASH: &str = include_str!(concat!(
@@ -77,12 +76,15 @@ fn split_payload(bytes: &[u8]) -> (i32, &[u8]) {
 }
 
 #[test]
-fn wire_header_codec_uses_current_version() {
+fn raw_message_data_uses_official_wire_header() {
     let header = decode_hex(WIRE_HEADER);
-    let staged = decode_wire_header(&header).expect("wire header must decode");
-    assert_eq!(staged.value, CURRENT_WIRE_VERSION);
-    assert!(staged.rest.is_empty());
-    assert_eq!(header, encode_wire_header());
+    let encoded = encode_raw_message_data(PING_CODE, &[]).expect("encode raw message data");
+    assert!(encoded.starts_with(&header));
+
+    let raw = decode_raw_message_data(&encoded).expect("decode raw message data");
+    assert_eq!(raw.wire_version, CURRENT_WIRE_VERSION);
+    assert_eq!(raw.payload_code, PING_CODE);
+    assert!(raw.payload_body.is_empty());
 }
 
 #[test]
@@ -170,26 +172,4 @@ fn ping_and_pong_payload_codecs_match_fixtures_and_roundtrip() {
         }
     );
     assert_eq!(encode_pong_payload(&pong), pong_body);
-}
-
-#[test]
-fn client_id_and_p2p_parsing_matches_vectors() {
-    assert_eq!(
-        ReleaseVersion::from_client_id("rust-alephium/v4.0.0/linux/p2p-v1"),
-        Some(ReleaseVersion {
-            major: 4,
-            minor: 0,
-            patch: 0
-        })
-    );
-    assert_eq!(
-        P2PVersion::from_client_id("rust-alephium/v4.0.0/linux"),
-        Some(P2PVersion::V1)
-    );
-    assert_eq!(
-        P2PVersion::from_client_id("rust-alephium/v4.0.0/linux/p2p-v2"),
-        Some(P2PVersion::V2)
-    );
-    assert!(ReleaseVersion::from_client_id("invalid").is_none());
-    assert!(P2PVersion::from_client_id("invalid").is_none());
 }

@@ -1,100 +1,94 @@
-# Ordered Fast-Path Roadmap
+# Roadmap — nixiaproject-only node
 
-This roadmap is bot-only. Full-node parity, consensus, VM, wallet, mining, and historical synchronization are permanently out of scope unless the owner explicitly changes the repository mission.
+Each stage either serves more of `docs/NIXIA_API_SURFACE.md` or removes a dependency on the official node. Nothing outside that surface is built. `nixiaproject` is never modified.
+
+End state: rustnode is the bot's only node and the official node is shut down. Until then the bot keeps using the official node directly; rustnode is built alongside it and checked against it. The official node's data is used once, for the bootstrap (N3, N5); after that rustnode follows the chain from Alephium peers on its own.
+
+An endpoint moves from "proxied" to "native" only after the differential check (N1) shows it matching the official node.
 
 ## Current pointer
 
 ```text
-F0 — Scope cut and bounded single-peer fast path
-Status: implementation/verification
+N3 — Follow the chain
 ```
 
-## F0 — Scope cut and single-peer MVP
+## Done
 
-- [x] Replace the full-node mission with the bot fast-path mission.
-- [x] Remove full-node runtime behavior and synchronous disk state from the hot path.
-- [x] Keep official Alephium framing, handshake, and transaction payload compatibility.
-- [x] Add bounded transaction announcement deduplication.
-- [x] Add multiple in-flight `TxsRequest` tracking.
-- [x] Add timeout, bounded retry, and exhausted-request release.
-- [x] Add versioned loopback binary event delivery.
-- [ ] Restore green formatting, compile, Clippy, and tests on CI.
-- [ ] Update official interoperability assertions for the reduced runtime.
+- [x] Official frame codec, signed `Hello`, and `Ping`/`Pong` checked against Scala-generated vectors.
+- [x] Bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limit, timeout, retry.
+- [x] Bounded raw mempool fed by acquisition.
+- [x] Removed everything the bot does not use: ALFP/IPC event server, block/header codecs without typed parsing, blake3, peer version parsing, the `util` crate, broken M2 interop modes, and stale milestone docs.
 
-### F0 exit gate
+## N0 — API gateway
 
-```text
-cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-make official-interop-fastpath
-```
+- [x] `api` crate: HTTP server (default `127.0.0.1:22973`) forwarding every path in the surface to a configured official node, preserving status codes, headers, bodies, and the optional API key; everything else `404`/`405`.
+- [x] `/ws` passthrough with JSON-RPC subscriptions forwarded both ways.
+- [x] Per-endpoint latency and error counters, logged every 60 s.
+- [x] Integration tests against a mock official node; passthrough also checked against the real official node in `make official-interop-fastpath`.
+- [x] Added latency measured: p50 56–67 µs, p99 126–193 µs (`ARCHITECTURE.md` §4).
+- [x] End-to-end on a devnet with the official v4.7.2 release: every endpoint and `/ws` with real chain data, `nixiaproject`'s own client crate, restart, and load (`docs/INTEROPERABILITY.md`).
+- [x] Upstream refusals keep the official status: a rejected WebSocket upgrade returns the official `401`/`404`, not `502`.
+- [x] Native answers honour the official API key (`RUSTNODE_API_KEY`); other requests are forwarded.
+- [ ] Optional before N8: an operator run of `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, to compare native handlers on the bot's live traffic. The bot otherwise stays on the official node until N8.
 
-## F1 — Bot shadow integration
+Exit gate: met by the devnet end-to-end check; the measurement is done.
 
-- [ ] Add `infrastructure/fastpath` client modules in `alphrustalbitrage`.
-- [ ] Decode ALFP v1 with strict size/version checks.
-- [ ] Add process restart and sequence-gap guard.
-- [ ] Feed `RawTransaction` into the existing script decoder in metrics-only mode.
-- [ ] Correlate Rust event transaction IDs with official-node WebSocket IDs.
-- [ ] Record monotonic end-to-end race timestamps.
+## N1 — Differential checking
 
-### F1 exit gate
+- [x] Shadow mode per endpoint: serve the official response, compute the native one, compare as JSON, count matches/mismatches/declined, and log the first mismatches.
+- [x] `--route-mode id=proxy|shadow|native` per route; a native handler defaults to `shadow` until it has matched the official node on live traffic, then to `native`; native handlers defer what they cannot answer exactly.
 
-- No execution decision changes.
-- Raw transaction ID/decode comparison is deterministic.
-- Every reconnect or sequence gap resets speculative state.
+Exit gate: a native handler can be enabled and rolled back per endpoint without restarting the bot. Met: the switch is a rustnode flag; the bot keeps the same `ALEPHIUM_NODE_URL`.
 
-## F2 — Speculative affected-route preparation
+## N2 — Free endpoints
 
-- [ ] Build transaction-local affected-pool observations from Rust events.
-- [ ] Apply a speculative virtual reserve overlay with TTL.
-- [ ] Run affected-route discovery and sizing from memory.
-- [ ] Cache prepared opportunities by transaction ID.
-- [ ] Require official-node acceptance before build/preflight/submit.
-- [ ] Invalidate mismatched or expired speculative results.
+- [x] `GET /addresses/{address}/group` natively for asset addresses (P2PKH, P2MPKH, P2SH), matching the official `AddressSpec` vectors and the official node in `make official-interop-fastpath`. Contract addresses need state and stay proxied until N5.
+- [ ] `GET /infos/node` stays proxied while the official node is behind the gateway; it reports rustnode's own build info only after N8.
 
-### F2 exit gate
+## N3 — Follow the chain
 
-- Shadow opportunities match official-source opportunities within documented rules.
-- No speculative-only transaction can reach signing.
+Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 10,000-height window; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
 
-## F3 — Multi-peer acquisition
+- [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
+- [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
+- [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
+- [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.
+- [x] Keep blocks for a configured window only (`--window`, default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`). In memory for now; restarts bootstrap again.
+- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
 
-- [ ] Replace the single peer with a bounded peer manager.
-- [ ] Maintain independent session/request state per peer.
-- [ ] Deduplicate announcements globally.
-- [ ] Add latency, success, timeout, and malformed-response peer scores.
-- [ ] Add hedged fetch after a measured delay.
-- [ ] Bound aggregate traffic and memory.
+## N4 — Native mempool
 
-### F3 exit gate
+- [ ] Decode `TransactionTemplate` into the official JSON shape.
+- [ ] Remove transactions once a followed block includes them; expire stale ones like the official node.
+- [ ] Connect to direct mainnet peers (a local official node alone announces in 500 ms batches after its own mempool).
+- [ ] Native `GET /mempool/transactions`; `GET /transactions/status` for mempool and windowed blocks.
 
-- One slow or malicious peer cannot block other peers.
-- Multi-peer p99 beats the best stable single-peer baseline.
+## N5 — State bootstrap
 
-## F4 — Event reliability and observability
+- [ ] Read world state from a copy of the operator's synced official node data.
+- [ ] Copy the permanent data the same way: DEX factory events and the sub-contract index from index 0, which the bot reads in full.
+- [ ] Recompute the state root and require it to equal the next block's `depStateHash`.
+- [ ] Native read-only `GET /contracts/{address}/state`, `GET /addresses/{address}/utxos`, `GET /addresses/{address}/balance` at the bootstrap point.
 
-- [ ] Add process epoch to ALFP protocol v2.
-- [ ] Add explicit overflow/gap events.
-- [ ] Add heartbeat and health snapshot events.
-- [ ] Export Prometheus-compatible counters/histograms outside the hot path.
-- [ ] Add reconnect, overload, malformed-frame, and slow-consumer tests.
-- [ ] Complete a 24–72 hour soak test.
+Exit gate: state hash matches for every group; this proves the bootstrap path before any VM work starts.
 
-## F5 — Submission propagation acceleration
+## N6 — VM and state transition
 
-- [ ] Accept only already signed transactions that the official node has accepted locally.
-- [ ] Verify transaction ID before propagation.
-- [ ] Announce/relay through selected peers immediately.
-- [ ] Keep official-node submit/status as the canonical workflow.
-- [ ] Add strict rate, size, and ownership policy.
+- [ ] Ralph VM for the current hard fork only (state starts after bootstrap, so historical rules are not needed).
+- [ ] Apply every followed block; fail closed on any `depStateHash` mismatch.
+- [ ] Prune state to the last 128 heights, like the official `PruneStorageService`, and answer pinned reads (`worldStateBlockHash`) inside that window.
+- [ ] Keep spent outputs for retained blocks (for `rich-details`), DEX factory events permanently, and the sub-contract index permanently.
+- [ ] Events for the indexes on the surface only; native `/events/*`, `blocks-with-events`, `sub-contracts`, `/ws` `contract` notifications.
 
-## F6 — Production release gate
+## N7 — VM calls and transaction building
 
-- [ ] Security review of P2P and IPC inputs.
-- [ ] Bot signer policy remains independent.
-- [ ] Release build provenance and rollback procedure.
-- [ ] Measured p50/p95/p99 improvement documented.
-- [ ] No unresolved sequence-gap, memory-growth, or retry-storm issue.
+- [ ] Native `call-contract`, `call-tx-script`, `multicall-contract`.
+- [ ] Native `decode-unsigned-tx`, `contracts/unsigned-tx/execute-script`, `transactions/build`, with the official gas estimation and UTXO selection.
+- [ ] Native `transactions/rich-details`.
+
+## N8 — Submission and retirement of the official node
+
+- [ ] Native `transactions/submit`: validate and broadcast to peers.
+- [ ] Nothing proxied any more: delete the upstream proxy and shadow mode; measure memory and disk against the official node.
+- [ ] Switch: `nixiaproject`'s `ALEPHIUM_NODE_URL` points at rustnode, and the operator shuts the official node down.
+- [ ] Hard-fork readiness procedure: a new official hard fork must be implemented before its activation height.

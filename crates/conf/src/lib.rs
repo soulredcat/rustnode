@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Configuration and persisted P2P identity for the Alephium bot fast-path peer.
+//! Configuration and persisted P2P identity for the `nixiaproject`-only node.
 
 use std::env;
 use std::fmt;
@@ -13,27 +13,42 @@ use std::os::unix::fs::PermissionsExt;
 
 use alephium_crypto::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH, PrivateKey, PublicKey};
 
-pub const STATUS: &str = "bot fast-path peer configuration";
+pub const STATUS: &str = "nixiaproject-only node configuration";
 
 pub const NETWORK_MAGIC_BYTES: [u8; 4] = [0xa2, 0xfd, 0xc6, 0xbb];
 pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19985";
-pub const DEFAULT_IPC_BIND_ADDRESS: &str = "127.0.0.1:19090";
 pub const DEFAULT_NETWORK_ID: u8 = 2;
 pub const DEFAULT_CONFIGURED_GROUPS: u32 = 4;
 pub const DEFAULT_BROKER_ID: i32 = 0;
 pub const DEFAULT_BROKER_NUM: i32 = 1;
-pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v1";
+pub const CLIENT_ID: &str = "rust-alephium/v4.0.0/linux/p2p-v2";
 
 pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(5);
 pub const DEFAULT_PING_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_IO_POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub const DEFAULT_TX_REQUEST_TIMEOUT: Duration = Duration::from_millis(250);
-pub const DEFAULT_MAX_FRAME_DATA: usize = 1024 * 1024;
+/// Block download responses carry up to 800 blocks.
+pub const DEFAULT_MAX_FRAME_DATA: usize = 64 * 1024 * 1024;
 pub const DEFAULT_TX_REQUEST_BATCH_SIZE: usize = 1;
 pub const DEFAULT_MAX_INFLIGHT_TX_REQUESTS: usize = 8;
 pub const DEFAULT_MAX_TRACKED_TX_IDS: usize = 65_536;
 pub const DEFAULT_MAX_TX_REQUEST_RETRIES: u8 = 2;
-pub const DEFAULT_EVENT_QUEUE_CAPACITY: usize = 4096;
+/// Official `mempool-capacity-per-chain` (2000) times the 16 chains of a 4-group network.
+pub const DEFAULT_MAX_MEMPOOL_TXS: usize = 32_000;
+
+/// Where `nixiaproject` points `ALEPHIUM_NODE_URL`. Distinct from the official
+/// node's default REST port (12973) so both can run on one host.
+pub const DEFAULT_API_BIND_ADDRESS: &str = "127.0.0.1:22973";
+/// The official node that serves every endpoint not yet native.
+pub const DEFAULT_UPSTREAM_URL: &str = "http://127.0.0.1:12973";
+/// Environment variable with the official node's `api-key`; read from the
+/// environment so the key never appears in the process arguments.
+pub const API_KEY_ENV: &str = "RUSTNODE_API_KEY";
+pub const DEFAULT_API_MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_API_MAX_WS_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_API_MAX_CONNECTIONS: usize = 512;
+pub const DEFAULT_API_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(60);
+pub const DEFAULT_API_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const NODE_IDENTITY_PATH_ENV: &str = "RUSTNODE_IDENTITY_PATH";
 pub const DEFAULT_NODE_IDENTITY_PATH: &str = ".local/rustnode/node-identity.bin";
@@ -98,7 +113,6 @@ impl From<io::Error> for NodeIdentityError {
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
     pub peer_address: String,
-    pub ipc_bind_address: String,
     pub network_magic: [u8; 4],
     pub configured_groups: u32,
     pub client_id: String,
@@ -115,7 +129,7 @@ pub struct NodeConfig {
     pub max_inflight_tx_requests: usize,
     pub max_tracked_tx_ids: usize,
     pub max_tx_request_retries: u8,
-    pub event_queue_capacity: usize,
+    pub max_mempool_txs: usize,
     pub network_id: u8,
 }
 
@@ -123,7 +137,6 @@ impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             peer_address: DEFAULT_PEER_ADDRESS.to_owned(),
-            ipc_bind_address: DEFAULT_IPC_BIND_ADDRESS.to_owned(),
             network_magic: NETWORK_MAGIC_BYTES,
             configured_groups: DEFAULT_CONFIGURED_GROUPS,
             client_id: CLIENT_ID.to_owned(),
@@ -140,13 +153,33 @@ impl Default for NodeConfig {
             max_inflight_tx_requests: DEFAULT_MAX_INFLIGHT_TX_REQUESTS,
             max_tracked_tx_ids: DEFAULT_MAX_TRACKED_TX_IDS,
             max_tx_request_retries: DEFAULT_MAX_TX_REQUEST_RETRIES,
-            event_queue_capacity: DEFAULT_EVENT_QUEUE_CAPACITY,
+            max_mempool_txs: DEFAULT_MAX_MEMPOOL_TXS,
             network_id: DEFAULT_NETWORK_ID,
         }
     }
 }
 
+/// `NetworkConfig.magicBytes`: the sum of the eight big-endian ints of
+/// Blake2b(`alephium-{network id}`).
+#[must_use]
+pub fn network_magic(network_id: u8) -> [u8; 4] {
+    let hash = alephium_crypto::hash_blake2b_256(format!("alephium-{network_id}").as_bytes());
+    let sum = hash
+        .chunks(4)
+        .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .fold(0i32, i32::wrapping_add);
+    sum.to_be_bytes()
+}
+
 impl NodeConfig {
+    /// Network id and the frame magic derived from it.
+    #[must_use]
+    pub fn set_network_id(mut self, network_id: u8) -> Self {
+        self.network_id = network_id;
+        self.network_magic = network_magic(network_id);
+        self
+    }
+
     #[must_use]
     pub fn with_peer_address(peer_address: impl Into<String>) -> Self {
         Self {
@@ -158,12 +191,6 @@ impl NodeConfig {
     #[must_use]
     pub fn set_peer_address(mut self, peer_address: impl Into<String>) -> Self {
         self.peer_address = peer_address.into();
-        self
-    }
-
-    #[must_use]
-    pub fn set_ipc_bind_address(mut self, ipc_bind_address: impl Into<String>) -> Self {
-        self.ipc_bind_address = ipc_bind_address.into();
         self
     }
 
@@ -186,12 +213,6 @@ impl NodeConfig {
     }
 
     #[must_use]
-    pub fn set_event_queue_capacity(mut self, value: usize) -> Self {
-        self.event_queue_capacity = value.max(1);
-        self
-    }
-
-    #[must_use]
     pub fn with_node_identity(mut self, identity: NodeIdentity) -> Self {
         self.private_key = identity.private_key;
         self.clique_id = identity.clique_id;
@@ -209,6 +230,45 @@ impl NodeConfig {
     #[must_use]
     pub const fn configured_groups(&self) -> u32 {
         self.configured_groups
+    }
+}
+
+/// HTTP and `/ws` gateway settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiConfig {
+    pub bind_address: String,
+    pub upstream_url: String,
+    pub max_request_bytes: usize,
+    pub max_ws_message_bytes: usize,
+    pub max_connections: usize,
+    pub upstream_timeout: Duration,
+    pub header_read_timeout: Duration,
+    /// Group count of the network the upstream serves (4 on mainnet).
+    pub groups: u32,
+    /// `route-id=mode` overrides, validated by the gateway at startup.
+    pub route_modes: Vec<String>,
+    /// Network of the official node and the followed chain (0 mainnet).
+    pub network_id: u8,
+    /// The official node's `api-key`, if it has one (from [`API_KEY_ENV`]).
+    /// Natively answered requests must carry exactly this key.
+    pub api_key: Option<String>,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: DEFAULT_API_BIND_ADDRESS.to_owned(),
+            upstream_url: DEFAULT_UPSTREAM_URL.to_owned(),
+            max_request_bytes: DEFAULT_API_MAX_REQUEST_BYTES,
+            max_ws_message_bytes: DEFAULT_API_MAX_WS_MESSAGE_BYTES,
+            max_connections: DEFAULT_API_MAX_CONNECTIONS,
+            upstream_timeout: DEFAULT_API_UPSTREAM_TIMEOUT,
+            header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
+            groups: DEFAULT_CONFIGURED_GROUPS,
+            route_modes: Vec::new(),
+            network_id: 0,
+            api_key: None,
+        }
     }
 }
 
@@ -299,4 +359,16 @@ fn set_restrictive_permissions(path: &Path) -> io::Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NETWORK_MAGIC_BYTES, network_magic};
+
+    #[test]
+    fn network_magic_matches_the_official_derivation() {
+        assert_eq!(network_magic(2), NETWORK_MAGIC_BYTES);
+        assert_eq!(network_magic(0), [0xb0, 0xa6, 0x80, 0x8e]);
+        assert_eq!(network_magic(1), [0xd7, 0x72, 0x8c, 0x8e]);
+    }
 }

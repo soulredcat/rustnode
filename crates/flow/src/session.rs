@@ -2,10 +2,15 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::sync::PoisonError;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use alephium_conf::NodeConfig;
 use alephium_crypto::{PrivateKey, PublicKey, sign};
+use alephium_protocol::message::payload::{
+    BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE, BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE,
+    BLOCKS_REQUEST_CODE, BLOCKS_RESPONSE_CODE,
+};
 use alephium_protocol::message::payload::{
     CHAIN_STATE_CODE, ChainState, CliqueId, HELLO_CODE, Hello, INV_REQUEST_CODE, INV_RESPONSE_CODE,
     InterBrokerInfo, InvRequest, InvResponse, NEW_BLOCK_CODE, NEW_BLOCK_HASH_CODE, NEW_HEADER_CODE,
@@ -13,9 +18,14 @@ use alephium_protocol::message::payload::{
     TXS_REQUEST_CODE, TXS_RESPONSE_CODE, TxsRequest, TxsResponse, decode_chain_state_payload,
     decode_hello_payload, decode_inv_request_payload, decode_inv_response_payload,
     decode_new_txhashes_payload, decode_ping_payload, decode_pong_payload,
-    decode_txs_request_payload, encode_hello_payload, encode_inv_request_payload,
-    encode_inv_response_payload, encode_ping_payload, encode_pong_payload,
-    encode_txs_request_payload, encode_txs_response_payload,
+    decode_txs_request_payload, encode_hello_payload, encode_inv_response_payload,
+    encode_ping_payload, encode_pong_payload, encode_txs_request_payload,
+    encode_txs_response_payload,
+};
+use alephium_protocol::message::sync::{
+    decode_blocks_and_uncles_by_heights_response, decode_blocks_response, decode_new_block,
+    decode_new_block_hash, encode_blocks_and_uncles_by_heights_request, encode_blocks_request,
+    encode_chain_state,
 };
 use alephium_protocol::message::{
     FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data,
@@ -23,11 +33,11 @@ use alephium_protocol::message::{
 };
 use alephium_serde::Error as SerdeError;
 
-use crate::event::BotEvent;
-use crate::ipc::EventSink;
+use crate::mempool::{RawMempoolTx, SharedRawMempool};
 use crate::request_tracker::TxRequestTracker;
+use crate::sync::{BlockSync, SharedChainStore};
 
-pub const STATUS: &str = "Alephium transaction-announcement fast path enabled";
+pub const STATUS: &str = "Alephium P2P transaction acquisition enabled";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionState {
@@ -36,7 +46,6 @@ enum SessionState {
     Established,
 }
 
-#[derive(Debug)]
 struct Session {
     state: SessionState,
     next_request_id: u32,
@@ -45,6 +54,10 @@ struct Session {
     next_ping_at: Instant,
     outstanding_inv_request: Option<u32>,
     tx_tracker: TxRequestTracker,
+    block_sync: Option<BlockSync>,
+    next_sync_log: Instant,
+    /// Last `ChainState` sent, resent when it changes or every 10 s.
+    sent_chain_state: Option<(Vec<u8>, Instant)>,
 }
 
 #[derive(Debug)]
@@ -86,18 +99,12 @@ impl From<SerdeError> for FastPathError {
     }
 }
 
-pub fn run(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathError> {
-    let result = run_session(config, events);
-    if let Err(error) = &result {
-        let _ = events.publish(BotEvent::peer_disconnected(
-            &error.to_string(),
-            unix_time_ns().unwrap_or_default(),
-        ));
-    }
-    result
-}
-
-fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathError> {
+/// Runs one P2P session. With `chain`, blocks are followed into it.
+pub fn run(
+    config: &NodeConfig,
+    mempool: &SharedRawMempool,
+    chain: Option<&SharedChainStore>,
+) -> Result<(), FastPathError> {
     let mut stream = TcpStream::connect(&config.peer_address)?;
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(config.io_poll_interval))?;
@@ -116,6 +123,11 @@ fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathEr
             config.tx_request_timeout,
             config.max_tx_request_retries,
         ),
+        block_sync: chain.map(|chain| {
+            BlockSync::new(chain.clone(), config.configured_groups, config.network_id)
+        }),
+        next_sync_log: Instant::now(),
+        sent_chain_state: None,
     };
 
     send_hello(&mut stream, config)?;
@@ -153,7 +165,7 @@ fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathEr
             &magic,
             &mut stream,
             config,
-            events,
+            mempool,
             &mut inbound,
             &mut session,
         )?;
@@ -178,15 +190,69 @@ fn run_session(config: &NodeConfig, events: &EventSink) -> Result<(), FastPathEr
                 eprintln!("fastpath exhausted retries for {exhausted} transaction(s)");
             }
             flush_tx_requests(&mut stream, config, &mut session, now)?;
+            request_blocks(&mut stream, config, &mut session, now)?;
         }
     }
+}
+
+fn request_blocks(
+    stream: &mut TcpStream,
+    config: &NodeConfig,
+    session: &mut Session,
+    now: Instant,
+) -> Result<(), FastPathError> {
+    let Some(sync) = session.block_sync.as_mut() else {
+        return Ok(());
+    };
+    if let Some(request) = sync.next_request(now, &mut session.next_request_id) {
+        let payload = encode_blocks_and_uncles_by_heights_request(request.id, &request.ranges);
+        send_payload(
+            stream,
+            config,
+            BLOCKS_AND_UNCLES_BY_HEIGHTS_REQUEST_CODE,
+            &payload,
+        )?;
+        let blocks: i32 = request
+            .ranges
+            .iter()
+            .map(|range| range.to_height - range.from_height + 1)
+            .sum();
+        println!(
+            "sent BlocksAndUnclesByHeightsRequest id={} chains={} heights={blocks}",
+            request.id,
+            request.ranges.len()
+        );
+    }
+    // v2 peers decide whether they are synced from our ChainState; without it
+    // they never consider themselves synced and stop relaying blocks.
+    if let Some(tips) = sync.chain_state() {
+        let payload = encode_chain_state(&tips);
+        let due = session.sent_chain_state.as_ref().is_none_or(|(last, at)| {
+            *last != payload || now.duration_since(*at) >= std::time::Duration::from_secs(10)
+        });
+        if due {
+            send_payload(stream, config, CHAIN_STATE_CODE, &payload)?;
+            session.sent_chain_state = Some((payload, now));
+        }
+    }
+    if now >= session.next_sync_log {
+        session.next_sync_log = now + std::time::Duration::from_secs(10);
+        println!(
+            "blocks followed={} orphans={} weight checks={} mismatches={}",
+            sync.added,
+            sync.orphan_count(),
+            sync.weight_checks,
+            sync.weight_mismatches
+        );
+    }
+    Ok(())
 }
 
 fn process_inbound(
     magic: &NetworkMagic,
     stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
+    mempool: &SharedRawMempool,
     inbound: &mut Vec<u8>,
     session: &mut Session,
 ) -> Result<(), FastPathError> {
@@ -211,7 +277,7 @@ fn process_inbound(
         let payload = raw.payload_body;
         let payload_len = payload.len();
         match raw.payload_code {
-            HELLO_CODE => handle_hello(stream, config, events, session, payload)?,
+            HELLO_CODE => handle_hello(config, session, payload)?,
             PING_CODE => {
                 let ping = decode_ping_payload(payload)?.finish(payload_len)?;
                 handle_ping(stream, config, session, ping)?;
@@ -230,11 +296,40 @@ fn process_inbound(
             }
             CHAIN_STATE_CODE => {
                 let state = decode_chain_state_payload(payload)?.finish(payload_len)?;
+                if let Some(sync) = session.block_sync.as_mut() {
+                    sync.on_chain_state(&state.tips);
+                }
                 handle_chain_state(state);
+            }
+            BLOCKS_AND_UNCLES_BY_HEIGHTS_RESPONSE_CODE => {
+                if let Some(sync) = session.block_sync.as_mut() {
+                    let (id, blocks) = decode_blocks_and_uncles_by_heights_response(payload)?;
+                    let received: usize = blocks.iter().map(Vec::len).sum();
+                    let added = sync.on_blocks(id, blocks);
+                    println!(
+                        "received BlocksAndUnclesByHeightsResponse id={id} blocks={received} added={}",
+                        added.len()
+                    );
+                }
+            }
+            NEW_BLOCK_CODE => {
+                if let Some(sync) = session.block_sync.as_mut() {
+                    let block = decode_new_block(payload)?;
+                    for added in sync.on_new_blocks(vec![block]) {
+                        println!(
+                            "followed block {} {}->{} height={} canonical={}",
+                            added.hash.to_hex(),
+                            added.from,
+                            added.to,
+                            added.height,
+                            added.canonical
+                        );
+                    }
+                }
             }
             NEW_TX_HASHES_CODE => {
                 let hashes = decode_new_txhashes_payload(payload)?.finish(payload_len)?;
-                handle_new_tx_hashes(stream, config, events, session, hashes)?;
+                handle_new_tx_hashes(stream, config, session, hashes)?;
             }
             TXS_REQUEST_CODE => {
                 let request = decode_txs_request_payload(payload)?.finish(payload_len)?;
@@ -242,9 +337,34 @@ fn process_inbound(
             }
             TXS_RESPONSE_CODE => {
                 let response = decode_single_txs_response_payload(payload)?.finish(payload_len)?;
-                handle_txs_response(events, session, response);
+                handle_txs_response(mempool, session, response);
             }
-            NEW_BLOCK_CODE | NEW_HEADER_CODE | NEW_INV_CODE | NEW_BLOCK_HASH_CODE => {}
+            NEW_BLOCK_HASH_CODE => {
+                let hash = decode_new_block_hash(payload)?;
+                if let Some(sync) = session.block_sync.as_mut()
+                    && sync.should_fetch(&hash)
+                {
+                    let id = next_request_id(&mut session.next_request_id);
+                    let payload = encode_blocks_request(id, &[hash]);
+                    send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+                }
+            }
+            BLOCKS_RESPONSE_CODE => {
+                if let Some(sync) = session.block_sync.as_mut() {
+                    let (_, blocks) = decode_blocks_response(payload)?;
+                    for added in sync.on_new_blocks(blocks) {
+                        println!(
+                            "followed block {} {}->{} height={} canonical={}",
+                            added.hash.to_hex(),
+                            added.from,
+                            added.to,
+                            added.height,
+                            added.canonical
+                        );
+                    }
+                }
+            }
+            NEW_HEADER_CODE | NEW_INV_CODE => {}
             unsupported if session.state == SessionState::Established => {
                 eprintln!("fastpath ignored unsupported payload code {unsupported}");
             }
@@ -260,9 +380,7 @@ fn process_inbound(
 }
 
 fn handle_hello(
-    stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
     session: &mut Session,
     payload: &[u8],
 ) -> Result<(), FastPathError> {
@@ -279,32 +397,6 @@ fn handle_hello(
         hello.client_id, hello.broker_info.broker_num, hello.broker_info.broker_id
     );
     session.state = SessionState::Established;
-    let _ = events.publish(BotEvent::peer_connected(
-        &config.peer_address,
-        unix_time_ns()?,
-    ));
-    send_readiness_probe(stream, config, session)
-}
-
-fn send_readiness_probe(
-    stream: &mut TcpStream,
-    config: &NodeConfig,
-    session: &mut Session,
-) -> Result<(), FastPathError> {
-    if session.outstanding_inv_request.is_some() {
-        return Ok(());
-    }
-    let request = InvRequest {
-        id: RequestId {
-            value: next_request_id(&mut session.next_request_id),
-        },
-        locators: vec![Vec::new()],
-    };
-    let payload = encode_inv_request_payload(&request)
-        .map_err(|error| FastPathError::Protocol(format!("encode InvRequest failed: {error}")))?;
-    send_payload(stream, config, INV_REQUEST_CODE, &payload)?;
-    session.outstanding_inv_request = Some(request.id.value);
-    println!("sent InvRequest id={} as readiness probe", request.id.value);
     Ok(())
 }
 
@@ -329,28 +421,21 @@ fn handle_inv_response(session: &mut Session, response: InvResponse) {
 }
 
 fn handle_chain_state(state: ChainState) {
-    println!("received ChainState with {} tip(s)", state.tips.len());
+    let heights: Vec<i32> = state.tips.iter().map(|tip| tip.height).collect();
+    println!("received ChainState heights={heights:?}");
 }
 
 fn handle_new_tx_hashes(
     stream: &mut TcpStream,
     config: &NodeConfig,
-    events: &EventSink,
     session: &mut Session,
     announcement: NewTxHashes,
 ) -> Result<(), FastPathError> {
-    let observed_at = unix_time_ns()?;
     let mut accepted = 0usize;
     for (chain_index, transaction_ids) in announcement.hashes {
         for transaction_id in transaction_ids {
             if session.tx_tracker.enqueue(chain_index, transaction_id) {
                 accepted = accepted.saturating_add(1);
-                let _ = events.publish(BotEvent::transaction_announced(
-                    chain_index.from,
-                    chain_index.to,
-                    transaction_id.bytes,
-                    observed_at,
-                ));
             }
         }
     }
@@ -390,7 +475,7 @@ fn flush_tx_requests(
     Ok(())
 }
 
-fn handle_txs_response(events: &EventSink, session: &mut Session, response: TxsResponse) {
+fn handle_txs_response(mempool: &SharedRawMempool, session: &mut Session, response: TxsResponse) {
     let response_id = response.id.value;
     let completion = session.tx_tracker.complete(response_id, response.txs);
     if completion.unknown_request {
@@ -402,17 +487,20 @@ fn handle_txs_response(events: &EventSink, session: &mut Session, response: TxsR
         return;
     }
 
-    let observed_at = unix_time_ns().unwrap_or_default();
-    for transaction in completion.transactions {
-        let chain_from = transaction.chain_index.from;
-        let chain_to = transaction.chain_index.to;
-        let _ = events.publish(BotEvent::raw_transaction(
-            chain_from,
-            chain_to,
-            transaction.transaction_id,
-            transaction.raw_transaction,
-            observed_at,
-        ));
+    if !completion.transactions.is_empty() {
+        let seen_at_unix_ms = now_millis().unwrap_or_default();
+        let mut pool = mempool.lock().unwrap_or_else(PoisonError::into_inner);
+        for transaction in completion.transactions {
+            pool.insert(
+                transaction.transaction_id,
+                RawMempoolTx {
+                    chain_from: transaction.chain_index.from,
+                    chain_to: transaction.chain_index.to,
+                    raw: transaction.raw_transaction,
+                    seen_at_unix_ms,
+                },
+            );
+        }
     }
 
     if completion.requeued > 0 || completion.exhausted > 0 {
@@ -552,12 +640,4 @@ fn now_millis() -> Result<i64, FastPathError> {
         .map_err(|error| FastPathError::Protocol(format!("invalid system time: {error}")))?;
     i64::try_from(duration.as_millis())
         .map_err(|error| FastPathError::Protocol(format!("timestamp overflow: {error}")))
-}
-
-fn unix_time_ns() -> Result<u64, FastPathError> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| FastPathError::Protocol(format!("invalid system time: {error}")))?;
-    u64::try_from(duration.as_nanos())
-        .map_err(|error| FastPathError::Protocol(format!("nanosecond timestamp overflow: {error}")))
 }

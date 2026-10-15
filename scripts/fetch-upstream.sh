@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ALEPHIUM_UPSTREAM_DIR:-${ROOT_DIR}/.upstream/alephium}"
 REPOSITORY="https://github.com/alephium/alephium.git"
-COMMIT="63bcf6998508025f9538f3377629fe9e66df6c53"
+COMMIT="76a71237e295693e760a15f3eb5d6566f2a13d93"
 GIT_CMD="${GIT_CMD:-git}"
 
 mkdir -p "$(dirname "${TARGET_DIR}")"

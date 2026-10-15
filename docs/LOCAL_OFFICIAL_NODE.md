@@ -6,18 +6,18 @@ This harness runs the pinned official Scala node as a **local isolated devnet pe
 
 It must be used for handshake, malformed-frame, and protocol experiments before any interaction with a public Alephium network.
 
-Pinned source:
+Pinned source (official release v4.7.2):
 
 ```text
 https://github.com/alephium/alephium
-63bcf6998508025f9538f3377629fe9e66df6c53
+76a71237e295693e760a15f3eb5d6566f2a13d93
 ```
 
 ## Current support
 
 The canonical harness targets Linux and WSL2 because that matches CI and allows one set of verified scripts.
 
-Native PowerShell automation is not yet provided. On Windows, use WSL2 for M0/M1 work rather than manually translating commands and creating an unrecorded configuration variant.
+Native PowerShell automation is not provided. On Windows, use WSL2 rather than manually translating commands and creating an unrecorded configuration variant.
 
 ## Local topology
 
@@ -28,13 +28,13 @@ bootstrap peers: none
 P2P: 127.0.0.1:19985
 REST: 127.0.0.1:12973
 miner API: 127.0.0.1:10973
-P2P mode for M1: v1
+P2P mode: v1
 
           ^
           | direct TCP, no adapter
           v
 
-Rust node under development
+rustnode
 ```
 
 The official node is intentionally disconnected from mainnet/testnet discovery.
@@ -51,23 +51,13 @@ The official node is intentionally disconnected from mainnet/testnet discovery.
 
 CI currently verifies Java 17 with the pinned official source.
 
-## One-command smoke test
+## Interop run
 
 ```bash
-make official-smoke
+make official-interop-fastpath
 ```
 
-The command:
-
-1. fetches the exact pinned official commit;
-2. builds only `app/assembly`;
-3. creates an isolated home under `.local/official-node/home`;
-4. copies `config/official-node/user.conf` with mode `0600`;
-5. starts the official JAR;
-6. waits for `127.0.0.1:${OFFICIAL_NODE_P2P_PORT:-19985}`;
-7. verifies the process remains alive after readiness;
-8. prints recent logs;
-9. shuts the process down through a cleanup trap.
+The harness fetches the pinned official commit, builds only `app/assembly`, creates an isolated home under `.local/official-node/home`, copies `config/official-node/user.conf` with mode `0600`, starts the official JAR, waits for the P2P listener, runs the rustnode against it, and shuts both down through a cleanup trap. See `tests/interoperability/fastpath/README.md`.
 
 Generated data and logs remain under `.local/official-node/` and are ignored by Git.
 
@@ -125,21 +115,17 @@ Important choices:
 - wallet is disabled;
 - API key is disabled only because REST binds to loopback;
 - P2P v2 is disabled until Rust implements and verifies it;
-- the official ping interval is reduced to five seconds for M1 liveness tests.
-- `OFFICIAL_NODE_AUTO_MINE_FOR_DEV` enables local auto-mining in the copied runtime config
-  (`mempool.auto-mine-for-dev = true`) when full-announcement interop is requested;
-- `OFFICIAL_NODE_ENABLE_WALLET` enables wallet APIs in the copied runtime config
-  (`wallet.enabled = true`) when full-announcement interop requires transaction seeding.
+- the official ping interval is reduced to five seconds for liveness tests.
 
 `OFFICIAL_NODE_P2P_PORT`, `OFFICIAL_NODE_REST_PORT`, and
 `OFFICIAL_NODE_MINER_API_PORT` override the copied runtime config’s listener ports in
 the `prepare-home.sh` step.
 
-Do not change the runtime copy manually. Change the committed source config, document the reason, then rerun the smoke workflow.
+Do not change the runtime copy manually. Change the committed source config, document the reason, then rerun `make official-interop-fastpath`.
 
 ## Logs
 
-Smoke log:
+Official node log:
 
 ```text
 .local/official-node/official-node.log
@@ -166,7 +152,3 @@ Jangan menjalankan dua node yang bind ke `19985` secara bersamaan; gunakan
 Do not expose ports `19985`, `12973`, or `10973` beyond loopback for this harness.
 
 Do not reuse the harness home for wallets, mining, or production state.
-
-## M0-004 acceptance
-
-M0-004 is complete only when the GitHub Actions `official-node-smoke` workflow builds the pinned application and proves the loopback P2P listener opens successfully. A written runbook without a successful smoke run is not sufficient.

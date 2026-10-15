@@ -2,22 +2,15 @@
 
 Tests are evidence of compatibility, not only Rust implementation quality.
 
-Planned layout:
+Current layout:
 
 ```text
 tests/
-├── vectors/
-│   ├── m1/
-│   ├── protocol/
-│   ├── validation/
-│   └── vm/
-├── interoperability/
-│   ├── m1/
-│   └── sync/
-├── differential/
-├── replay/
-└── recovery/
+├── vectors/m1/                Scala-generated wire vectors (handshake, liveness, framing)
+└── interoperability/fastpath/ live run against the pinned official node
 ```
+
+Later stages in `TODO.md` add vectors for block/header and transaction serde, and a `differential/` record of native API responses compared against the official node.
 
 ## Vector provenance
 

@@ -1,172 +1,112 @@
-# Architecture — Alephium Bot Fast-Path
+# Architecture — rustnode
 
 ## 1. Mission
 
-Provide the earliest practical raw Alephium transaction signal to `alphrustalbitrage` without rebuilding consensus, world state, or the VM.
+Serve `nixiaproject` the exact HTTP and WebSocket surface it uses (`docs/NIXIA_API_SURFACE.md`) from a node that keeps only what those endpoints need. The bot reaches every endpoint through `ALEPHIUM_NODE_URL`, so switching is a configuration change on its side.
+
+## 2. Target shape
 
 ```text
-Alephium P2P peer
-      |
-      | NewTxHashes
-      v
-Rust fast-path peer
-      |
-      | immediate bounded TxsRequest
-      v
-raw transaction bytes
-      |
-      | versioned loopback binary IPC
-      v
-alphrustalbitrage speculative scanner
-      |
-      | official-node accepted event remains mandatory
-      v
-build -> preflight -> policy verify -> sign -> submit
+nixiaproject ── HTTP + /ws (ALEPHIUM_NODE_URL) ──> rustnode API
+                                                     ├── native handler   (once it matches official responses)
+                                                     └── upstream proxy ──> official node (until then)
+
+rustnode P2P ── Alephium peers: handshake, liveness, tx announcements and fetch, blocks
+rustnode state ── pruned world state, bootstrapped from a synced official node and
+                  checked against block depStateHash; recent blocks and events only
 ```
 
-## 2. Trust boundary
+This is the shape during development. Migration is endpoint by endpoint: the proxy lets rustnode answer the whole surface while each native handler is compared against the official node. Meanwhile the bot keeps using the official node directly.
 
-The fast-path process is an **untrusted market-data accelerator**. It is not a consensus authority.
+End state (N8): nothing is proxied, the proxy is deleted, the bot's `ALEPHIUM_NODE_URL` points at rustnode, and the official node is shut down. rustnode then depends only on Alephium peers; the official node's data was used once, for the bootstrap.
 
-Allowed bot actions from fast-path events:
-
-- decode transaction intent;
-- identify affected pools and tokens;
-- construct virtual reserve overlays;
-- enumerate and quote affected routes;
-- warm route-build inputs.
-
-Forbidden actions from fast-path events alone:
-
-- signing;
-- broadcasting;
-- changing canonical state;
-- marking a transaction valid, confirmed, or final;
-- bypassing official-node build/preflight checks.
-
-## 3. Runtime components
+## 3. Crates today
 
 ```text
 crates/
-├── util/       compatibility constants and small helpers
-├── serde/      exact Alephium wire codecs
-├── crypto/     hashing, signatures, handshake primitives
-├── protocol/   official P2P frames and payload structures
-├── conf/       peer, IPC, limits, retry, and P2P identity configuration
-├── flow/       bot fast-path runtime (historical crate name retained)
+├── api/        HTTP and /ws gateway: allowlist, upstream proxy, per-route counters
 │   └── src/
-│       ├── event.rs            versioned bot event representation
-│       ├── ipc.rs              loopback TCP publisher and bounded queue
+│       ├── routes.rs           the nixiaproject surface; anything else is 404/405
+│       ├── proxy.rs            HTTP forward with body limit, timeout, hop-by-hop stripping
+│       ├── ws.rs               /ws upgrade and frame relay in both directions
+│       ├── shadow.rs           official answer to the client, native answer compared as JSON
+│       ├── native/             native handlers; a handler returns None to defer to upstream
+│       │   └── address.rs      asset-address group (P2PKH, P2MPKH, P2SH)
+│       ├── metrics.rs          per-route counts and latency, logged every 60 s
+│       └── lib.rs              listener, connection limit, header-read timeout
+├── serde/      exact Alephium wire codecs
+├── crypto/     Blake2b hashing and secp256k1 handshake signatures
+├── model/      blocks, headers, transactions, lockup/unlock scripts, VM instructions and
+│               values with the official binary encoding and hashes; checked byte for byte
+│               against every block of an official node (`tests/official_raw_blocks.rs`)
+├── chain/      recent blocks per chain: height-based canonical chain with the official
+│               hash tie-break, tips and their pruning, flow weights, the kept window
+├── protocol/   official P2P frames and the payloads the runtime uses
+├── conf/       peer, limits, retry, mempool capacity, and P2P identity configuration
+├── flow/       P2P runtime
+│   └── src/
+│       ├── session.rs          handshake, liveness, and transaction acquisition
 │       ├── request_tracker.rs  pending/in-flight/retry/dedupe lifecycle
-│       ├── session.rs          P2P handshake, liveness, and tx acquisition
+│       ├── mempool.rs          bounded raw mempool (source for GET /mempool/transactions)
 │       └── lib.rs              public composition boundary
 └── app/        CLI and process lifecycle
 ```
 
-The `flow` directory name is retained to avoid a low-value package/lockfile migration during the first scope cut. It no longer owns BlockFlow, validation, synchronization, or canonical state.
+`protocol` decodes only `Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`, and single-item `TxsResponse`. The full official payload code table is kept so block and header messages are recognized by code and dropped. Block and header codecs come back with typed parsing and official vectors when block following is built (`TODO.md`).
 
-## 4. Hot-path invariants
+Planned crates, each added only when its stage starts: `state` (pruned world state and bootstrap), `vm` (Ralph execution). Native handlers and differential checks live in `api`.
 
-From `NewTxHashes` receipt until event publication:
+## 4. Gateway
 
-- no PostgreSQL access;
-- no filesystem access;
-- no official REST API call;
-- no JSON serialization;
-- no blocking on a bot consumer;
-- no unbounded queue or map;
-- no wallet/private-key access;
-- no full transaction validation.
+The binary always runs the gateway; P2P acquisition runs only when a peer is given.
 
-The IPC publisher uses a bounded `sync_channel` and `try_send`. Queue pressure drops events instead of blocking the P2P reader. Every attempted event receives a monotonically increasing process-local sequence, so the bot can detect gaps.
+Bounds: request bodies up to 4 MiB (`413` above), `/ws` messages up to 16 MiB, at most 512 concurrent connections, a 10 s header-read timeout, and a 60 s upstream timeout (`504`). An unreachable official node gives `502`. Responses are streamed back, not buffered. Hop-by-hop headers are dropped in both directions; `X-API-KEY` is forwarded, including on `/ws`.
 
-## 5. Transaction request lifecycle
+Route modes: `proxy`, `shadow`, `native` per route (`--route-mode id=mode`). A native handler starts in `shadow` and becomes the default `native` once it has matched the official node on live traffic (`native::verified`); `address-group` is native by default. In `native` mode a handler that cannot answer exactly like the official node (for example a contract address, which needs state) returns `None` and the request is proxied, so error bodies always come from the official node.
+
+`/ws` relays text, binary, and close frames both ways. Ping and Pong stay hop-local, because each side's WebSocket library answers them itself.
+
+Measured added latency (release build, mock upstream on loopback, 5,000 sequential `GET /mempool/transactions` per run, three runs on a 4-vCPU container): p50 56–67 µs, p95 111–118 µs, p99 126–193 µs. Reproduce with `cargo test --release -p alephium-api --test gateway -- --ignored --nocapture`.
+
+## 5. Transaction acquisition
 
 ```text
-announced
+NewTxHashes from peer
    |
    v
-deduplicated + queued
+deduplicated + queued (bounded)
    |
    v
-batched by chain
-   |
-   v
-in-flight request map (bounded)
+in-flight TxsRequest map (bounded, one transaction per request)
    |                    |
-response                timeout
+TxsResponse             timeout
    |                    |
    v                    v
-raw event          bounded retry
-   |                    |
-received cache       exhausted -> release
+raw mempool        bounded retry
+(bounded, oldest   exhausted -> release
+ evicted first)
 ```
 
-Configuration controls:
+Configuration controls the tracked-ID limit, concurrent requests, request timeout, retry count, and raw mempool capacity (default 32,000: the official `mempool-capacity-per-chain` of 2,000 times 16 chains).
 
-- maximum tracked transaction IDs;
-- maximum concurrent `TxsRequest` messages;
-- transaction IDs per request;
-- request timeout;
-- retry count;
-- IPC event queue capacity.
+The raw mempool holds unvalidated `TransactionTemplate` bytes. Serving `GET /mempool/transactions` from it also needs transaction decoding to the official JSON shape and removal of transactions once a followed block includes them.
 
-## 6. IPC protocol
+### Latency fact
 
-Transport: loopback TCP, one bot consumer.
+At the pinned baseline the official node announces a transaction to peers only after its own mempool accepts it, and flushes announcements in batches (`batch-broadcast-txs-frequency = 500 milli`). While this node's only peer is a local official node, it therefore sees transactions later than that node's own mempool. Acquisition only leads when connected directly to other mainnet peers.
 
-Frame layout, big-endian:
+## 6. Hot-path invariants
 
-```text
-magic                  4 bytes  "ALFP"
-version                u16      current: 1
-event kind             u8
-flags                  u8
-sequence               u64
-observed_at_unix_ns    u64
-chain_from             i32
-chain_to               i32
-transaction_id         32 bytes
-payload_length         u32
-payload                N bytes
-```
+From `NewTxHashes` receipt until the transaction is in the raw mempool:
 
-Event kinds:
-
-```text
-1 PeerConnected
-2 TransactionAnnounced
-3 RawTransaction
-4 PeerDisconnected
-5 Heartbeat (reserved)
-```
-
-`RawTransaction.payload` contains canonical raw bytes received from the P2P `TxsResponse` payload. A sequence gap means the bot must treat its speculative view as incomplete and rely on official-node recovery.
+- no filesystem, database, or REST access;
+- no JSON serialization;
+- no unbounded queue or map;
+- no wallet/private-key access.
 
 ## 7. Failure handling
 
-- Peer disconnect: session returns an error; `--watch` reconnects.
-- Request timeout: missing transaction IDs are requeued up to the configured retry limit.
-- Unknown response ID: ignored and logged.
-- IPC consumer absent: events are dropped without blocking P2P.
-- IPC queue full: events are dropped and counters increase.
-- Malformed official frame/payload: session fails closed and reconnects.
-
-## 8. Scope exclusions
-
-Do not add these modules unless the repository mission is explicitly changed again:
-
-```text
-consensus
-block validation
-transaction validation
-mempool authority
-BlockFlow
-Ralph/Alphred VM
-world state
-RocksDB canonical storage
-wallet
-miner
-REST API parity
-explorer/indexer
-```
+- Peer disconnect: the session returns an error; `--watch` reconnects. The raw mempool survives reconnects.
+- Request timeout: missing transaction IDs are requeued up to the retry limit.
+- Unknown or malformed `TxsResponse`: ignored and logged.
+- Malformed official frame or payload: the session fails closed and reconnects.

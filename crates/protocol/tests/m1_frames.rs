@@ -52,7 +52,9 @@ fn decode_hex(value: &str) -> Vec<u8> {
     assert_eq!(value.len() % 2, 0, "hex fixture must have even length");
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let text = core::str::from_utf8(pair).expect("fixture hex must be ASCII");
             u8::from_str_radix(text, 16).expect("fixture must contain valid hex")
