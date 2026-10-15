@@ -36,6 +36,9 @@ crates/
 │       └── lib.rs              listener, connection limit, header-read timeout
 ├── serde/      exact Alephium wire codecs
 ├── crypto/     Blake2b hashing and secp256k1 handshake signatures
+├── model/      blocks, headers, transactions, lockup/unlock scripts, VM instructions and
+│               values with the official binary encoding and hashes; checked byte for byte
+│               against every block of an official node (`tests/official_raw_blocks.rs`)
 ├── protocol/   official P2P frames and the payloads the runtime uses
 ├── conf/       peer, limits, retry, mempool capacity, and P2P identity configuration
 ├── flow/       P2P runtime

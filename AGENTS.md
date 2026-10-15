@@ -52,6 +52,7 @@ Out of scope:
 ## Architecture rules
 
 - `protocol`, `serde`, and `crypto` own compatibility primitives, limited to what the runtime uses.
+- `model` owns the protocol data types (blocks, transactions, scripts, values) and their official encoding and hashes.
 - `conf` owns configuration and the non-funded P2P identity.
 - `flow` owns the P2P session, request tracking, and the raw mempool.
 - `api` owns the HTTP and `/ws` gateway: the allowlist, the upstream proxy, and native handlers as they arrive.
