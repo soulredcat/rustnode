@@ -34,7 +34,7 @@ Exit gate: the operator run above; the measurement is done.
 ## N1 — Differential checking
 
 - [x] Shadow mode per endpoint: serve the official response, compute the native one, compare as JSON, count matches/mismatches/declined, and log the first mismatches.
-- [x] `--route-mode id=proxy|shadow|native` per route; routes with a native handler default to `shadow`; native handlers defer what they cannot answer exactly.
+- [x] `--route-mode id=proxy|shadow|native` per route; a native handler defaults to `shadow` until it has matched the official node on live traffic, then to `native`; native handlers defer what they cannot answer exactly.
 
 Exit gate: a native handler can be enabled and rolled back per endpoint without restarting the bot. Met: the switch is a rustnode flag; the bot keeps the same `ALEPHIUM_NODE_URL`.
 

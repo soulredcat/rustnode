@@ -22,7 +22,8 @@ fn print_usage() {
     );
     println!("  --upstream <url>              official node (default: {DEFAULT_UPSTREAM_URL})");
     println!("  --route-mode <id>=<mode>      proxy, shadow, or native; repeatable");
-    println!("                                (routes with a native handler default to shadow)");
+    println!("                                (verified native handlers default to native,");
+    println!("                                new ones to shadow)");
     println!("  env {API_KEY_ENV}          the official node's api-key, if it has one; natively");
     println!("                                answered requests must carry it");
     println!();

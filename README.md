@@ -14,13 +14,13 @@ Available today:
 - official Alephium frame codec and the payloads the runtime uses (`Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`/`TxsResponse`), checked against Scala-generated vectors and a live official node in CI;
 - bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limits, timeouts, and retries, into a bounded raw mempool.
 
-- **Native handlers with shadow checking** (N1/N2): `GET /addresses/{address}/group` is computed by rustnode for asset addresses (P2PKH, P2MPKH, P2SH), checked against the official `AddressSpec` vectors and against the real official node in CI. Contract, grouped, and invalid addresses still go to the official node.
+- **Native handlers with shadow checking** (N1/N2): `GET /addresses/{address}/group` is computed by rustnode by default for asset addresses (P2PKH, P2MPKH, P2SH), checked against the official `AddressSpec` vectors and against the real official node in CI. Contract, grouped, and invalid addresses still go to the official node.
 
 Not built yet: the other native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses on live traffic, so the official node is still required behind the gateway.
 
 ## Run
 
-Start the official node as usual (REST on `127.0.0.1:12973`). The bot's `/ws` subscriptions need `alephium.network.ws.enabled = true` in its `user.conf` (off by default). Use official v4.7.0 or newer: v4.6.0 sometimes accepts a WebSocket and then never answers on it (fixed upstream in `5c40f665a`), which leaves a subscription silent until the bot's idle timeout reconnects, and v4.7.0 is the version whose OpenAPI has the `mempool` flag the bot sends on `/addresses/{address}/balance`. Then:
+Start the official node as usual (REST on `127.0.0.1:12973`) with the settings in [`config/official-node/nixia.conf`](config/official-node/nixia.conf) merged into its `user.conf`: WebSocket, the event log, and the indexes the bot reads are all off by default in the official node. Use official v4.7.0 or newer: v4.6.0 sometimes accepts a WebSocket and then never answers on it (fixed upstream in `5c40f665a`), which leaves a subscription silent until the bot's idle timeout reconnects, and v4.7.0 is the version whose OpenAPI has the `mempool` flag the bot sends on `/addresses/{address}/balance`. Then:
 
 ```bash
 cargo run --release -p alephium-app -- --api-bind 127.0.0.1:22973 --upstream http://127.0.0.1:12973
@@ -43,10 +43,10 @@ The gateway logs per-endpoint request counts and latency to stderr every 60 seco
 Each route runs in one of three modes, set with `--route-mode <id>=<mode>` (ids are listed by `docs/NIXIA_API_SURFACE.md` and in the startup log):
 
 - `proxy`: forwarded to the official node;
-- `shadow` (default for routes with a native handler): the bot still gets the official answer; rustnode computes its own and logs `shadow_match` / `shadow_mismatch` counts, plus details of the first mismatches;
-- `native`: rustnode answers; anything its handler cannot answer exactly like the official node is still forwarded.
+- `shadow` (default for a new native handler): the bot still gets the official answer; rustnode computes its own and logs `shadow_match` / `shadow_mismatch` counts, plus details of the first mismatches;
+- `native` (default once a handler has matched the official node on live traffic, as `address-group` has): rustnode answers; anything its handler cannot answer exactly like the official node is still forwarded.
 
-Run in `shadow` through a full trading session. When the log shows `shadow_mismatch=0`, switch that route with, for example, `--route-mode address-group=native`. Switching back is the same flag with `shadow` or `proxy`.
+With no flags, everything the bot uses is on: every endpoint and `/ws` is served, and verified handlers answer natively. A new handler runs in `shadow` through a full trading session; when the log shows `shadow_mismatch=0`, it becomes native by default in the next release, or right away with, for example, `--route-mode <id>=native`. `--route-mode address-group=shadow` or `=proxy` rolls a route back.
 
 ## Read next
 

@@ -59,6 +59,8 @@ Run on 2026-10-15 on a local devnet with the official v4.7.2 release jar: 4 grou
 - Official node restarted under a live subscription: the gateway answered `502` while it was down; the bot's client reconnected and resubscribed when it came back.
 - 64 concurrent clients for 15 s: about 5,300 requests/s through the gateway with no errors, p99 27 ms (official node directly: 5,000 requests/s, p99 43 ms). Gateway resident memory 13 MiB; official node 575 MiB.
 - With the v4.6.0 release, 1–7% of WebSocket connections never answered, directly and through the gateway alike: the official bug fixed in `5c40f665a`. With v4.7.2: 0 of 600.
+- The official node may interleave block and contract-event notifications differently on two connections: 2 of 25 rounds between two direct connections, 1 of 25 between the gateway and a direct one. The set of notifications was identical in every round, and the gateway relays each connection's frames in order.
+- Rerun with rustnode's defaults (no flags: `address-group` native) against a fresh official node configured only with the devnet basics plus `config/official-node/nixia.conf`: 66 of 66 in 20 consecutive runs, counting `/ws` notifications as a set.
 
 The probe and the devnet harness (Node.js with `@alephium/web3`, a devnet wallet created at run time) are not kept in this repository.
 

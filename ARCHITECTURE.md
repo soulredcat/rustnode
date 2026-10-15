@@ -55,7 +55,7 @@ The binary always runs the gateway; P2P acquisition runs only when a peer is giv
 
 Bounds: request bodies up to 4 MiB (`413` above), `/ws` messages up to 16 MiB, at most 512 concurrent connections, a 10 s header-read timeout, and a 60 s upstream timeout (`504`). An unreachable official node gives `502`. Responses are streamed back, not buffered. Hop-by-hop headers are dropped in both directions; `X-API-KEY` is forwarded, including on `/ws`.
 
-Route modes: `proxy`, `shadow`, `native` per route (`--route-mode id=mode`). Routes with a native handler default to `shadow`. In `native` mode a handler that cannot answer exactly like the official node (for example a contract address, which needs state) returns `None` and the request is proxied, so error bodies always come from the official node.
+Route modes: `proxy`, `shadow`, `native` per route (`--route-mode id=mode`). A native handler starts in `shadow` and becomes the default `native` once it has matched the official node on live traffic (`native::verified`); `address-group` is native by default. In `native` mode a handler that cannot answer exactly like the official node (for example a contract address, which needs state) returns `None` and the request is proxied, so error bodies always come from the official node.
 
 `/ws` relays text, binary, and close frames both ways. Ping and Pong stay hop-local, because each side's WebSocket library answers them itself.
 

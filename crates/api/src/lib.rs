@@ -74,11 +74,13 @@ impl RouteMode {
     }
 }
 
-/// Default modes: `shadow` where a native handler exists, `proxy` elsewhere,
-/// then the `route-id=mode` overrides applied in order.
+/// Default modes: `native` for verified handlers, `shadow` for other native
+/// handlers, `proxy` elsewhere, then the `route-id=mode` overrides in order.
 fn route_modes(overrides: &[String]) -> Result<[RouteMode; Route::ALL.len()], GatewayError> {
     let mut modes = Route::ALL.map(|route| {
-        if native::has_handler(route) {
+        if native::verified(route) {
+            RouteMode::Native
+        } else if native::has_handler(route) {
             RouteMode::Shadow
         } else {
             RouteMode::Proxy

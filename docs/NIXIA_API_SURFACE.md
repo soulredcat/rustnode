@@ -76,7 +76,7 @@ Every endpoint above, and `/ws`, is accepted by the gateway and proxied to the o
 
 | Route id | Native handler | Default mode |
 | --- | --- | --- |
-| `address-group` | asset addresses (P2PKH, P2MPKH, P2SH); contract, grouped, and invalid addresses are proxied | `shadow` |
+| `address-group` | asset addresses (P2PKH, P2MPKH, P2SH); contract, grouped, and invalid addresses are proxied | `native` (verified in `docs/INTEROPERABILITY.md`) |
 
 A native answer is given only when the request passes the official API-key check: its `X-API-KEY` equals `RUSTNODE_API_KEY`, or both are absent. Any other request is proxied and gets the official error.
 

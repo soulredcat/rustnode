@@ -454,13 +454,12 @@ async fn measure_added_latency() {
 /// Official `AddressSpec` P2PKH vector; its group is 1 on a 4-group network.
 const P2PKH_ADDRESS: &str = "1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3";
 
+/// `address-group` is verified against the official node, so it runs
+/// natively with no `--route-mode` given.
 #[tokio::test]
-async fn native_address_group_is_answered_without_upstream() {
+async fn address_group_is_native_by_default() {
     let (upstream, seen) = spawn_upstream().await;
-    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
-        config.route_modes = vec!["address-group=native".to_owned()];
-    })
-    .await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |_| {}).await;
 
     let (status, body) = send(
         "GET",
@@ -554,7 +553,10 @@ async fn native_without_configured_key_defers_requests_carrying_one() {
 #[tokio::test]
 async fn shadow_mode_always_returns_the_official_answer() {
     let (upstream, seen) = spawn_upstream().await;
-    let gateway = spawn_gateway(&format!("http://{upstream}"), |_| {}).await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
+        config.route_modes = vec!["address-group=shadow".to_owned()];
+    })
+    .await;
 
     let (status, body) = send(
         "GET",

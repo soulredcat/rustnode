@@ -12,6 +12,14 @@ pub(crate) const fn has_handler(route: Route) -> bool {
     matches!(route, Route::AddressGroup)
 }
 
+/// Handlers that matched the official node on live traffic
+/// (`docs/INTEROPERABILITY.md`) and therefore run `native` by default. A new
+/// handler starts in `shadow` and is added here once it has that evidence.
+#[must_use]
+pub(crate) const fn verified(route: Route) -> bool {
+    matches!(route, Route::AddressGroup)
+}
+
 /// The JSON body of a `200` response, or `None` to defer to the official node.
 #[must_use]
 pub(crate) fn serve(route: Route, path: &str, groups: u32) -> Option<Vec<u8>> {
