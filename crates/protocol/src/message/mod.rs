@@ -3,6 +3,7 @@
 pub mod fastpath;
 pub mod frame;
 pub mod payload;
+pub mod sync;
 
 pub use fastpath::decode_single_txs_response_payload;
 pub use frame::{

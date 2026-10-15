@@ -3,6 +3,7 @@ members = [
     "crates/serde",
     "crates/crypto",
     "crates/model",
+    "crates/chain",
     "crates/protocol",
     "crates/conf",
     "crates/flow",

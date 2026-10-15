@@ -39,6 +39,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alephium-chain"
+version = "0.0.1"
+dependencies = [
+ "alephium-model",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "alephium-conf"
 version = "0.0.1"
 dependencies = [
@@ -80,6 +89,7 @@ name = "alephium-protocol"
 version = "0.0.1"
 dependencies = [
  "alephium-crypto",
+ "alephium-model",
  "alephium-serde",
 ]
 
