@@ -37,7 +37,7 @@ API_BIND="${RUST_INTEROP_API_BIND:-127.0.0.1:22973}"
 UPSTREAM_URL="http://${PEER_HOST}:${OFFICIAL_NODE_REST_PORT}"
 
 OFFICIAL_CONFIG_FILE="${ROOT_DIR}/config/official-node/user.conf"
-EXPECTED_RESULT="required: handshake (Hello), ping/pong exchange, and API gateway passthrough"
+EXPECTED_RESULT="required: handshake (Hello), ping/pong exchange, block download (P2P v2), and API gateway passthrough"
 ACTUAL_RESULT="in_progress"
 OPERATOR_NOTES=""
 NETWORK_ID="unknown"
@@ -360,6 +360,7 @@ printf '%s\n' "${rust_pid}" > "${RUST_PID_FILE}"
 deadline=$(( $(date +%s) + DURATION_SECONDS ))
 handshake_seen=0
 ping_seen=0
+blocks_seen=0
 
 while true; do
   now=$(date +%s)
@@ -390,6 +391,9 @@ while true; do
     if grep -q "received matching pong" "${RUST_LOG_FILE}"; then
       ping_seen=1
     fi
+    if grep -q "received BlocksAndUnclesByHeightsResponse" "${RUST_LOG_FILE}"; then
+      blocks_seen=1
+    fi
   fi
 
   if (( now >= deadline )); then
@@ -399,7 +403,7 @@ while true; do
   sleep 1
 done
 
-if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 ]]; then
+if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 || "${blocks_seen}" -ne 1 ]]; then
   echo "interop assertions not observed before timeout" >&2
   append_operator_note "handshake+ping assertions not observed before deadline."
   cat "${RUST_LOG_FILE}" >&2
@@ -407,7 +411,7 @@ if [[ "${handshake_seen}" -ne 1 || "${ping_seen}" -ne 1 ]]; then
   exit 1
 fi
 
-echo "interop window reached with Hello+Ping/Pong observed"
+echo "interop window reached with Hello, Ping/Pong, and P2P v2 block download observed"
 
 if ! check_gateway; then
   append_operator_note "API gateway checks failed."
@@ -419,7 +423,9 @@ fi
 if ! (cd "${ROOT_DIR}" && RUSTNODE_OFFICIAL_URL="${UPSTREAM_URL}" \
   cargo test -p alephium-model --test official_raw_blocks -- --ignored --nocapture &&
   RUSTNODE_OFFICIAL_URL="${UPSTREAM_URL}" \
-  cargo test -p alephium-api --test official_block_json -- --ignored --nocapture); then
+  cargo test -p alephium-api --test official_block_json -- --ignored --nocapture &&
+  RUSTNODE_OFFICIAL_URL="${UPSTREAM_URL}" \
+  cargo test -p alephium-chain --test official_chain -- --ignored --nocapture); then
   append_operator_note "block encoding or JSON differs from the official node."
   exit 1
 fi

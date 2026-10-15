@@ -5,7 +5,7 @@ Roadmap stage from `TODO.md`, and the endpoint(s) from `docs/NIXIA_API_SURFACE.m
 ## Upstream baseline
 
 - Repository: `https://github.com/alephium/alephium`
-- Commit: `63bcf6998508025f9538f3377629fe9e66df6c53`
+- Commit: `76a71237e295693e760a15f3eb5d6566f2a13d93`
 
 ## Upstream sources and tests consulted
 

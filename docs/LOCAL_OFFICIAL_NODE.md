@@ -6,11 +6,11 @@ This harness runs the pinned official Scala node as a **local isolated devnet pe
 
 It must be used for handshake, malformed-frame, and protocol experiments before any interaction with a public Alephium network.
 
-Pinned source:
+Pinned source (official release v4.7.2):
 
 ```text
 https://github.com/alephium/alephium
-63bcf6998508025f9538f3377629fe9e66df6c53
+76a71237e295693e760a15f3eb5d6566f2a13d93
 ```
 
 ## Current support

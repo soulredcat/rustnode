@@ -43,6 +43,8 @@ The harness builds the pinned official node, starts it on an isolated devnet, ru
 
 - `received valid Hello` — the official Hello decoded and its broker signature verified;
 - `received matching pong` — a Ping/Pong round trip completed;
+- `received BlocksAndUnclesByHeightsResponse` — P2P v2 block download from the official node worked (the official node runs with `enable-p2p-v2 = true`, as on mainnet);
+- every block the official node holds round-trips byte for byte, renders the official JSON, and is followed with the official canonical hashes, heaviest-tip heights, and blocks by time (`official_raw_blocks`, `official_block_json`, `official_chain`);
 - the API gateway, pointed at the same official node, returns official build info for `GET /infos/node`, returns the same body as the official node for `GET /mempool/transactions`, and answers `404` for `GET /infos/self-clique`, which is outside the surface;
 - with `address-group` in `native` mode, `GET /addresses/{address}/group` returns exactly the official status and body for P2PKH, P2MPKH, and P2SH vectors, devnet genesis addresses, a contract address, a grouped address, and an invalid one.
 
