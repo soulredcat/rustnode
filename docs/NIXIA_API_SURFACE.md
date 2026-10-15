@@ -78,6 +78,8 @@ Every endpoint above, and `/ws`, is accepted by the gateway and proxied to the o
 | --- | --- | --- |
 | `address-group` | asset addresses (P2PKH, P2MPKH, P2SH); contract, grouped, and invalid addresses are proxied | `shadow` |
 
+A native answer is given only when the request passes the official API-key check: its `X-API-KEY` equals `RUSTNODE_API_KEY`, or both are absent. Any other request is proxied and gets the official error.
+
 Route ids for `--route-mode`: `mempool-transactions`, `contract-state`, `call-contract`, `call-tx-script`, `multicall-contract`, `execute-script`, `decode-unsigned-tx`, `build-transaction`, `submit-transaction`, `transaction-status`, `transaction-rich-details`, `address-balance`, `address-utxos`, `address-group`, `block-by-hash`, `blocks-by-time`, `block-with-events`, `contract-events`, `contract-event-count`, `events-by-tx-id`, `sub-contracts`, `infos-node`, `ws`.
 
 ## What this implies

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use alephium_api::Gateway;
 use alephium_conf::{
-    ApiConfig, DEFAULT_API_BIND_ADDRESS, DEFAULT_UPSTREAM_URL, NodeConfig,
+    API_KEY_ENV, ApiConfig, DEFAULT_API_BIND_ADDRESS, DEFAULT_UPSTREAM_URL, NodeConfig,
     resolve_node_identity_path,
 };
 use alephium_flow::{RawMempool, SharedRawMempool, run};
@@ -23,6 +23,8 @@ fn print_usage() {
     println!("  --upstream <url>              official node (default: {DEFAULT_UPSTREAM_URL})");
     println!("  --route-mode <id>=<mode>      proxy, shadow, or native; repeatable");
     println!("                                (routes with a native handler default to shadow)");
+    println!("  env {API_KEY_ENV}          the official node's api-key, if it has one; natively");
+    println!("                                answered requests must carry it");
     println!();
     println!("P2P transaction acquisition (only when a peer is given):");
     println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
@@ -127,6 +129,10 @@ fn main() {
         }
     }
 
+    api.api_key = std::env::var(API_KEY_ENV)
+        .ok()
+        .filter(|key| !key.is_empty());
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -149,6 +155,9 @@ fn main() {
     }
     for (route, mode) in gateway.non_proxy_routes() {
         println!("route {} ({}): {}", route.id(), route.name(), mode.name());
+    }
+    if api.api_key.is_some() {
+        println!("api key: required on native answers (from {API_KEY_ENV})");
     }
 
     if peer_given {

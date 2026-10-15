@@ -1,20 +1,20 @@
 //! `/ws` passthrough: the official node's JSON-RPC subscription stream, relayed
 //! frame by frame in both directions.
 
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use hyper::body::Incoming;
 use hyper::header::{self, HeaderValue};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
+use tokio_tungstenite::tungstenite::http::Response as HttpResponse;
 use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
+use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::{WebSocketStream, connect_async_with_config};
 
-use crate::{GatewayBody, State, empty_body, json_error};
-
-const API_KEY_HEADER: &str = "x-api-key";
+use crate::{API_KEY_HEADER, GatewayBody, State, empty_body, full_body, json_error};
 
 pub(crate) struct Upgraded {
     pub(crate) response: Response<GatewayBody>,
@@ -55,6 +55,12 @@ pub(crate) async fn upgrade(state: &State, mut request: Request<Incoming>) -> Up
     .await;
     let upstream = match connected {
         Ok(Ok((stream, _response))) => stream,
+        Ok(Err(WsError::Http(rejection))) => {
+            return Upgraded {
+                response: official_rejection(*rejection),
+                upstream_error: false,
+            };
+        }
         Ok(Err(error)) => {
             return Upgraded {
                 response: json_error(
@@ -103,6 +109,20 @@ pub(crate) async fn upgrade(state: &State, mut request: Request<Incoming>) -> Up
         response,
         upstream_error: false,
     }
+}
+
+/// The official node refused the upgrade (missing API key, WebSocket disabled,
+/// ...): the client gets that same status, content type, and body.
+fn official_rejection(rejection: HttpResponse<Option<Vec<u8>>>) -> Response<GatewayBody> {
+    let (parts, body) = rejection.into_parts();
+    let mut response = Response::new(full_body(Bytes::from(body.unwrap_or_default())));
+    *response.status_mut() = parts.status;
+    if let Some(content_type) = parts.headers.get(header::CONTENT_TYPE) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, content_type.clone());
+    }
+    response
 }
 
 fn websocket_key(request: &Request<Incoming>) -> Option<HeaderValue> {

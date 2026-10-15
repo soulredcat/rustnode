@@ -24,6 +24,9 @@ N3 — Follow the chain
 - [x] Per-endpoint latency and error counters, logged every 60 s.
 - [x] Integration tests against a mock official node; passthrough also checked against the real official node in `make official-interop-fastpath`.
 - [x] Added latency measured: p50 56–67 µs, p99 126–193 µs (`ARCHITECTURE.md` §4).
+- [x] End-to-end on a devnet with the official v4.7.2 release: every endpoint and `/ws` with real chain data, `nixiaproject`'s own client crate, restart, and load (`docs/INTEROPERABILITY.md`).
+- [x] Upstream refusals keep the official status: a rejected WebSocket upgrade returns the official `401`/`404`, not `502`.
+- [x] Native answers honour the official API key (`RUSTNODE_API_KEY`); other requests are forwarded.
 - [ ] Operator run: `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, watched for a full trading session.
 
 Exit gate: the operator run above; the measurement is done.

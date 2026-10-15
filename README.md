@@ -20,7 +20,7 @@ Not built yet: the other native handlers, block following, state, VM, and storag
 
 ## Run
 
-Start the official node as usual (REST on `127.0.0.1:12973`), then:
+Start the official node as usual (REST on `127.0.0.1:12973`). The bot's `/ws` subscriptions need `alephium.network.ws.enabled = true` in its `user.conf` (off by default). Use official v4.7.0 or newer: v4.6.0 sometimes accepts a WebSocket and then never answers on it (fixed upstream in `5c40f665a`), which leaves a subscription silent until the bot's idle timeout reconnects, and v4.7.0 is the version whose OpenAPI has the `mempool` flag the bot sends on `/addresses/{address}/balance`. Then:
 
 ```bash
 cargo run --release -p alephium-app -- --api-bind 127.0.0.1:22973 --upstream http://127.0.0.1:12973
@@ -32,7 +32,7 @@ Point the bot at it by changing one line in `nixiaproject`'s `.env`:
 ALEPHIUM_NODE_URL=http://127.0.0.1:22973
 ```
 
-`ALEPHIUM_NODE_API_KEY` keeps working: the `X-API-KEY` header is forwarded to the official node. To roll back, set `ALEPHIUM_NODE_URL` back to `http://127.0.0.1:12973`.
+`ALEPHIUM_NODE_API_KEY` keeps working: the `X-API-KEY` header is forwarded to the official node, and when the official node refuses a request or a WebSocket, the bot gets the same status and body. If the official node has an `api-key`, give rustnode the same key in its environment, `RUSTNODE_API_KEY=<key>`, so routes in `native` mode check it as the official node does; without it, requests carrying a key are always forwarded. `nixiaproject`'s WebSocket client sends no key, so its `/ws` subscriptions work only when the official node has no `api-key`, with or without rustnode. To roll back, set `ALEPHIUM_NODE_URL` back to `http://127.0.0.1:12973`.
 
 P2P transaction acquisition runs only when a peer is given (`--peer <host:port>`, add `--watch` to reconnect). It feeds the raw mempool for the future native `GET /mempool/transactions` and is not needed by the gateway. `--help` lists every option.
 

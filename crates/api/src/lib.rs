@@ -45,6 +45,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) type GatewayBody = BoxBody<Bytes, BoxError>;
 
 const METRICS_LOG_INTERVAL: Duration = Duration::from_secs(60);
+pub(crate) const API_KEY_HEADER: &str = "x-api-key";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteMode {
@@ -281,7 +282,10 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
                 RouteMode::Proxy => proxy::forward(state, request).await,
                 RouteMode::Shadow => shadow::forward_and_compare(state, matched, request).await,
                 RouteMode::Native => {
-                    match native::serve(matched, request.uri().path(), state.config.groups) {
+                    let native = api_key_accepted(state, &request)
+                        .then(|| native::serve(matched, request.uri().path(), state.config.groups))
+                        .flatten();
+                    match native {
                         Some(body) => {
                             state.metrics.record_native(matched);
                             proxy::Forwarded {
@@ -310,6 +314,18 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
             )
         }
     }
+}
+
+/// The official node answers only after its `X-API-KEY` check passes: the key
+/// must equal its configured `api-key`, or be absent when it has none. A native
+/// answer is given only in that case; any other request is proxied so the
+/// client gets the official error.
+fn api_key_accepted(state: &State, request: &Request<Incoming>) -> bool {
+    let presented = request
+        .headers()
+        .get(API_KEY_HEADER)
+        .map(HeaderValue::as_bytes);
+    presented == state.config.api_key.as_deref().map(str::as_bytes)
 }
 
 pub(crate) fn json_error(status: StatusCode, detail: &str) -> Response<GatewayBody> {

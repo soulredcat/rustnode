@@ -22,7 +22,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::server::{
-    Request as WsRequest, Response as WsResponse,
+    ErrorResponse as WsErrorResponse, Request as WsRequest, Response as WsResponse,
 };
 
 #[derive(Default)]
@@ -116,6 +116,12 @@ async fn serve_ws(stream: tokio::net::TcpStream, state: &Upstream) {
             .get("x-api-key")
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
+        if key.as_deref() == Some("wrong") {
+            let mut rejection =
+                WsErrorResponse::new(Some("{\"detail\":\"Invalid api key\"}".into()));
+            *rejection.status_mut() = StatusCode::UNAUTHORIZED;
+            return Err(rejection);
+        }
         *state.ws_api_key.lock().expect("lock") = key;
         Ok(response)
     };
@@ -368,6 +374,32 @@ async fn websocket_relays_both_ways_and_forwards_api_key() {
 }
 
 #[tokio::test]
+async fn websocket_rejected_by_upstream_keeps_the_official_status_and_body() {
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |_| {}).await;
+
+    let mut request = format!("ws://{gateway}/ws")
+        .into_client_request()
+        .expect("ws request");
+    request
+        .headers_mut()
+        .insert("x-api-key", "wrong".parse().expect("header"));
+    let error = tokio_tungstenite::connect_async(request)
+        .await
+        .expect_err("upstream rejects the key");
+
+    let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+        panic!("expected an HTTP rejection, got {error}");
+    };
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.body().as_deref(),
+        Some(&b"{\"detail\":\"Invalid api key\"}"[..])
+    );
+    assert_eq!(*seen.ws_api_key.lock().expect("lock"), None);
+}
+
+#[tokio::test]
 async fn websocket_without_upgrade_headers_is_bad_request() {
     let (upstream, _) = spawn_upstream().await;
     let gateway = spawn_gateway(&format!("http://{upstream}"), |_| {}).await;
@@ -461,6 +493,61 @@ async fn native_mode_defers_addresses_it_cannot_answer() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, "{\"group\":3}");
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 1);
+}
+
+/// With an API key configured, only requests carrying exactly that key are
+/// answered natively; a missing or wrong key goes to the official node, which
+/// returns its own error.
+#[tokio::test]
+async fn native_answers_only_requests_the_official_key_check_accepts() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef";
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
+        config.route_modes = vec!["address-group=native".to_owned()];
+        config.api_key = Some(KEY.to_owned());
+    })
+    .await;
+    let url = format!("http://{gateway}/addresses/{P2PKH_ADDRESS}/group");
+
+    let (status, body) = send("GET", url.clone(), b"", Some(KEY)).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "{\"group\":1}"));
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 0);
+
+    for key in [
+        None,
+        Some("wrong"),
+        Some("0123456789abcdef0123456789abcdeX"),
+    ] {
+        let (status, body) = send("GET", url.clone(), b"", key).await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::OK, "{\"group\":3}"),
+            "{key:?}"
+        );
+    }
+    assert_eq!(seen.http_requests.load(Ordering::SeqCst), 3);
+}
+
+/// Without a configured key the official node rejects any request carrying
+/// one, so such requests are not answered natively either.
+#[tokio::test]
+async fn native_without_configured_key_defers_requests_carrying_one() {
+    let (upstream, seen) = spawn_upstream().await;
+    let gateway = spawn_gateway(&format!("http://{upstream}"), |config| {
+        config.route_modes = vec!["address-group=native".to_owned()];
+    })
+    .await;
+
+    let (status, body) = send(
+        "GET",
+        format!("http://{gateway}/addresses/{P2PKH_ADDRESS}/group"),
+        b"",
+        Some("0123456789abcdef0123456789abcdef"),
+    )
+    .await;
+
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "{\"group\":3}"));
     assert_eq!(seen.http_requests.load(Ordering::SeqCst), 1);
 }
 

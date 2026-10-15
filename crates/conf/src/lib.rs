@@ -40,6 +40,9 @@ pub const DEFAULT_MAX_MEMPOOL_TXS: usize = 32_000;
 pub const DEFAULT_API_BIND_ADDRESS: &str = "127.0.0.1:22973";
 /// The official node that serves every endpoint not yet native.
 pub const DEFAULT_UPSTREAM_URL: &str = "http://127.0.0.1:12973";
+/// Environment variable with the official node's `api-key`; read from the
+/// environment so the key never appears in the process arguments.
+pub const API_KEY_ENV: &str = "RUSTNODE_API_KEY";
 pub const DEFAULT_API_MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_API_MAX_WS_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_API_MAX_CONNECTIONS: usize = 512;
@@ -223,6 +226,9 @@ pub struct ApiConfig {
     pub groups: u32,
     /// `route-id=mode` overrides, validated by the gateway at startup.
     pub route_modes: Vec<String>,
+    /// The official node's `api-key`, if it has one (from [`API_KEY_ENV`]).
+    /// Natively answered requests must carry exactly this key.
+    pub api_key: Option<String>,
 }
 
 impl Default for ApiConfig {
@@ -237,6 +243,7 @@ impl Default for ApiConfig {
             header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
             groups: DEFAULT_CONFIGURED_GROUPS,
             route_modes: Vec::new(),
+            api_key: None,
         }
     }
 }
