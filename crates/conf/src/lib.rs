@@ -272,6 +272,13 @@ impl Default for ApiConfig {
     }
 }
 
+/// The file holding the kept block window of a network, next to the P2P
+/// identity; one file per network, so a devnet run never touches mainnet data.
+#[must_use]
+pub fn default_chain_data_path(network_id: u8) -> PathBuf {
+    PathBuf::from(format!(".local/rustnode/chain-{network_id}.redb"))
+}
+
 #[must_use]
 pub fn resolve_node_identity_path() -> PathBuf {
     env::var(NODE_IDENTITY_PATH_ENV)

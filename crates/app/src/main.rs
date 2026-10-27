@@ -30,7 +30,12 @@ fn print_usage() {
     println!("P2P transaction acquisition (only when a peer is given):");
     println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
     println!("  --network-id <id>             0 mainnet (default), 1 testnet, other ids devnet");
-    println!("  --window <heights>            heights kept per chain (default: 10000)");
+    println!(
+        "  --window <heights>            heights kept per chain (default: {})",
+        alephium_chain::DEFAULT_WINDOW
+    );
+    println!("  --data <path>                 file holding the kept window; reopened on restart");
+    println!("                                (default: .local/rustnode/chain-<network-id>.redb)");
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -90,6 +95,7 @@ fn main() {
     let mut watch = false;
     let mut watch_interval = Duration::from_secs(2);
     let mut window = alephium_chain::DEFAULT_WINDOW;
+    let mut data_path = None;
     let mut args = std::env::args().skip(1);
 
     while let Some(argument) = args.next() {
@@ -118,6 +124,12 @@ fn main() {
             "--window" => {
                 let value = parse_u64("--window", args.next());
                 window = u32::try_from(value).unwrap_or(u32::MAX).max(128);
+            }
+            "--data" => {
+                data_path = Some(std::path::PathBuf::from(required_value(
+                    "--data",
+                    args.next(),
+                )));
             }
             "--max-inflight" => {
                 let value = parse_usize("--max-inflight", args.next());
@@ -154,8 +166,21 @@ fn main() {
         .ok()
         .filter(|key| !key.is_empty());
     api.network_id = config.network_id;
+    // The kept window lives on disk, so a restart continues from it.
+    let data_path =
+        data_path.unwrap_or_else(|| alephium_conf::default_chain_data_path(config.network_id));
+    let disk = if peer_given {
+        Some(
+            alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
+                eprintln!("{}: {error}", data_path.display());
+                process::exit(1);
+            }),
+        )
+    } else {
+        None
+    };
     // Followed blocks, written by the P2P session and read by native handlers.
-    let chain: SharedChainStore = std::sync::Arc::default();
+    let chain = SharedChainStore::new(window, disk.clone());
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -195,26 +220,34 @@ fn main() {
                 process::exit(1);
             });
         println!("peer: {}", config.peer_address);
+        println!(
+            "chain data: {} ({window} heights per chain)",
+            data_path.display()
+        );
         println!("runtime: {}", alephium_flow::STATUS);
         let mempool = RawMempool::shared(config.max_mempool_txs);
         let bootstrap_source =
             alephium_flow::bootstrap::Source::new(&api.upstream_url, api.api_key.clone());
         thread::spawn(move || {
-            // One-time start from the official node's recent blocks; without
-            // it, blocks are followed from genesis over P2P.
-            match alephium_flow::bootstrap::bootstrap(
+            // The stored window, caught up or fetched from the official
+            // node's recent blocks; without either, blocks are followed from
+            // genesis over P2P.
+            match alephium_flow::bootstrap::start(
                 &bootstrap_source,
                 config.configured_groups,
                 config.network_id,
                 window,
                 8,
+                disk,
             ) {
                 Ok(store) => {
                     *chain
                         .write()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(store);
                 }
-                Err(error) => eprintln!("bootstrap from the official node failed: {error}"),
+                Err(error) => eprintln!(
+                    "no chain to start from ({error}); following from genesis over P2P, which replaces the stored chain"
+                ),
             }
             if watch {
                 run_with_reconnect(&config, &mempool, &chain, watch_interval);

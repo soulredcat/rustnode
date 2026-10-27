@@ -1,0 +1,12 @@
+[package]
+name = "alephium-store"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+redb = "4.4"
+
+[lints]
+workspace = true

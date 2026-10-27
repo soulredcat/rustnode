@@ -47,14 +47,15 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 ## N3 — Follow the chain
 
-Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 10,000-height window; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
+Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 100,000-height window on disk; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
 
 - [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.
-- [x] Keep blocks for a configured window only (`--window`, default 10,000 heights per chain, about 22 hours; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`). In memory for now; restarts bootstrap again.
-- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications.
+- [x] Keep blocks for a configured window only (`--window`, default 100,000 heights per chain, about 9 days; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
+- [x] Keep the window on disk (`crates/store`, one redb file per network, `--data`) with only the newest 1,024 heights per chain in memory. A restart reopens it and fetches only the missed heights: from the official node when it agrees with the stored chain (same genesis, same canonical block 200 heights below the lower tip, at most a window behind), otherwise from peers. Commits are fsynced at least every 10 s; a crash loses at most that, and peers bring it back.
+- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications. Blocks by time need a timestamp-to-height lookup on disk first: `ChainStore::blocks_between` reads every stored height of the chain.
 
 ## N4 — Native mempool
 
@@ -76,7 +77,7 @@ Exit gate: state hash matches for every group; this proves the bootstrap path be
 
 - [ ] Ralph VM for the current hard fork only (state starts after bootstrap, so historical rules are not needed).
 - [ ] Apply every followed block; fail closed on any `depStateHash` mismatch.
-- [ ] Prune state to the last 128 heights, like the official `PruneStorageService`, and answer pinned reads (`worldStateBlockHash`) inside that window.
+- [ ] Keep the state of every height in the block window (100,000 per chain), on disk next to it, and answer pinned reads (`worldStateBlockHash`) anywhere inside it: the bot's CLAMM audit tools replay quotes at blocks recorded days earlier. Trie nodes are shared between heights; a node goes only when no height left in the window reaches it.
 - [ ] Keep spent outputs for retained blocks (for `rich-details`), DEX factory events permanently, and the sub-contract index permanently.
 - [ ] Events for the indexes on the surface only; native `/events/*`, `blocks-with-events`, `sub-contracts`, `/ws` `contract` notifications.
 

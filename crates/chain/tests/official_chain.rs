@@ -81,7 +81,7 @@ fn chain_following_matches_the_official_node() {
     }
 
     let mut store =
-        ChainStore::new(groups, alephium_chain::DEFAULT_WINDOW, genesis).expect("genesis");
+        ChainStore::new(groups, alephium_chain::DEFAULT_WINDOW, genesis, None).expect("genesis");
     // Import in dependency order, as blocks would arrive.
     others.sort_by_key(|block| block.header.timestamp);
     let mut pending = others;

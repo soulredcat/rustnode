@@ -50,20 +50,20 @@ Legend for **needs**: `B` recent blocks, `M` mempool, `S` world state, `VM` Ralp
 
 ## Read pinning
 
-`chain/alephium/src/node_snapshot.rs` asks the VM for the current block hash of each group, then sends `call-tx-script` and `call-contract` requests with `worldStateBlockHash` set to that block, so related contracts are read from one immutable state. A native implementation must answer reads at any block inside the reorg state window, not only at the tip.
+`chain/alephium/src/node_snapshot.rs` asks the VM for the current block hash of each group, then sends `call-tx-script` and `call-contract` requests with `worldStateBlockHash` set to that block, so related contracts are read from one immutable state. A native implementation must answer reads at any block inside the state window, not only at the tip.
 
 ## Retention needed by the bot
 
 | Data | Keep | Why |
 | --- | --- | --- |
-| World state | current, plus the last 128 heights per chain | reorgs and pinned reads (same window as the official `PruneStorageService`) |
-| Blocks and their events | the last 10,000 heights per chain: 160,000 blocks over 16 chains, about 22 hours at the 8 s Danube block time | event-refresh gap recovery, block-tx audit, status and events of the bot's own recent transactions |
+| World state | current, plus every height of the block window | pinned reads (`worldStateBlockHash`) at the tip and at blocks recorded earlier: the bot's CLAMM audit tools (`tools/clamm-route-simulate`, `tools/prebuild-state-audit`) replay quotes days later |
+| Blocks and their events | the last 100,000 heights per chain: 1.6 million blocks over 16 chains, about 9 days at the 8 s Danube block time (9.8 days measured on mainnet chain 0 -> 0 in October 2026); on disk, with the newest 1,024 heights per chain in memory | event-refresh gap recovery, block-tx audit, status and events of the bot's own recent transactions, CLAMM audit replay |
 | Spent outputs of transactions in retained blocks | same window as blocks | `rich-details` resolves every input, and an input can be much older than the window |
 | Events of the DEX factory contracts the bot scans | permanently | `background/token-discovery` reads factory events from index 0 |
 | Sub-contract index | permanently | factory sub-contracts are listed from index 0 |
 | Mempool | official limits (2000 per chain) | `GET /mempool/transactions` |
 
-If the bot is stopped for longer than the block window (about 22 hours), gap recovery cannot reread the gap and the bot must reload state, as it already does after a long stop. The window is configurable; it must not go below the 128 heights of the state window, and raising it only costs disk, since blocks are looked up by hash or height.
+If the bot is stopped for longer than the block window (about 9 days), gap recovery cannot reread the gap and the bot must reload state, as it already does after a long stop. The window is configurable; it must not go below 128 heights, and raising it costs disk only: the window is on disk, and only its newest 1,024 heights per chain are held in memory.
 
 ## Not served
 

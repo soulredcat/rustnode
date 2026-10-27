@@ -7,7 +7,7 @@ use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 pub use alephium_chain::SharedChainStore;
-use alephium_chain::{AddError, Added, ChainStore};
+use alephium_chain::{AddError, Added};
 use alephium_model::{Block, BlockHeader, Hash};
 use alephium_protocol::message::payload::ChainTip;
 use alephium_protocol::message::sync::HeightRange;
@@ -106,6 +106,11 @@ impl BlockSync {
                 }
             }
         }
+        if let Some(store) = store.as_mut()
+            && let Err(error) = store.flush()
+        {
+            eprintln!("{error}");
+        }
     }
 
     /// The next height-range request, if the peer is ahead, nothing is in
@@ -174,7 +179,7 @@ impl BlockSync {
                 let (genesis, rest): (Vec<_>, Vec<_>) = all
                     .into_iter()
                     .partition(|block| block.header.timestamp == alephium_chain::GENESIS_TIMESTAMP);
-                match ChainStore::new(self.groups, alephium_chain::DEFAULT_WINDOW, genesis) {
+                match self.chain.start(self.groups, genesis) {
                     Ok(new_store) => *store = Some(new_store),
                     Err(error) => {
                         eprintln!("cannot start from the received genesis blocks: {error}");
@@ -257,6 +262,10 @@ impl BlockSync {
                 break;
             }
             queue = self.orphans.values().cloned().collect();
+        }
+        // One disk commit for the whole response, before readers see it.
+        if let Err(error) = store.flush() {
+            eprintln!("{error}");
         }
         self.added += added.len() as u64;
         added

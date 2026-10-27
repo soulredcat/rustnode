@@ -29,7 +29,7 @@ In scope, as the roadmap reaches them:
 - world state and Ralph VM execution needed for the endpoints on the surface;
 - bootstrapping state from an operator's fully synced official node data, verified against block `depStateHash`;
 - the HTTP and `/ws` endpoints in `docs/NIXIA_API_SURFACE.md`, and, until N8, an upstream proxy to the official node for endpoints not yet served natively;
-- pruned storage as listed in the retention table of `docs/NIXIA_API_SURFACE.md`: current state plus 128 heights for reorgs and pinned reads, recent blocks and events in a configured window (default 10,000 heights per chain), and the few permanent exceptions the bot needs.
+- pruned storage as listed in the retention table of `docs/NIXIA_API_SURFACE.md`: current state plus the state of every height in the block window (pinned reads), recent blocks and events in a configured window kept on disk (default 100,000 heights per chain), and the few permanent exceptions the bot needs.
 
 Out of scope:
 
@@ -54,6 +54,7 @@ Out of scope:
 - `protocol`, `serde`, and `crypto` own compatibility primitives, limited to what the runtime uses.
 - `model` owns the protocol data types (blocks, transactions, scripts, values) and their official encoding and hashes.
 - `chain` owns followed blocks: canonical chains, tips, weights, and the kept window.
+- `store` owns the kept window on disk: one redb file per network, batched commits.
 - `conf` owns configuration and the non-funded P2P identity.
 - `flow` owns the P2P session, request tracking, and the raw mempool.
 - `api` owns the HTTP and `/ws` gateway: the allowlist, the upstream proxy, and native handlers as they arrive.

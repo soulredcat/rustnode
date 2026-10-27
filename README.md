@@ -18,7 +18,7 @@ Available today:
 
 - **Native handlers with shadow checking** (N1/N2): `GET /addresses/{address}/group` is computed by rustnode by default for asset addresses (P2PKH, P2MPKH, P2SH), checked against the official `AddressSpec` vectors and against the real official node in CI. Contract, grouped, and invalid addresses still go to the official node.
 
-Not built yet: the other native handlers, block following, state, VM, and storage. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses, so for now rustnode still needs the official node behind it.
+Not built yet: the other native handlers, state and its storage, and the VM. The staged plan is in [`TODO.md`](TODO.md). Each endpoint stays proxied until a native handler matches the official responses, so for now rustnode still needs the official node behind it.
 
 ## Run
 
@@ -38,7 +38,7 @@ ALEPHIUM_NODE_URL=http://127.0.0.1:22973
 
 `ALEPHIUM_NODE_API_KEY` keeps working: the `X-API-KEY` header is forwarded to the official node, and when the official node refuses a request or a WebSocket, the bot gets the same status and body. If the official node has an `api-key`, give rustnode the same key in its environment, `RUSTNODE_API_KEY=<key>`, so routes in `native` mode check it as the official node does; without it, requests carrying a key are always forwarded. `nixiaproject`'s WebSocket client sends no key, so its `/ws` subscriptions work only when the official node has no `api-key`, with or without rustnode. To roll back, set `ALEPHIUM_NODE_URL` back to `http://127.0.0.1:12973`.
 
-With a peer (`--peer <host:port>`, the official node's P2P port, 9973 on mainnet; add `--watch` to reconnect), rustnode follows the chain itself: it first copies the last `--window` heights of every chain (default 10,000) from the official node's REST API, then follows new blocks over P2P v2, and serves followed blocks on native routes. It also fetches announced transactions into a raw mempool for the future native `GET /mempool/transactions`. `--network-id` selects the network (0 mainnet, the default). `--help` lists every option.
+With a peer (`--peer <host:port>`, the official node's P2P port, 9973 on mainnet; add `--watch` to reconnect), rustnode follows the chain itself: it first copies the last `--window` heights of every chain (default 100,000, about 9 days) from the official node's REST API into a file on disk (`--data`, default `.local/rustnode/chain-<network-id>.redb`), then follows new blocks over P2P v2, and serves followed blocks on native routes. Only the newest 1,024 heights of each chain stay in memory; older blocks are read from the file. A restart reopens the file and, when the official node agrees with the stored chain, fetches only the heights missed meanwhile; without the official node it continues from the file and peers bring the rest. It also fetches announced transactions into a raw mempool for the future native `GET /mempool/transactions`. `--network-id` selects the network (0 mainnet, the default). `--help` lists every option.
 
 The gateway logs per-endpoint request counts and latency to stderr every 60 seconds.
 

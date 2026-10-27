@@ -40,7 +40,10 @@ crates/
 │               values with the official binary encoding and hashes; checked byte for byte
 │               against every block of an official node (`tests/official_raw_blocks.rs`)
 ├── chain/      recent blocks per chain: height-based canonical chain with the official
-│               hash tie-break, tips and their pruning, flow weights, the kept window
+│               hash tie-break, tips and their pruning, flow weights, the kept window;
+│               the newest 1,024 heights per chain in memory, the rest read from `store`
+├── store/      the kept window on disk, one redb file per network: blocks, hashes per
+│               height, what the file holds; batched commits, fsynced at least every 10 s
 ├── protocol/   official P2P frames and the payloads the runtime uses
 ├── conf/       peer, limits, retry, mempool capacity, and P2P identity configuration
 ├── flow/       P2P runtime
@@ -54,7 +57,7 @@ crates/
 
 `protocol` decodes only `Hello`, `Ping`/`Pong`, `InvRequest`/`InvResponse`, `ChainState`, `NewTxHashes`, `TxsRequest`, and single-item `TxsResponse`. The full official payload code table is kept so block and header messages are recognized by code and dropped. Block and header codecs come back with typed parsing and official vectors when block following is built (`TODO.md`).
 
-Planned crates, each added only when its stage starts: `state` (pruned world state and bootstrap), `vm` (Ralph execution). Native handlers and differential checks live in `api`.
+Planned crates, each added only when its stage starts: `state` (world state for every height of the block window, and its bootstrap), `vm` (Ralph execution). Native handlers and differential checks live in `api`.
 
 ## 4. Gateway
 
