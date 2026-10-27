@@ -49,7 +49,7 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 100,000-height window on disk; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
 
-- [ ] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node.
+- [x] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node: `--follow` (and a repeatable `--peer`) follows from the six official `bootstrap{0..5}.alephium.org:9973` nodes over inter-clique TCP, no UDP discovery yet; each peer runs its own follow worker sharing the chain store and mempool (`conf::default_bootstrap_peers`, `app`).
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.

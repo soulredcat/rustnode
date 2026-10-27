@@ -18,6 +18,19 @@ pub const STATUS: &str = "nixiaproject-only node configuration";
 pub const NETWORK_MAGIC_BYTES: [u8; 4] = [0xa2, 0xfd, 0xc6, 0xbb];
 pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19985";
 pub const DEFAULT_NETWORK_ID: u8 = 2;
+
+/// Official mainnet discovery bootstrap nodes (`network_mainnet.conf.tmpl`).
+/// They accept inter-clique TCP connections on port 9973, the same protocol
+/// rustnode speaks to the operator's official node, so following the chain
+/// from them needs no UDP peer discovery and does not depend on that node.
+pub const MAINNET_BOOTSTRAP_PEERS: [&str; 6] = [
+    "bootstrap0.alephium.org:9973",
+    "bootstrap1.alephium.org:9973",
+    "bootstrap2.alephium.org:9973",
+    "bootstrap3.alephium.org:9973",
+    "bootstrap4.alephium.org:9973",
+    "bootstrap5.alephium.org:9973",
+];
 pub const DEFAULT_CONFIGURED_GROUPS: u32 = 4;
 pub const DEFAULT_BROKER_ID: i32 = 0;
 pub const DEFAULT_BROKER_NUM: i32 = 1;
@@ -169,6 +182,23 @@ pub fn network_magic(network_id: u8) -> [u8; 4] {
         .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .fold(0i32, i32::wrapping_add);
     sum.to_be_bytes()
+}
+
+/// Built-in public peers to follow when the operator names none (`--follow`).
+/// Mainnet uses the official bootstrap nodes; testnet and devnet have no public
+/// defaults (`network_{testnet,devnet}.conf.tmpl` leave `bootstrap` empty), so
+/// following those networks still requires an explicit `--peer`.
+#[must_use]
+pub fn default_bootstrap_peers(network_id: u8) -> Vec<String> {
+    // Network id 0 is mainnet; testnet (1) and devnet (others) have no defaults.
+    if network_id == 0 {
+        MAINNET_BOOTSTRAP_PEERS
+            .iter()
+            .map(|peer| (*peer).to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    }
 }
 
 impl NodeConfig {
@@ -370,12 +400,33 @@ fn set_restrictive_permissions(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{NETWORK_MAGIC_BYTES, network_magic};
+    use super::{
+        MAINNET_BOOTSTRAP_PEERS, NETWORK_MAGIC_BYTES, default_bootstrap_peers, network_magic,
+    };
 
     #[test]
     fn network_magic_matches_the_official_derivation() {
         assert_eq!(network_magic(2), NETWORK_MAGIC_BYTES);
         assert_eq!(network_magic(0), [0xb0, 0xa6, 0x80, 0x8e]);
         assert_eq!(network_magic(1), [0xd7, 0x72, 0x8c, 0x8e]);
+    }
+
+    #[test]
+    fn mainnet_defaults_to_the_official_bootstrap_nodes() {
+        let peers = default_bootstrap_peers(0);
+        assert_eq!(peers.len(), MAINNET_BOOTSTRAP_PEERS.len());
+        assert!(
+            peers
+                .iter()
+                .zip(MAINNET_BOOTSTRAP_PEERS)
+                .all(|(got, want)| got.as_str() == want)
+        );
+        assert_eq!(
+            peers.first().map(String::as_str),
+            Some("bootstrap0.alephium.org:9973")
+        );
+        // Testnet and devnet have no public defaults; following needs --peer.
+        assert!(default_bootstrap_peers(1).is_empty());
+        assert!(default_bootstrap_peers(2).is_empty());
     }
 }

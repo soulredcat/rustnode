@@ -27,8 +27,10 @@ fn print_usage() {
     println!("  env {API_KEY_ENV}          the official node's api-key, if it has one; natively");
     println!("                                answered requests must carry it");
     println!();
-    println!("P2P transaction acquisition (only when a peer is given):");
-    println!("  --peer <addr>                 Alephium P2P peer, same as the positional argument");
+    println!("Chain following (only when a peer is given or --follow):");
+    println!("  --peer <addr>                 Alephium P2P peer; repeatable, also positional");
+    println!("  --follow                      follow from the built-in mainnet bootstrap peers");
+    println!("                                when no --peer is given (mainnet only)");
     println!("  --network-id <id>             0 mainnet (default), 1 testnet, other ids devnet");
     println!(
         "  --window <heights>            heights kept per chain (default: {})",
@@ -91,7 +93,8 @@ fn run_with_reconnect(
 fn main() {
     let mut config = NodeConfig::default().set_network_id(0);
     let mut api = ApiConfig::default();
-    let mut peer_given = false;
+    let mut peers: Vec<String> = Vec::new();
+    let mut follow = false;
     let mut watch = false;
     let mut watch_interval = Duration::from_secs(2);
     let mut window = alephium_chain::DEFAULT_WINDOW;
@@ -109,10 +112,8 @@ fn main() {
             "--route-mode" => api
                 .route_modes
                 .push(required_value("--route-mode", args.next())),
-            "--peer" => {
-                config = config.set_peer_address(required_value("--peer", args.next()));
-                peer_given = true;
-            }
+            "--peer" => peers.push(required_value("--peer", args.next())),
+            "--follow" => follow = true,
             "--network-id" => {
                 let value = parse_u64("--network-id", args.next());
                 let Ok(network_id) = u8::try_from(value) else {
@@ -155,12 +156,22 @@ fn main() {
                 eprintln!("unknown option: {value}");
                 process::exit(2);
             }
-            peer_address => {
-                config = config.set_peer_address(peer_address.to_owned());
-                peer_given = true;
-            }
+            peer_address => peers.push(peer_address.to_owned()),
         }
     }
+
+    // No explicit --peer: follow the built-in public peers when asked (mainnet).
+    if peers.is_empty() && follow {
+        peers = alephium_conf::default_bootstrap_peers(config.network_id);
+        if peers.is_empty() {
+            eprintln!(
+                "--follow has no built-in peers for network {}; pass --peer <addr>",
+                config.network_id
+            );
+            process::exit(2);
+        }
+    }
+    let following = !peers.is_empty();
 
     api.api_key = std::env::var(API_KEY_ENV)
         .ok()
@@ -169,7 +180,7 @@ fn main() {
     // The kept window lives on disk, so a restart continues from it.
     let data_path =
         data_path.unwrap_or_else(|| alephium_conf::default_chain_data_path(config.network_id));
-    let disk = if peer_given {
+    let disk = if following {
         Some(
             alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
                 eprintln!("{}: {error}", data_path.display());
@@ -195,7 +206,7 @@ fn main() {
             eprintln!("{error}");
             process::exit(1);
         });
-    if peer_given {
+    if following {
         gateway = gateway.with_chain(chain.clone());
     }
 
@@ -212,14 +223,14 @@ fn main() {
         println!("api key: required on native answers (from {API_KEY_ENV})");
     }
 
-    if peer_given {
+    if following {
         config = config
             .with_node_identity_path(resolve_node_identity_path())
             .unwrap_or_else(|error| {
                 eprintln!("failed to load P2P identity: {error}");
                 process::exit(1);
             });
-        println!("peer: {}", config.peer_address);
+        println!("peers: {}", peers.join(", "));
         println!(
             "chain data: {} ({window} heights per chain)",
             data_path.display()
@@ -249,16 +260,33 @@ fn main() {
                     "no chain to start from ({error}); following from genesis over P2P, which replaces the stored chain"
                 ),
             }
-            if watch {
-                run_with_reconnect(&config, &mempool, &chain, watch_interval);
+            // One follow worker per peer; all share the chain store and mempool,
+            // so several public peers can bring blocks in parallel.
+            let mut workers = Vec::with_capacity(peers.len());
+            for peer in peers {
+                let config = config.clone().set_peer_address(peer);
+                let mempool = mempool.clone();
+                let chain = chain.clone();
+                workers.push(thread::spawn(move || {
+                    if watch {
+                        run_with_reconnect(&config, &mempool, &chain, watch_interval);
+                    }
+                    if let Err(error) = run(&config, &mempool, Some(&chain)) {
+                        eprintln!("P2P session for {} stopped: {error}", config.peer_address);
+                    }
+                }));
             }
-            if let Err(error) = run(&config, &mempool, Some(&chain)) {
-                eprintln!("P2P session stopped: {error}");
+            for worker in workers {
+                let _ = worker.join();
+            }
+            // Without --watch every peer session has ended; stop so the
+            // operator sees the node is no longer following.
+            if !watch {
                 process::exit(1);
             }
         });
     } else {
-        println!("peer: none (P2P acquisition off)");
+        println!("peer: none (chain following off; pass --peer or --follow)");
     }
 
     runtime.block_on(gateway.run());
