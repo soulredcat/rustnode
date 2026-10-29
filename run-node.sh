@@ -71,6 +71,22 @@ if [[ -n "$(running_pid)" ]]; then
     exit 0
 fi
 
+upstream="${RUSTNODE_UPSTREAM:-http://127.0.0.1:12973}"
+peer="${RUSTNODE_PEER:-127.0.0.1:9973}"
+
+# rustnode starts from the official node's recent blocks, follows it over
+# P2P and forwards what it does not answer itself: without it, it would
+# start over from genesis.
+code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$upstream/infos/node" || true)"
+if [[ "$code" == "000" ]]; then
+    echo "the official node's REST API does not answer at $upstream; start it first" >&2
+    exit 1
+fi
+if ! timeout 3 bash -c "exec 3<>/dev/tcp/${peer%:*}/${peer##*:}" 2>/dev/null; then
+    echo "the official node's P2P port does not answer at $peer; start it first" >&2
+    exit 1
+fi
+
 if [[ ! -x "$bin" ]]; then
     echo "building rustnode (the first build takes a few minutes)"
     (cd "$root" && cargo build --release -p alephium-app)
@@ -79,8 +95,8 @@ fi
 mkdir -p "$data"
 args=(
     --api-bind "${RUSTNODE_API_BIND:-127.0.0.1:22973}"
-    --upstream "${RUSTNODE_UPSTREAM:-http://127.0.0.1:12973}"
-    --peer "${RUSTNODE_PEER:-127.0.0.1:9973}"
+    --upstream "$upstream"
+    --peer "$peer"
     --data "$data/chain.redb"
     --state "$data/state.redb"
     --watch
