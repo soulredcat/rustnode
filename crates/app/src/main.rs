@@ -22,6 +22,7 @@ fn print_usage() {
     );
     println!("  --upstream <url>              official node (default: {DEFAULT_UPSTREAM_URL})");
     println!("  --route-mode <id>=<mode>      proxy, shadow, or native; repeatable");
+    println!("  --metrics-interval <seconds>  how often route counters are logged (default: 60)");
     println!("                                (verified native handlers default to native,");
     println!("                                new ones to shadow)");
     println!("  env {API_KEY_ENV}          the official node's api-key, if it has one; natively");
@@ -123,6 +124,10 @@ fn main() {
             "--route-mode" => api
                 .route_modes
                 .push(required_value("--route-mode", args.next())),
+            "--metrics-interval" => {
+                api.metrics_interval =
+                    Duration::from_secs(parse_u64("--metrics-interval", args.next()).max(1));
+            }
             "--peer" => peers.push(required_value("--peer", args.next())),
             "--follow" => follow = true,
             "--window" => {

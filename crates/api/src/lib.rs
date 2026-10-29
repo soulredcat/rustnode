@@ -45,7 +45,6 @@ pub use crate::routes::{Route, RouteMatch, route};
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) type GatewayBody = BoxBody<Bytes, BoxError>;
 
-const METRICS_LOG_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const API_KEY_HEADER: &str = "x-api-key";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,7 +269,7 @@ impl Gateway {
     pub async fn run(self) {
         let metrics_state = Arc::clone(&self.state);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(METRICS_LOG_INTERVAL);
+            let mut interval = tokio::time::interval(metrics_state.config.metrics_interval);
             interval.tick().await;
             loop {
                 interval.tick().await;

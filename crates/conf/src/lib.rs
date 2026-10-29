@@ -228,6 +228,8 @@ pub struct ApiConfig {
     /// The official node's `api-key`, if it has one (from [`API_KEY_ENV`]).
     /// Natively answered requests must carry exactly this key.
     pub api_key: Option<String>,
+    /// How often per-route counters are logged.
+    pub metrics_interval: Duration,
 }
 
 impl Default for ApiConfig {
@@ -243,6 +245,7 @@ impl Default for ApiConfig {
             groups: DEFAULT_CONFIGURED_GROUPS,
             route_modes: Vec::new(),
             api_key: None,
+            metrics_interval: Duration::from_secs(60),
         }
     }
 }
