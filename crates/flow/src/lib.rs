@@ -9,6 +9,7 @@
 //! - the world state bootstrap from the official node's database.
 
 pub mod bootstrap;
+pub mod execute;
 mod mempool;
 mod request_tracker;
 mod session;
