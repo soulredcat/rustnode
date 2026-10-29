@@ -158,17 +158,12 @@ pub fn start(
     groups: u32,
     window: u32,
     threads: usize,
-    disk: Option<Disk>,
+    disk: Disk,
 ) -> Result<ChainStore, String> {
-    let stored = match &disk {
-        Some(disk) => ChainStore::open(groups, window, disk.clone()).unwrap_or_else(|error| {
-            println!(
-                "bootstrap: the stored chain cannot be used ({error}); fetching the window again"
-            );
-            None
-        }),
-        None => None,
-    };
+    let stored = ChainStore::open(groups, window, disk.clone()).unwrap_or_else(|error| {
+        println!("bootstrap: the stored chain cannot be used ({error}); fetching the window again");
+        None
+    });
     if let Some(mut store) = stored {
         let verdict = source
             .check_params(groups)

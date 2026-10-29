@@ -65,7 +65,9 @@ Done so far: block, header, and transaction encoding and JSON identical to the o
 - [ ] Decode `TransactionTemplate` into the official JSON shape.
 - [ ] Remove transactions once a followed block includes them; expire stale ones like the official node.
 - [ ] Connect to direct mainnet peers (a local official node alone announces in 500 ms batches after its own mempool).
-- [ ] Native `GET /mempool/transactions`; `GET /transactions/status` for mempool and windowed blocks.
+- [x] Transaction index of the window on disk (`txs` table: id to the blocks holding it), kept by add, checkpoint import and pruning.
+- [x] Native `GET /transactions/status` for transactions confirmed in intra-group blocks of the window, searched in the official chain order with and without groups (`shadow`; 36 of 36 equal in `make mainnet-check`; confirmations may trail the official node by up to 2 blocks, as between any two nodes). `MemPooled` and `TxNotFound` wait for the native mempool; inter-group blocks can hold `Conflicted` transactions and wait for state (N6).
+- [ ] Native `GET /mempool/transactions`; `MemPooled` and `TxNotFound` statuses.
 
 ## N5 — State bootstrap
 

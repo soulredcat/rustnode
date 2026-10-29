@@ -307,7 +307,12 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
                 RouteMode::Native => {
                     let native = api_key_accepted(state, &request)
                         .then(|| {
-                            native::serve(matched, request.uri().path(), &state.native_context())
+                            native::serve(
+                                matched,
+                                request.uri().path(),
+                                request.uri().query(),
+                                &state.native_context(),
+                            )
                         })
                         .flatten();
                     match native {

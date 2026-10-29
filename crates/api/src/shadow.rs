@@ -24,7 +24,8 @@ pub(crate) async fn forward_and_compare(
     request: Request<Incoming>,
 ) -> Forwarded {
     let path = request.uri().path().to_owned();
-    let native = native::serve(route, &path, &state.native_context());
+    let query = request.uri().query().map(str::to_owned);
+    let native = native::serve(route, &path, query.as_deref(), &state.native_context());
 
     let upstream = match proxy::send(state, request).await {
         Ok(response) => response,
@@ -45,7 +46,7 @@ pub(crate) async fn forward_and_compare(
 
     let result = match &native {
         None => ShadowResult::Declined,
-        Some(native) if parts.status == StatusCode::OK && same_json(&official, native) => {
+        Some(native) if parts.status == StatusCode::OK && same_answer(route, &official, native) => {
             ShadowResult::Match
         }
         Some(_) => ShadowResult::Mismatch,
@@ -67,15 +68,50 @@ pub(crate) async fn forward_and_compare(
     }
 }
 
-/// JSON equality ignoring formatting and key order; byte equality otherwise.
-fn same_json(official: &Bytes, native: &[u8]) -> bool {
+/// Confirmations may differ by this much: rustnode hears of a block from its
+/// peer a moment after the official node, as any two nodes do.
+const CONFIRMATION_LAG: i64 = 2;
+
+/// JSON equality ignoring formatting and key order, byte equality otherwise;
+/// a transaction status also allows confirmation counts within
+/// `CONFIRMATION_LAG` of the official ones.
+fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
     match (
         serde_json::from_slice::<serde_json::Value>(official),
         serde_json::from_slice::<serde_json::Value>(native),
     ) {
+        (Ok(official), Ok(native)) if route == Route::TransactionStatus => {
+            same_status(&official, &native)
+        }
         (Ok(official), Ok(native)) => official == native,
         _ => official.as_ref() == native,
     }
+}
+
+fn same_status(official: &serde_json::Value, native: &serde_json::Value) -> bool {
+    const COUNTS: [&str; 3] = [
+        "chainConfirmations",
+        "fromGroupConfirmations",
+        "toGroupConfirmations",
+    ];
+    let (Some(official_fields), Some(native_fields)) = (official.as_object(), native.as_object())
+    else {
+        return official == native;
+    };
+    official_fields.len() == native_fields.len()
+        && official_fields.iter().all(|(key, value)| {
+            let Some(ours) = native_fields.get(key) else {
+                return false;
+            };
+            match (
+                COUNTS.contains(&key.as_str()),
+                value.as_i64(),
+                ours.as_i64(),
+            ) {
+                (true, Some(theirs), Some(ours)) => (theirs - ours).abs() <= CONFIRMATION_LAG,
+                _ => value == ours,
+            }
+        })
 }
 
 fn excerpt(bytes: &[u8]) -> String {
@@ -88,26 +124,49 @@ fn excerpt(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
+    use serde_json::json;
 
-    use super::same_json;
+    use super::{same_answer, same_status};
+    use crate::routes::Route;
 
     #[test]
     fn json_comparison_ignores_formatting_and_key_order() {
-        assert!(same_json(
+        assert!(same_answer(
+            Route::AddressGroup,
             &Bytes::from_static(b"{\"group\": 2}"),
             b"{\"group\":2}"
         ));
-        assert!(same_json(
+        assert!(same_answer(
+            Route::AddressGroup,
             &Bytes::from_static(b"{\"a\":1,\"b\":[1,2]}"),
             b"{\"b\":[1,2],\"a\":1}"
         ));
-        assert!(!same_json(
+        assert!(!same_answer(
+            Route::AddressGroup,
             &Bytes::from_static(b"{\"group\":2}"),
             b"{\"group\":3}"
         ));
-        assert!(!same_json(
+        assert!(!same_answer(
+            Route::AddressGroup,
             &Bytes::from_static(b"not json"),
             b"{\"group\":2}"
+        ));
+    }
+
+    #[test]
+    fn statuses_match_within_the_confirmation_lag_only() {
+        let status = |block: &str, confirmations: i64| {
+            json!({"type": "Confirmed", "blockHash": block, "txIndex": 0,
+                "chainConfirmations": confirmations, "fromGroupConfirmations": confirmations,
+                "toGroupConfirmations": confirmations})
+        };
+        assert!(same_status(&status("aa", 10), &status("aa", 9)));
+        assert!(same_status(&status("aa", 10), &status("aa", 12)));
+        assert!(!same_status(&status("aa", 10), &status("aa", 7)));
+        assert!(!same_status(&status("aa", 10), &status("bb", 10)));
+        assert!(!same_status(
+            &json!({"type": "MemPooled"}),
+            &status("aa", 1)
         ));
     }
 }

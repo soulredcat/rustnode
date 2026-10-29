@@ -169,18 +169,14 @@ fn main() {
     // The kept window lives on disk, so a restart continues from it.
     let data_path = data_path
         .unwrap_or_else(|| std::path::PathBuf::from(alephium_conf::DEFAULT_CHAIN_DATA_PATH));
-    let disk = if following {
-        Some(
-            alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
-                eprintln!("{}: {error}", data_path.display());
-                process::exit(1);
-            }),
-        )
-    } else {
-        None
-    };
     // Followed blocks, written by the P2P session and read by native handlers.
-    let chain = SharedChainStore::new(window, disk.clone());
+    let followed = following.then(|| {
+        let disk = alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
+            eprintln!("{}: {error}", data_path.display());
+            process::exit(1);
+        });
+        (disk.clone(), SharedChainStore::new(window, disk))
+    });
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -195,7 +191,7 @@ fn main() {
             eprintln!("{error}");
             process::exit(1);
         });
-    if following {
+    if let Some((_, chain)) = &followed {
         gateway = gateway.with_chain(chain.clone());
     }
 
@@ -212,7 +208,7 @@ fn main() {
         println!("api key: required on native answers (from {API_KEY_ENV})");
     }
 
-    if following {
+    if let Some((disk, chain)) = followed {
         config = config
             .with_node_identity_path(resolve_node_identity_path())
             .unwrap_or_else(|error| {

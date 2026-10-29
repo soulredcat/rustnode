@@ -10,7 +10,7 @@
 //! `RUSTNODE_OFFICIAL_URL=http://127.0.0.1:12973 [RUSTNODE_OFFICIAL_API_KEY=...]
 //!  cargo test -p alephium-chain --test official_headers -- --ignored --nocapture`
 
-use alephium_chain::{AddError, ChainStore};
+use alephium_chain::{AddError, ChainStore, Disk};
 use alephium_model::hash::from_hex;
 use alephium_model::{Block, deserialize};
 use serde_json::Value;
@@ -85,7 +85,10 @@ fn mainnet_headers_pass_validation() {
             tops.push((from, to, top));
         }
     }
-    let mut store = ChainStore::new(groups, 100_000, genesis, None).expect("genesis");
+    let path = std::env::temp_dir().join(format!("rustnode-headers-{}.redb", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut store = ChainStore::new(groups, 100_000, genesis, Disk::open(&path).expect("disk"))
+        .expect("genesis");
     let mut pending = Vec::new();
     let mut official = Vec::new();
     for &(from, to, top) in &tops {
@@ -148,4 +151,6 @@ fn mainnet_headers_pass_validation() {
     }
     println!("{settled} settled heights on the official canonical chain");
     println!("{total} mainnet blocks validated, work targets included");
+    drop(store);
+    let _ = std::fs::remove_file(&path);
 }

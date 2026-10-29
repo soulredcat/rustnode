@@ -3,6 +3,7 @@
 //! the official node; that request is then proxied.
 
 mod address;
+mod status;
 
 use std::sync::PoisonError;
 
@@ -20,7 +21,10 @@ pub(crate) struct Context<'a> {
 /// Routes that have a native handler. Only these accept `shadow` and `native`.
 #[must_use]
 pub(crate) const fn has_handler(route: Route) -> bool {
-    matches!(route, Route::AddressGroup | Route::BlockByHash)
+    matches!(
+        route,
+        Route::AddressGroup | Route::BlockByHash | Route::TransactionStatus
+    )
 }
 
 /// Handlers that matched the official node on live traffic
@@ -33,7 +37,12 @@ pub(crate) const fn verified(route: Route) -> bool {
 
 /// The JSON body of a `200` response, or `None` to defer to the official node.
 #[must_use]
-pub(crate) fn serve(route: Route, path: &str, context: &Context<'_>) -> Option<Vec<u8>> {
+pub(crate) fn serve(
+    route: Route,
+    path: &str,
+    query: Option<&str>,
+    context: &Context<'_>,
+) -> Option<Vec<u8>> {
     match route {
         Route::AddressGroup => {
             let address = path.split('/').nth(2)?;
@@ -41,6 +50,7 @@ pub(crate) fn serve(route: Route, path: &str, context: &Context<'_>) -> Option<V
             Some(format!("{{\"group\":{group}}}").into_bytes())
         }
         Route::BlockByHash => block_by_hash(path.split('/').nth(3)?, context),
+        Route::TransactionStatus => status::transaction_status(query, context),
         _ => None,
     }
 }
@@ -79,6 +89,7 @@ mod tests {
         let body = serve(
             Route::AddressGroup,
             "/addresses/1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3/group",
+            None,
             &context(3),
         );
         assert_eq!(body.as_deref(), Some(&b"{\"group\":2}"[..]));
@@ -89,7 +100,7 @@ mod tests {
         for route in Route::ALL {
             if !has_handler(route) {
                 assert_eq!(
-                    serve(route, "/anything", &context(4)),
+                    serve(route, "/anything", None, &context(4)),
                     None,
                     "{}",
                     route.name()
@@ -97,15 +108,30 @@ mod tests {
             }
         }
         assert_eq!(
-            serve(Route::AddressGroup, "/addresses/%31/group", &context(4)),
+            serve(
+                Route::AddressGroup,
+                "/addresses/%31/group",
+                None,
+                &context(4)
+            ),
             None
         );
-        // Without a followed chain, blocks are always deferred.
+        // Without a followed chain, blocks and statuses are always deferred.
+        assert_eq!(
+            serve(
+                Route::TransactionStatus,
+                "/transactions/status",
+                Some(&format!("txId={}", "00".repeat(32))),
+                &context(4)
+            ),
+            None
+        );
         let hash = "00".repeat(32);
         assert_eq!(
             serve(
                 Route::BlockByHash,
                 &format!("/blockflow/blocks/{hash}"),
+                None,
                 &context(4)
             ),
             None

@@ -134,6 +134,25 @@ for group in 0 1 2 3; do
   done
 done
 
+# Transaction status of transactions in intra-group blocks across the
+# window, with and without groups, through the gateway in shadow mode.
+status_requests=0
+for group in 0 1 2 3; do
+  height="$(official "/blockflow/chain-info?fromGroup=${group}&toGroup=${group}" | json 'data["currentHeight"]')"
+  for back in 5 60 $((WINDOW - 30)); do
+    hash="$(official "/blockflow/hashes?fromGroup=${group}&toGroup=${group}&height=$((height - back))" |
+      json 'data["headers"][0]')"
+    for tx in $(official "/blockflow/blocks/${hash}" |
+      json '" ".join(t["unsigned"]["txId"] for t in data["transactions"][-2:])'); do
+      for query in "txId=${tx}" "txId=${tx}&fromGroup=${group}" "txId=${tx}&fromGroup=${group}&toGroup=${group}"; do
+        status="$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${VIA}/transactions/status?${query}")"
+        [[ "${status}" == "200" ]] || fail "GET /transactions/status?${query} through rustnode: ${status}"
+        status_requests=$((status_requests + 1))
+      done
+    done
+  done
+done
+
 # Gateway: official build info, refusal outside the surface, and native
 # address groups equal to the official answers. Addresses: official
 # AddressSpec vectors, outputs of the newest mainnet blocks, a contract, a
@@ -172,6 +191,11 @@ wait_for "${WORK}/run1.log" "blockflow/blocks/\{hash\}: requests=${requested} " 
 shadow="$(grep -E 'blockflow/blocks/\{hash\}: requests=' "${WORK}/run1.log" | tail -1)"
 [[ "${shadow}" =~ shadow_match=${requested}\ shadow_mismatch=0 ]] || fail "shadow check: ${shadow}"
 echo "   shadow: ${requested} of ${requested} blocks equal to the official node"
+status_line="$(grep -E 'transactions/status: requests=' "${WORK}/run1.log" | tail -1)"
+[[ "${status_line}" =~ requests=${status_requests}\  ]] || fail "status requests not logged: ${status_line}"
+[[ "${status_line}" =~ shadow_match=${status_requests}\ shadow_mismatch=0 ]] ||
+  fail "transaction status shadow check: ${status_line}"
+echo "   shadow: ${status_requests} of ${status_requests} transaction statuses equal to the official node"
 check_following "${WORK}/run1.log"
 rss_kib="$(ps -o rss= -p "${RUSTNODE_PID}" | tr -d ' ')"
 echo "   rss $((rss_kib / 1024)) MiB, store $(du -h "${WORK}/chain.redb" | cut -f1)"

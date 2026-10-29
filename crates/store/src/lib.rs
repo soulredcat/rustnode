@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 //! On-disk storage of the kept block window, in one redb file: every block
 //! of the window with its height and weight, the hashes at each height of
-//! each chain (canonical first), and what the store was built for.
+//! each chain (canonical first), the blocks holding each transaction, and
+//! what the store was built for.
 //!
 //! Writes are collected in memory and committed together by
 //! [`WindowStore::flush`]; reads see them before the commit. A commit is
@@ -25,9 +26,13 @@ pub type Hash = [u8; 32];
 const BLOCKS: TableDefinition<Hash, &[u8]> = TableDefinition::new("blocks");
 /// `(chain, height)` to the hashes at that height, canonical first.
 const HEIGHTS: TableDefinition<(u32, u32), &[u8]> = TableDefinition::new("heights");
+/// Transaction id to the blocks of the window holding it: `(block hash,
+/// index in the block)` pairs, 36 bytes each, in the order blocks arrived.
+const TXS: TableDefinition<Hash, &[u8]> = TableDefinition::new("txs");
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
 const META_KEY: &str = "meta";
-const FORMAT_VERSION: u32 = 1;
+/// 2: the transaction index. A store of another version is rebuilt.
+const FORMAT_VERSION: u32 = 2;
 
 /// Longest time between fsynced commits: what a crash can lose.
 pub const DURABLE_INTERVAL: Duration = Duration::from_secs(10);
@@ -156,6 +161,33 @@ fn be_u32(bytes: &[u8]) -> u32 {
     u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
+fn decode_locations(bytes: &[u8]) -> Result<Vec<(Hash, u32)>, Error> {
+    let (locations, rest) = bytes.as_chunks::<36>();
+    if !rest.is_empty() {
+        return Err(Error(format!(
+            "{} bytes is not a list of transaction locations",
+            bytes.len()
+        )));
+    }
+    Ok(locations
+        .iter()
+        .map(|location| {
+            let mut block = [0u8; 32];
+            block.copy_from_slice(&location[..32]);
+            (block, be_u32(&location[32..]))
+        })
+        .collect())
+}
+
+fn encode_locations(locations: &[(Hash, u32)]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(36 * locations.len());
+    for (block, index) in locations {
+        out.extend_from_slice(block);
+        out.extend_from_slice(&index.to_be_bytes());
+    }
+    out
+}
+
 fn decode_hashes(bytes: &[u8]) -> Result<Vec<Hash>, Error> {
     let (hashes, rest) = bytes.as_chunks::<32>();
     if !rest.is_empty() {
@@ -172,13 +204,17 @@ fn decode_hashes(bytes: &[u8]) -> Result<Vec<Hash>, Error> {
 struct Batch {
     blocks: HashMap<Hash, Option<Vec<u8>>>,
     heights: BTreeMap<(u32, u32), Option<Vec<u8>>>,
+    txs: HashMap<Hash, Option<Vec<u8>>>,
     meta: Option<Vec<u8>>,
     bytes: usize,
 }
 
 impl Batch {
     fn is_empty(&self) -> bool {
-        self.blocks.is_empty() && self.heights.is_empty() && self.meta.is_none()
+        self.blocks.is_empty()
+            && self.heights.is_empty()
+            && self.txs.is_empty()
+            && self.meta.is_none()
     }
 }
 
@@ -206,6 +242,7 @@ impl Disk {
         let txn = db.begin_write()?;
         txn.open_table(BLOCKS)?;
         txn.open_table(HEIGHTS)?;
+        txn.open_table(TXS)?;
         txn.open_table(META)?;
         txn.commit()?;
         Ok(Self { db: Arc::new(db) })
@@ -297,6 +334,37 @@ impl WindowStore {
 
     pub fn delete_hashes(&mut self, chain: u32, height: u32) {
         self.pending.heights.insert((chain, height), None);
+    }
+
+    /// The blocks of the window holding a transaction, as `(block hash, index
+    /// in the block)` in the order the blocks arrived.
+    pub fn tx_locations(&self, tx: &Hash) -> Result<Vec<(Hash, u32)>, Error> {
+        if let Some(pending) = self.pending.txs.get(tx) {
+            return pending.as_deref().map_or(Ok(Vec::new()), decode_locations);
+        }
+        let txn = self.disk.db.begin_read()?;
+        let table = txn.open_table(TXS)?;
+        let value = table.get(tx)?;
+        value.map_or(Ok(Vec::new()), |value| decode_locations(value.value()))
+    }
+
+    pub fn add_tx_location(&mut self, tx: Hash, block: Hash, index: u32) -> Result<(), Error> {
+        let mut locations = self.tx_locations(&tx)?;
+        if !locations.contains(&(block, index)) {
+            locations.push((block, index));
+        }
+        let bytes = encode_locations(&locations);
+        self.pending.bytes += bytes.len();
+        self.pending.txs.insert(tx, Some(bytes));
+        Ok(())
+    }
+
+    pub fn remove_tx_location(&mut self, tx: Hash, block: Hash) -> Result<(), Error> {
+        let mut locations = self.tx_locations(&tx)?;
+        locations.retain(|(holder, _)| *holder != block);
+        let value = (!locations.is_empty()).then(|| encode_locations(&locations));
+        self.pending.txs.insert(tx, value);
+        Ok(())
     }
 
     /// Every stored height of `chain` in `range`, with its hashes.
@@ -405,6 +473,17 @@ impl WindowStore {
                     }
                 }
             }
+            let mut txs = txn.open_table(TXS)?;
+            for (tx, value) in &self.pending.txs {
+                match value {
+                    Some(bytes) => {
+                        txs.insert(tx, bytes.as_slice())?;
+                    }
+                    None => {
+                        txs.remove(tx)?;
+                    }
+                }
+            }
             if let Some(bytes) = &self.pending.meta {
                 txn.open_table(META)?.insert(META_KEY, bytes.as_slice())?;
             }
@@ -426,9 +505,11 @@ impl WindowStore {
         let txn = self.disk.db.begin_write()?;
         txn.delete_table(BLOCKS)?;
         txn.delete_table(HEIGHTS)?;
+        txn.delete_table(TXS)?;
         txn.delete_table(META)?;
         txn.open_table(BLOCKS)?;
         txn.open_table(HEIGHTS)?;
+        txn.open_table(TXS)?;
         txn.open_table(META)?;
         txn.commit()?;
         self.last_durable = Instant::now();
@@ -512,6 +593,23 @@ mod tests {
         assert_eq!(store.hashes_at(1, 4), Ok(Vec::new()));
         assert_eq!(store.highest_height(2), Ok(Some(9)));
         assert_eq!(store.highest_height(3), Ok(None));
+
+        // Transaction locations keep arrival order and survive a commit.
+        store.add_tx_location([9; 32], [5; 32], 0).expect("add");
+        store.add_tx_location([9; 32], [6; 32], 3).expect("add");
+        store
+            .add_tx_location([9; 32], [5; 32], 0)
+            .expect("add again");
+        store.flush().expect("flush");
+        assert_eq!(
+            store.tx_locations(&[9; 32]),
+            Ok(vec![([5; 32], 0), ([6; 32], 3)])
+        );
+        store.remove_tx_location([9; 32], [5; 32]).expect("remove");
+        assert_eq!(store.tx_locations(&[9; 32]), Ok(vec![([6; 32], 3)]));
+        store.remove_tx_location([9; 32], [6; 32]).expect("remove");
+        store.flush().expect("flush");
+        assert_eq!(store.tx_locations(&[9; 32]), Ok(Vec::new()));
 
         store.clear().expect("clear");
         assert_eq!(store.meta(), Ok(None));

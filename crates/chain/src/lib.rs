@@ -4,10 +4,9 @@
 //! `BlockFlow.calWeight`, and `FlowTipsUtil` compute them.
 //!
 //! Only a window of recent heights is kept per chain; older blocks are pruned
-//! as new ones arrive. With a disk store (`alephium-store`) the whole window
-//! is on disk and survives restarts, and only the newest [`HOT_HEIGHTS`]
-//! heights of each chain stay in memory; anything older is read from disk.
-//! Without one, the window is kept in memory.
+//! as new ones arrive. The whole window is on disk (`alephium-store`) and
+//! survives restarts; only the newest [`HOT_HEIGHTS`] heights of each chain
+//! stay in memory, and anything older is read from disk.
 
 mod difficulty;
 
@@ -26,12 +25,12 @@ use alephium_store::{Meta, Record, WindowStore};
 pub struct SharedChainStore {
     store: Arc<RwLock<Option<ChainStore>>>,
     window: u32,
-    disk: Option<Disk>,
+    disk: Disk,
 }
 
 impl SharedChainStore {
     #[must_use]
-    pub fn new(window: u32, disk: Option<Disk>) -> Self {
+    pub fn new(window: u32, disk: Disk) -> Self {
         Self {
             store: Arc::default(),
             window,
@@ -63,7 +62,7 @@ pub const TIPS_PRUNE_MILLIS: u64 = 16_000 * MAX_FORK_DEPTH;
 /// Default number of heights kept per chain: 1.6 million blocks over 16
 /// chains, about 9 days at the 8 s Danube block time.
 pub const DEFAULT_WINDOW: u32 = 100_000;
-/// Heights per chain held in memory when the window is on disk. New blocks
+/// Heights per chain held in memory. New blocks
 /// reference tips (at most `TIPS_PRUNE_MILLIS` old, 400 heights at 8 s) and
 /// blocks within the fork depth, so lookups below this are rare.
 pub const HOT_HEIGHTS: u32 = 1024;
@@ -95,6 +94,16 @@ pub struct Entry {
     pub weight: Option<U256>,
 }
 
+/// Where a transaction is confirmed on the canonical chain of its chain index
+/// (`BlockChain.getTxStatusUnsafe`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TxConfirmed {
+    pub block: Hash,
+    pub index: u32,
+    /// `maxHeightByWeight - height + 1`.
+    pub chain_confirmations: u32,
+}
+
 /// What `add` did, for notifications and logs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Added {
@@ -112,13 +121,12 @@ pub struct ChainStore {
     genesis: Vec<Hash>,
     /// Blocks in memory: genesis and the heights in `heights`.
     entries: HashMap<Hash, Entry>,
-    /// Hashes per height, canonical first: genesis and the hot heights with a
-    /// disk, the whole window without.
+    /// Hashes per height, canonical first: genesis and the hot heights.
     heights: Vec<BTreeMap<u32, Vec<Hash>>>,
     /// Tips and their timestamps.
     tips: Vec<HashMap<Hash, TimeStamp>>,
-    /// The whole window, when it is kept on disk.
-    disk: Option<WindowStore>,
+    /// The whole window.
+    disk: WindowStore,
     /// False on disk while a checkpoint import is unfinished.
     complete: bool,
 }
@@ -169,15 +177,12 @@ fn raw_hashes(hashes: &[Hash]) -> Vec<[u8; 32]> {
 }
 
 impl ChainStore {
-    /// `genesis` holds the genesis block of every chain, in any order. With a
-    /// disk, whatever it held is replaced by this new store.
-    pub fn new(
-        groups: u32,
-        window: u32,
-        genesis: Vec<Block>,
-        disk: Option<Disk>,
-    ) -> Result<Self, String> {
+    /// `genesis` holds the genesis block of every chain, in any order;
+    /// whatever the disk held is replaced by this new store.
+    pub fn new(groups: u32, window: u32, genesis: Vec<Block>, disk: Disk) -> Result<Self, String> {
         let chains = (groups * groups) as usize;
+        let mut disk = WindowStore::new(disk);
+        disk.clear().map_err(|error| error.to_string())?;
         let mut store = Self {
             groups,
             window: window.max(1),
@@ -185,7 +190,7 @@ impl ChainStore {
             entries: HashMap::new(),
             heights: vec![BTreeMap::new(); chains],
             tips: vec![HashMap::new(); chains],
-            disk: None,
+            disk,
             complete: true,
         };
         for block in genesis {
@@ -212,18 +217,14 @@ impl ChainStore {
         if store.genesis.contains(&Hash::ZERO) {
             return Err("missing genesis blocks".into());
         }
-        if let Some(disk) = disk {
-            let mut window_store = WindowStore::new(disk);
-            window_store.clear().map_err(|error| error.to_string())?;
-            store.disk = Some(window_store);
-            for chain in 0..chains {
-                let hash = store.genesis[chain];
-                store.persist_entry(&hash);
-                store.set_hashes(chain, 0, vec![hash]);
-            }
-            store.write_meta();
-            store.flush_durable()?;
+        for chain in 0..chains {
+            let hash = store.genesis[chain];
+            store.persist_entry(&hash);
+            store.index_txs(&hash)?;
+            store.set_hashes(chain, 0, vec![hash]);
         }
+        store.write_meta();
+        store.flush_durable()?;
         Ok(store)
     }
 
@@ -251,7 +252,7 @@ impl ChainStore {
             entries: HashMap::new(),
             heights: vec![BTreeMap::new(); chains],
             tips: vec![HashMap::new(); chains],
-            disk: Some(window_store),
+            disk: window_store,
             complete: true,
         };
         for chain in 0..chains {
@@ -277,11 +278,7 @@ impl ChainStore {
 
     /// Heights per chain held in memory.
     fn hot_heights(&self) -> u32 {
-        if self.disk.is_some() {
-            HOT_HEIGHTS.min(self.window)
-        } else {
-            self.window
-        }
+        HOT_HEIGHTS.min(self.window)
     }
 
     /// Lowest height of a chain held in memory, genesis aside.
@@ -296,7 +293,7 @@ impl ChainStore {
         if let Some(entry) = self.entries.get(hash) {
             return Some(entry.clone());
         }
-        let record = match self.disk.as_ref()?.record(&hash.0) {
+        let record = match self.disk.record(&hash.0) {
             Ok(record) => record?,
             Err(error) => {
                 eprintln!("{error}");
@@ -339,11 +336,9 @@ impl ChainStore {
     #[must_use]
     pub fn contains(&self, hash: &Hash) -> bool {
         self.entries.contains_key(hash)
-            || self.disk.as_ref().is_some_and(|disk| {
-                disk.contains(&hash.0).unwrap_or_else(|error| {
-                    eprintln!("{error}");
-                    false
-                })
+            || self.disk.contains(&hash.0).unwrap_or_else(|error| {
+                eprintln!("{error}");
+                false
             })
     }
 
@@ -351,10 +346,7 @@ impl ChainStore {
         if let Some(hashes) = self.heights[chain].get(&height) {
             return hashes.clone();
         }
-        let Some(disk) = &self.disk else {
-            return Vec::new();
-        };
-        match disk.hashes_at(chain as u32, height) {
+        match self.disk.hashes_at(chain as u32, height) {
             Ok(hashes) => hashes.into_iter().map(Hash).collect(),
             Err(error) => {
                 eprintln!("{error}");
@@ -366,22 +358,31 @@ impl ChainStore {
     /// Sets the hashes at a height, canonical first: on disk, and in memory
     /// when the height is held there.
     fn set_hashes(&mut self, chain: usize, height: u32, hashes: Vec<Hash>) {
-        if let Some(disk) = self.disk.as_mut() {
-            disk.put_hashes(chain as u32, height, &raw_hashes(&hashes));
-        }
-        if self.disk.is_none()
-            || self.heights[chain].contains_key(&height)
-            || height >= self.hot_from(chain)
-        {
+        self.disk
+            .put_hashes(chain as u32, height, &raw_hashes(&hashes));
+        if self.heights[chain].contains_key(&height) || height >= self.hot_from(chain) {
             self.heights[chain].insert(height, hashes);
         }
     }
 
     /// Writes a block held in memory to disk.
     fn persist_entry(&mut self, hash: &Hash) {
-        if let (Some(disk), Some(entry)) = (self.disk.as_mut(), self.entries.get(hash)) {
-            disk.put_record(hash.0, &record_of(entry));
+        if let Some(entry) = self.entries.get(hash) {
+            self.disk.put_record(hash.0, &record_of(entry));
         }
+    }
+
+    /// Records where each transaction of a block held in memory sits.
+    fn index_txs(&mut self, hash: &Hash) -> Result<(), String> {
+        let Some(entry) = self.entries.get(hash) else {
+            return Ok(());
+        };
+        for (index, tx) in (0..).zip(&entry.block.transactions) {
+            self.disk
+                .add_tx_location(tx.id().0, hash.0, index)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     fn write_meta(&mut self) {
@@ -390,30 +391,22 @@ impl ChainStore {
             genesis: raw_hashes(&self.genesis),
             complete: self.complete,
         };
-        if let Some(disk) = self.disk.as_mut() {
-            disk.put_meta(&meta);
-        }
+        self.disk.put_meta(&meta);
     }
 
-    /// Commits the disk writes of the last changes; nothing without a disk.
+    /// Commits the disk writes of the last changes.
     pub fn flush(&mut self) -> Result<(), String> {
-        self.disk.as_mut().map_or(Ok(()), |disk| {
-            disk.flush().map_err(|error| error.to_string())
-        })
+        self.disk.flush().map_err(|error| error.to_string())
     }
 
     fn flush_durable(&mut self) -> Result<(), String> {
-        self.disk.as_mut().map_or(Ok(()), |disk| {
-            disk.flush_durable().map_err(|error| error.to_string())
-        })
+        self.disk.flush_durable().map_err(|error| error.to_string())
     }
 
     /// Reads the newest heights of every chain from disk into memory.
     fn load_hot(&mut self) -> Result<(), String> {
         let hot = self.hot_heights();
-        let Some(disk) = &self.disk else {
-            return Ok(());
-        };
+        let disk = &self.disk;
         let mut records = Vec::new();
         for chain in 0..self.heights.len() {
             let Some(max) = disk
@@ -464,6 +457,40 @@ impl ChainStore {
             .next_back()
             .copied()
             .unwrap_or(0)
+    }
+
+    /// `BlockChain.maxHeightByWeight`.
+    #[must_use]
+    pub fn max_height_by_weight(&self, from: u32, to: u32) -> u32 {
+        self.max_weight_tip(from, to)
+            .map_or(0, |(_, height)| height)
+    }
+
+    /// `BlockChain.getTxStatusUnsafe`: the first block holding the
+    /// transaction that is canonical on the `from -> to` chain, with its
+    /// confirmations; `None` when no canonical block of the window holds it.
+    #[must_use]
+    pub fn tx_confirmed(&self, tx: &Hash, from: u32, to: u32) -> Option<TxConfirmed> {
+        let locations = match self.disk.tx_locations(&tx.0) {
+            Ok(locations) => locations,
+            Err(error) => {
+                eprintln!("{error}");
+                return None;
+            }
+        };
+        locations.into_iter().find_map(|(block, index)| {
+            let block = Hash(block);
+            if BlockHeader::chain_index(&block, self.groups) != (from, to) {
+                return None;
+            }
+            let height = self.get(&block)?.height;
+            (self.hashes_at(from, to, height).first() == Some(&block)).then(|| TxConfirmed {
+                block,
+                index,
+                chain_confirmations: (self.max_height_by_weight(from, to) + 1)
+                    .saturating_sub(height),
+            })
+        })
     }
 
     /// `BlockHashChain.maxWeightTipUnsafe`: the tip of greatest weight, ties
@@ -602,9 +629,9 @@ impl ChainStore {
     /// Starts from a checkpoint instead of genesis: `blocks` holds, per
     /// height, the hashes the official node lists (canonical first). Heights
     /// and canonical order are taken as given; weights stay unknown until
-    /// [`seed_weight`](Self::seed_weight). With a disk the blocks go straight
-    /// to disk, and [`finish_checkpoint`](Self::finish_checkpoint) reads the
-    /// newest of them back into memory.
+    /// [`seed_weight`](Self::seed_weight). The blocks go straight to disk, and
+    /// [`finish_checkpoint`](Self::finish_checkpoint) reads the newest of
+    /// them back into memory.
     pub fn import_checkpoint(
         &mut self,
         from: u32,
@@ -613,28 +640,6 @@ impl ChainStore {
         blocks: Vec<Block>,
     ) -> Result<(), String> {
         let chain = self.chain(from, to);
-        if self.disk.is_none() {
-            let mut hashes = Vec::with_capacity(blocks.len());
-            for block in blocks {
-                let hash = block.hash();
-                hashes.push(hash);
-                self.entries.entry(hash).or_insert_with(|| Entry {
-                    block: Arc::new(block),
-                    from,
-                    to,
-                    height,
-                    weight: None,
-                });
-            }
-            let at_height = self.heights[chain].entry(height).or_default();
-            for hash in hashes {
-                if !at_height.contains(&hash) {
-                    at_height.push(hash);
-                }
-            }
-            return Ok(());
-        }
-
         if self.complete {
             self.complete = false;
             self.write_meta();
@@ -650,10 +655,12 @@ impl ChainStore {
                 new_blocks.push((hash, block));
             }
         }
-        let Some(disk) = self.disk.as_mut() else {
-            return Ok(());
-        };
+        let disk = &mut self.disk;
         for (hash, block) in new_blocks {
+            for (index, tx) in (0..).zip(&block.transactions) {
+                disk.add_tx_location(tx.id().0, hash.0, index)
+                    .map_err(|error| error.to_string())?;
+            }
             disk.put_record(
                 hash.0,
                 &Record {
@@ -671,9 +678,9 @@ impl ChainStore {
     }
 
     /// After a checkpoint import: tips are the blocks without a child, within
-    /// the tip-prune duration of the newest block of their chain. With a disk,
-    /// the newest heights are read into memory first, and the store is marked
-    /// complete once everything is committed.
+    /// the tip-prune duration of the newest block of their chain. The newest
+    /// heights are read into memory first, and the store is marked complete
+    /// once everything is committed.
     pub fn finish_checkpoint(&mut self) -> Result<(), String> {
         self.flush()?;
         self.load_hot()?;
@@ -818,8 +825,8 @@ impl ChainStore {
 
     /// Adds a block whose dependencies are all known: PoW, chain index,
     /// height, weight, canonicality, tips, and the kept window. Blocks from
-    /// peers pass [`validate`](Self::validate) first. With a disk,
-    /// the writes are committed by the next [`flush`](Self::flush).
+    /// peers pass [`validate`](Self::validate) first. The writes are
+    /// committed by the next [`flush`](Self::flush).
     pub fn add(&mut self, block: Block) -> Result<Added, AddError> {
         let hash = block.hash();
         if self.contains(&hash) {
@@ -859,7 +866,7 @@ impl ChainStore {
 
         let timestamp = header.timestamp;
         // A late block below the heights held in memory goes to disk only.
-        let hot = self.disk.is_none() || height >= self.hot_from(chain);
+        let hot = height >= self.hot_from(chain);
         let entry = Entry {
             block: Arc::new(block),
             from,
@@ -867,8 +874,11 @@ impl ChainStore {
             height,
             weight,
         };
-        if let Some(disk) = self.disk.as_mut() {
-            disk.put_record(hash.0, &record_of(&entry));
+        self.disk.put_record(hash.0, &record_of(&entry));
+        for (index, tx) in (0..).zip(&entry.block.transactions) {
+            if let Err(error) = self.disk.add_tx_location(tx.id().0, hash.0, index) {
+                eprintln!("{error}");
+            }
         }
         if hot {
             self.entries.insert(hash, entry);
@@ -926,9 +936,8 @@ impl ChainStore {
         }
     }
 
-    /// Drops heights below `max height - window`, keeping genesis. With a
-    /// disk, memory keeps only the newest `HOT_HEIGHTS` heights and the
-    /// window is pruned on disk.
+    /// Drops heights below `max height - window` from disk, keeping genesis;
+    /// memory keeps only the newest `HOT_HEIGHTS` heights.
     fn prune(&mut self, chain: usize) {
         let max = self.heights[chain].keys().next_back().copied().unwrap_or(0);
         let keep_from = max.saturating_sub(self.window);
@@ -944,22 +953,28 @@ impl ChainStore {
                 }
             }
         }
-        let Some(disk) = self.disk.as_mut() else {
-            return;
-        };
         if keep_from <= 1 {
             return;
         }
-        match disk.heights(chain as u32, 1..=keep_from - 1) {
-            Ok(rows) => {
-                for (height, hashes) in rows {
-                    for hash in hashes {
-                        disk.delete_record(hash);
-                    }
-                    disk.delete_hashes(chain as u32, height);
-                }
+        let rows = match self.disk.heights(chain as u32, 1..=keep_from - 1) {
+            Ok(rows) => rows,
+            Err(error) => {
+                eprintln!("{error}");
+                return;
             }
-            Err(error) => eprintln!("{error}"),
+        };
+        for (height, hashes) in rows {
+            for hash in hashes {
+                if let Some(entry) = self.get(&Hash(hash)) {
+                    for tx in &entry.block.transactions {
+                        if let Err(error) = self.disk.remove_tx_location(tx.id().0, hash) {
+                            eprintln!("{error}");
+                        }
+                    }
+                }
+                self.disk.delete_record(hash);
+            }
+            self.disk.delete_hashes(chain as u32, height);
         }
     }
 }
@@ -1046,13 +1061,8 @@ mod tests {
         let top = HOT_HEIGHTS + 2000;
         let genesis = block(Hash::ZERO, GENESIS_TIMESTAMP.0);
         let mut hashes = vec![genesis.hash()];
-        let mut store = ChainStore::new(
-            1,
-            window,
-            vec![genesis],
-            Some(Disk::open(&path).expect("open")),
-        )
-        .expect("genesis");
+        let mut store = ChainStore::new(1, window, vec![genesis], Disk::open(&path).expect("open"))
+            .expect("genesis");
         for height in 1..=top {
             let next = block(hashes[height as usize - 1], time_of(height));
             hashes.push(next.hash());
@@ -1119,7 +1129,7 @@ mod tests {
             1,
             100,
             vec![genesis.clone()],
-            Some(Disk::open(&path).expect("open")),
+            Disk::open(&path).expect("open"),
         )
         .expect("genesis");
         store
@@ -1133,13 +1143,8 @@ mod tests {
                 .is_none()
         );
 
-        let mut store = ChainStore::new(
-            1,
-            100,
-            vec![genesis],
-            Some(Disk::open(&path).expect("reopen")),
-        )
-        .expect("genesis");
+        let mut store = ChainStore::new(1, 100, vec![genesis], Disk::open(&path).expect("reopen"))
+            .expect("genesis");
         store
             .import_checkpoint(0, 0, 1, vec![first])
             .expect("import");
