@@ -52,12 +52,13 @@ Done so far: block, header, and transaction encoding and JSON identical to the o
 
 - [x] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node: `--follow` (and a repeatable `--peer`) follows from the six official `bootstrap{0..5}.alephium.org:9973` nodes over inter-clique TCP, no UDP discovery yet; each peer runs its own follow worker sharing the chain store and mempool (`conf::BOOTSTRAP_PEERS`, `app`).
 - [x] Fetch an announced block only when its hash carries mainnet's minimum work (37 leading zero bits, `network::MIN_HASH_ZERO_BITS`), so a peer cannot trigger fetches with hashes it did not mine.
-- [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
-- [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
+- [x] Typed block and header codecs, byte for byte against the official mainnet node; blake3 PoW hash.
+- [x] Header validation of every block from a peer, as the official `HeaderValidation` (`ChainStore::validate`): version, increasing timestamp, 15 s drift, dependency count and order, PoW, the Danube difficulty adjustment with the penalty patch (`chain::difficulty`), uncle dependency timestamps, and the flow check. Checked on 540 mainnet blocks of all 16 chains (`official_headers`). The state hash check comes with state (N6).
+- [ ] Fork choice by weight across the 16 chains (best dependencies, the state view without `worldStateBlockHash`): needed with state (N5).
 - [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.
 - [x] Keep blocks for a configured window only (`--window`, default 100,000 heights per chain, about 9 days; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
 - [x] Keep the window on disk (`crates/store`, one redb file, `--data`) with only the newest 1,024 heights per chain in memory. A restart reopens it and fetches only the missed heights: from the official node when it agrees with the stored chain (same genesis, same canonical block 200 heights below the lower tip, at most a window behind), otherwise from peers. Commits are fsynced at least every 10 s; a crash loses at most that, and peers bring it back.
-- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications. Blocks by time need a timestamp-to-height lookup on disk.
+- [ ] Native `GET /blockflow/blocks/{hash}` for inter-group blocks, `GET /blockflow/blocks?fromTs=&toTs=` within the window, and `/ws` `block` notifications: since Danube an inter-group block's JSON carries `conflictedTxs`, which the official node computes when it applies the block to state, so these wait for N6. Blocks by time also need a timestamp-to-height lookup on disk.
 
 ## N4 — Native mempool
 

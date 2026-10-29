@@ -236,7 +236,10 @@ impl BlockSync {
             let mut progress = false;
             for block in queue.drain(..) {
                 let hash = block.hash();
-                match store.add(block.clone()) {
+                match store
+                    .validate(&block)
+                    .and_then(|()| store.add(block.clone()))
+                {
                     Ok(result) => {
                         progress = true;
                         self.orphans.remove(&hash);

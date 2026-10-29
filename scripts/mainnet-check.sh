@@ -10,7 +10,8 @@
 #
 # It checks, in order:
 #   1. the official node serves mainnet and is synced;
-#   2. raw block encoding and block JSON of the newest 100 heights per chain;
+#   2. raw block encoding and block JSON of the newest 100 heights per chain,
+#      and header validation (work target included) of the newest 30;
 #   3. a fresh rustnode bootstraps WINDOW heights into its store, follows the
 #      chain over P2P (Hello, Ping/Pong, ChainState weights equal to the
 #      peer's), serves blocks in shadow mode with no mismatch, and its gateway
@@ -60,12 +61,13 @@ official /infos/chain-params | json 'data["networkId"]' | grep -qx 0 ||
 official /infos/self-clique | json 'data["synced"]' | grep -qx True ||
   fail "${OFFICIAL_URL} is not synced"
 
-echo "== block encoding and JSON, newest 100 heights per chain"
+echo "== block encoding and JSON, newest 100 heights; header validation, newest 30"
 (
   cd "${ROOT_DIR}"
   export RUSTNODE_OFFICIAL_URL="${OFFICIAL_URL}"
   cargo test -q -p alephium-model --test official_raw_blocks -- --ignored
   cargo test -q -p alephium-api --test official_block_json -- --ignored
+  cargo test -q -p alephium-chain --test official_headers -- --ignored
 )
 
 echo "== rustnode build"
@@ -96,9 +98,13 @@ wait_for() {
   done
 }
 
-# The newest following line must show blocks followed and no weight mismatch.
+# The newest following line must show blocks followed and no weight mismatch,
+# and no block from the peer may have failed header validation.
 check_following() {
   local line
+  if grep -E 'rejected block' "$1" >&2; then
+    fail "blocks from the official node failed header validation"
+  fi
   line="$(grep -E 'blocks followed=' "$1" | tail -1)"
   [[ "${line}" =~ mismatches=0$ ]] || fail "weight mismatch: ${line}"
   [[ ! "${line}" =~ followed=0[[:space:]] ]] || fail "no block followed: ${line}"

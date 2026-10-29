@@ -9,6 +9,8 @@
 //! heights of each chain stay in memory; anything older is read from disk.
 //! Without one, the window is kept in memory.
 
+mod difficulty;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, LockResult, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -78,6 +80,8 @@ pub enum AddError {
     MissingDeps(Vec<Hash>),
     /// A dependency is older than the kept window, or the deps are inconsistent.
     Unresolvable(String),
+    /// A header rule the official `HeaderValidation` enforces is broken.
+    Invalid(String),
 }
 
 #[derive(Debug, Clone)]
@@ -323,9 +327,13 @@ impl ChainStore {
         })
     }
 
+    /// A block the caller needs; an unknown one is a missing dependency, so a
+    /// block whose validation reaches it waits for it instead of failing. A
+    /// checkpoint can reference blocks of other chains newer than their
+    /// imported tops, which peers then bring.
     fn entry(&self, hash: &Hash) -> Result<Entry, AddError> {
         self.get(hash)
-            .ok_or_else(|| AddError::Unresolvable(format!("unknown block {}", hash.to_hex())))
+            .ok_or_else(|| AddError::MissingDeps(vec![*hash]))
     }
 
     #[must_use]
@@ -783,8 +791,34 @@ impl ChainStore {
         self.get(hash).is_some_and(|entry| entry.weight.is_some())
     }
 
+    /// The official header rules for a block received from a peer
+    /// (`HeaderValidation`): `AlreadyKnown` and `MissingDeps` first, so the
+    /// caller can drop or park it, then every rule but the state hash.
+    pub fn validate(&self, block: &Block) -> Result<(), AddError> {
+        let hash = block.hash();
+        if self.contains(&hash) {
+            return Err(AddError::AlreadyKnown);
+        }
+        let header = &block.header;
+        if header.deps.len() != (2 * self.groups - 1) as usize {
+            return Err(AddError::WrongDepsLength);
+        }
+        let missing: Vec<Hash> = header
+            .deps
+            .iter()
+            .filter(|dep| !self.contains(dep))
+            .copied()
+            .collect();
+        if !missing.is_empty() {
+            return Err(AddError::MissingDeps(missing));
+        }
+        let (from, to) = BlockHeader::chain_index(&hash, self.groups);
+        self.check_header(&hash, header, from, to)
+    }
+
     /// Adds a block whose dependencies are all known: PoW, chain index,
-    /// height, weight, canonicality, tips, and the kept window. With a disk,
+    /// height, weight, canonicality, tips, and the kept window. Blocks from
+    /// peers pass [`validate`](Self::validate) first. With a disk,
     /// the writes are committed by the next [`flush`](Self::flush).
     pub fn add(&mut self, block: Block) -> Result<Added, AddError> {
         let hash = block.hash();
