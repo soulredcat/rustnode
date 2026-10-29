@@ -453,6 +453,12 @@ impl ChainStore {
         self.chain_hashes(self.chain(from, to), height)
     }
 
+    /// Heights kept per chain.
+    #[must_use]
+    pub const fn window(&self) -> u32 {
+        self.window
+    }
+
     /// Highest height held for the chain.
     #[must_use]
     pub fn max_height(&self, from: u32, to: u32) -> u32 {

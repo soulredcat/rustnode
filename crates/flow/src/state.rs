@@ -89,8 +89,11 @@ pub struct Follower {
     /// Out-blocks with transactions skipped as conflicted, by the
     /// intra-group block that applied them (`ConflictedTxsStorage`).
     conflicts: std::collections::HashMap<Hash, Vec<(Hash, Vec<Hash>)>>,
-    /// Blocks whose `depStateHash` was checked.
-    checked: std::collections::HashSet<Hash>,
+    /// Blocks whose `depStateHash` was checked, with their height.
+    checked: std::collections::HashMap<Hash, u32>,
+    /// Per group, the height the next step starts from: a little below the
+    /// newest kept state, found by searching the window once.
+    resume: Vec<Option<u32>>,
     pub applied: u64,
     pub verified: u64,
 }
@@ -102,7 +105,8 @@ impl Follower {
             store,
             groups,
             conflicts: std::collections::HashMap::new(),
-            checked: std::collections::HashSet::new(),
+            checked: std::collections::HashMap::new(),
+            resume: vec![None; groups as usize],
             applied: 0,
             verified: 0,
         }
@@ -113,7 +117,11 @@ impl Follower {
     pub fn step(&mut self, chain: &alephium_chain::ChainStore) -> Result<(), String> {
         for group in 0..self.groups {
             let top = chain.max_height(group, group);
-            let bottom = top.saturating_sub(FOLLOW_DEPTH);
+            let bottom = match self.resume[group as usize] {
+                Some(bottom) => bottom,
+                None => self.newest_kept(chain, group, top)?,
+            };
+            let mut newest = bottom;
             for height in bottom..=top {
                 for hash in chain.hashes_at(group, group, height) {
                     if self.store.roots(&hash)?.is_some() {
@@ -126,6 +134,7 @@ impl Follower {
                     let Some(parent_roots) = self.store.roots(&parent)? else {
                         continue;
                     };
+                    newest = newest.max(height);
                     let mut world =
                         alephium_state::WorldState::new(&parent_roots, self.store.as_ref());
                     let conflicts = &self.conflicts;
@@ -150,13 +159,15 @@ impl Follower {
                     self.applied += 1;
                 }
             }
+            // Late forks below the newest state are picked up on the way.
+            self.resume[group as usize] = Some(newest.saturating_sub(FOLLOW_DEPTH).max(bottom));
         }
         for from in 0..self.groups {
             for to in 0..self.groups {
                 let top = chain.max_height(from, to);
                 for height in top.saturating_sub(FOLLOW_DEPTH)..=top {
                     for hash in chain.hashes_at(from, to, height) {
-                        if self.checked.contains(&hash) {
+                        if self.checked.contains_key(&hash) {
                             continue;
                         }
                         let Some(entry) = chain.get(&hash) else {
@@ -175,13 +186,37 @@ impl Follower {
                                 roots.state_hash().to_hex()
                             ));
                         }
-                        self.checked.insert(hash);
+                        self.checked.insert(hash, height);
                         self.verified += 1;
                     }
                 }
             }
         }
+        let lowest = (0..self.groups)
+            .flat_map(|from| (0..self.groups).map(move |to| (from, to)))
+            .map(|(from, to)| chain.max_height(from, to).saturating_sub(FOLLOW_DEPTH))
+            .min()
+            .unwrap_or(0);
+        self.checked.retain(|_, height| *height >= lowest);
         Ok(())
+    }
+
+    /// The newest height of `group -> group` whose block has a kept state,
+    /// searched down through the window; `top` when none has.
+    fn newest_kept(
+        &self,
+        chain: &alephium_chain::ChainStore,
+        group: u32,
+        top: u32,
+    ) -> Result<u32, String> {
+        for height in (top.saturating_sub(chain.window())..=top).rev() {
+            for hash in chain.hashes_at(group, group, height) {
+                if self.store.roots(&hash)?.is_some() {
+                    return Ok(height);
+                }
+            }
+        }
+        Ok(top)
     }
 }
 
