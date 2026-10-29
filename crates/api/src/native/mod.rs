@@ -4,6 +4,7 @@
 
 mod address;
 mod contract;
+mod events;
 mod mempool;
 mod status;
 mod utxos;
@@ -33,6 +34,11 @@ pub(crate) const fn has_handler(route: Route) -> bool {
             | Route::AddressBalance
             | Route::AddressUtxos
             | Route::BlockByHash
+            | Route::BlockWithEvents
+            | Route::ContractEventCount
+            | Route::ContractEvents
+            | Route::EventsByTxId
+            | Route::SubContracts
             | Route::ContractState
             | Route::MempoolTransactions
             | Route::TransactionStatus
@@ -71,6 +77,17 @@ pub(crate) fn serve(
             utxos::utxos_json(path.split('/').nth(2)?, context)
         }
         Route::AddressBalance => utxos::balance_json(path.split('/').nth(2)?, query, context),
+        Route::ContractEventCount if query.is_none() => {
+            events::current_count(path.split('/').nth(3)?, context)
+        }
+        Route::ContractEvents => events::contract_events(path.split('/').nth(3)?, query, context),
+        Route::EventsByTxId if query.is_none() => {
+            events::events_by_tx_id(path.split('/').nth(3)?, context)
+        }
+        Route::BlockWithEvents if query.is_none() => {
+            events::block_with_events(path.split('/').nth(3)?, context)
+        }
+        Route::SubContracts => events::sub_contracts(path.split('/').nth(2)?, query, context),
         _ => None,
     }
 }

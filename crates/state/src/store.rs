@@ -145,6 +145,12 @@ impl StateStore {
         txn.commit().map_err(|error| error.to_string())
     }
 
+    /// Makes every earlier commit durable.
+    pub(crate) fn flush_durable(&self) -> Result<(), String> {
+        let txn = self.db.begin_write().map_err(|error| error.to_string())?;
+        txn.commit().map_err(|error| error.to_string())
+    }
+
     /// Starts an import: the mark goes to disk first.
     pub(crate) fn writer(&self) -> Result<Writer, String> {
         let txn = self.db.begin_write().map_err(|error| error.to_string())?;

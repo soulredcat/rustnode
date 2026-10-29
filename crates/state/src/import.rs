@@ -120,6 +120,101 @@ impl Official {
     }
 }
 
+/// Entries written per commit when a column family is copied.
+const FAMILY_BATCH: usize = 50_000;
+
+impl Official {
+    /// Copies the event and sub-contract column families as they are, in
+    /// key order; returns the entries and bytes copied per family.
+    pub fn copy_families(&self, store: &StateStore) -> Result<Vec<(String, u64, u64)>, String> {
+        let mut copied = Vec::new();
+        for family in crate::events::FAMILIES {
+            let handle = self
+                .db
+                .cf_handle(family)
+                .ok_or_else(|| format!("no `{family}` column family"))?;
+            let (mut entries, mut bytes) = (0u64, 0u64);
+            let mut batch = Vec::with_capacity(FAMILY_BATCH);
+            let mut page_blocks: std::collections::HashSet<Hash> = std::collections::HashSet::new();
+            for item in self.db.iterator_cf(&handle, rocksdb::IteratorMode::Start) {
+                let (key, value) = item.map_err(|error| error.to_string())?;
+                entries += 1;
+                bytes += (key.len() + value.len()) as u64;
+                // An event page (a longer key than a hash) starts with its
+                // block's hash.
+                if family == "log" && key.len() > 32 && value.len() >= 32 {
+                    let mut block = [0u8; 32];
+                    block.copy_from_slice(&value[..32]);
+                    page_blocks.insert(Hash(block));
+                }
+                batch.push((key.to_vec(), value.to_vec()));
+                if batch.len() == FAMILY_BATCH {
+                    store.put_raw(family, &batch)?;
+                    batch.clear();
+                }
+                if entries.is_multiple_of(5_000_000) {
+                    println!("state: {family}: {entries} entries copied");
+                }
+            }
+            store.put_raw(family, &batch)?;
+            copied.push((family.to_owned(), entries, bytes));
+            if !page_blocks.is_empty() {
+                let blocks: Vec<Hash> = page_blocks.into_iter().collect();
+                self.copy_block_times(store, &blocks)?;
+            }
+        }
+        store.flush_durable()?;
+        Ok(copied)
+    }
+}
+
+impl Official {
+    /// The timestamps of `blocks`, read from their headers by `READERS`
+    /// threads.
+    fn copy_block_times(&self, store: &StateStore, blocks: &[Hash]) -> Result<(), String> {
+        let handle = self
+            .db
+            .cf_handle("header")
+            .ok_or("no `header` column family")?;
+        for (round, chunk) in blocks.chunks(ROUND).enumerate() {
+            let per_reader = chunk.len().div_ceil(READERS).max(1);
+            let times = std::thread::scope(|scope| {
+                let readers: Vec<_> = chunk
+                    .chunks(per_reader)
+                    .map(|part| {
+                        let handle = &handle;
+                        scope.spawn(move || {
+                            part.iter()
+                                .map(|block| {
+                                    let header = self
+                                        .db
+                                        .get_cf(handle, block.0)
+                                        .map_err(|error| error.to_string())?
+                                        .ok_or_else(|| format!("no header {}", block.to_hex()))?;
+                                    let header =
+                                        deserialize::<alephium_model::BlockHeader>(&header)
+                                            .map_err(|error| error.to_string())?;
+                                    Ok((*block, header.timestamp.0))
+                                })
+                                .collect::<Result<Vec<_>, String>>()
+                        })
+                    })
+                    .collect();
+                let mut times = Vec::with_capacity(chunk.len());
+                for reader in readers {
+                    times.extend(reader.join().map_err(|_| "a header reader panicked")??);
+                }
+                Ok::<_, String>(times)
+            })?;
+            store.put_block_times(&times)?;
+            if (round + 1) % 64 == 0 {
+                println!("state: {} block times copied", (round + 1) * ROUND);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The official node's trie nodes, unchecked.
 impl NodeSource for Official {
     fn node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, String> {

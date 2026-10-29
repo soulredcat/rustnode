@@ -51,6 +51,20 @@ pub fn bootstrap(
             child.to_hex()
         );
     }
+    // Events and sub-contracts up to now; the follower writes those of
+    // newer blocks.
+    official.catch_up()?;
+    let started = Instant::now();
+    for (family, entries, bytes) in official.copy_families(store)? {
+        println!(
+            "state: {family}: {entries} entries ({} MiB) copied",
+            bytes / (1024 * 1024)
+        );
+    }
+    println!(
+        "state: events and sub-contracts copied in {:.0?}",
+        started.elapsed()
+    );
     Ok(())
 }
 
@@ -159,6 +173,25 @@ impl Follower {
                     }
                     let roots = world.roots();
                     self.store.put_state(&hash, &roots, world.new_nodes())?;
+                    let mut events = Vec::new();
+                    let mut sub_contracts = Vec::new();
+                    for (index, execution) in &applied.executions {
+                        let tx_id = entry.block.transactions[*index].id();
+                        events.extend(execution.events.iter().map(|event| {
+                            alephium_state::NewEvent {
+                                tx_id,
+                                contract: event.contract_id,
+                                fields: event.fields.clone(),
+                            }
+                        }));
+                        sub_contracts.extend(execution.sub_contracts.iter().copied());
+                    }
+                    self.store.put_block_events(
+                        &hash,
+                        entry.block.header.timestamp.0,
+                        &events,
+                        &sub_contracts,
+                    )?;
                     self.applied += 1;
                 }
             }
