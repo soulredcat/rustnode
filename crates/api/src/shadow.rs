@@ -26,10 +26,14 @@ pub(crate) async fn forward_and_compare(
     route: Route,
     request: Request<Incoming>,
 ) -> Forwarded {
-    let path = request.uri().path().to_owned();
-    let query = request.uri().query().map(str::to_owned);
+    let (request_parts, request_body) = match proxy::read(state, request).await {
+        Ok(read) => read,
+        Err(failure) => return failure.into(),
+    };
+    let path = request_parts.uri.path().to_owned();
+    let query = request_parts.uri.query().map(str::to_owned);
 
-    let upstream = match proxy::send(state, request).await {
+    let upstream = match proxy::send_parts(state, request_parts, request_body.clone()).await {
         Ok(response) => response,
         Err(failure) => return failure.into(),
     };
@@ -47,7 +51,13 @@ pub(crate) async fn forward_and_compare(
     let official = collected.to_bytes();
     // Taken after the official answer: rustnode hears of blocks and
     // transactions from the official node, so it is a moment behind it.
-    let native = native::serve(route, &path, query.as_deref(), &state.native_context());
+    let native = native::serve(
+        route,
+        &path,
+        query.as_deref(),
+        &request_body,
+        &state.native_context(),
+    );
 
     let result = match &native {
         None => ShadowResult::Declined,

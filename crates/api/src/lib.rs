@@ -329,25 +329,35 @@ async fn handle(state: &State, request: Request<Incoming>) -> Response<GatewayBo
                 RouteMode::Proxy => proxy::forward(state, request).await,
                 RouteMode::Shadow => shadow::forward_and_compare(state, matched, request).await,
                 RouteMode::Native => {
-                    let native = api_key_accepted(state, &request)
-                        .then(|| {
-                            native::serve(
-                                matched,
-                                request.uri().path(),
-                                request.uri().query(),
-                                &state.native_context(),
-                            )
-                        })
-                        .flatten();
-                    match native {
-                        Some(body) => {
-                            state.metrics.record_native(matched);
-                            proxy::Forwarded {
-                                response: json_response(StatusCode::OK, Bytes::from(body)),
-                                upstream_error: false,
+                    let accepted = api_key_accepted(state, &request);
+                    match proxy::read(state, request).await {
+                        Ok((parts, body)) => {
+                            let native = accepted
+                                .then(|| {
+                                    native::serve(
+                                        matched,
+                                        parts.uri.path(),
+                                        parts.uri.query(),
+                                        &body,
+                                        &state.native_context(),
+                                    )
+                                })
+                                .flatten();
+                            match native {
+                                Some(answer) => {
+                                    state.metrics.record_native(matched);
+                                    proxy::Forwarded {
+                                        response: json_response(
+                                            StatusCode::OK,
+                                            Bytes::from(answer),
+                                        ),
+                                        upstream_error: false,
+                                    }
+                                }
+                                None => proxy::forward_parts(state, parts, body).await,
                             }
                         }
-                        None => proxy::forward(state, request).await,
+                        Err(failure) => failure.into(),
                     }
                 }
             };

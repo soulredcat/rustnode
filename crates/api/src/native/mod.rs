@@ -59,8 +59,10 @@ pub(crate) fn serve(
     route: Route,
     path: &str,
     query: Option<&str>,
+    body: &[u8],
     context: &Context<'_>,
 ) -> Option<Vec<u8>> {
+    let _ = body;
     match route {
         Route::AddressGroup => {
             let address = path.split('/').nth(2)?;
@@ -129,6 +131,7 @@ mod tests {
             Route::AddressGroup,
             "/addresses/1C2RAVWSuaXw8xtUxqVERR7ChKBE1XgscNFw73NSHE1v3/group",
             None,
+            b"",
             &context(3),
         );
         assert_eq!(body.as_deref(), Some(&b"{\"group\":2}"[..]));
@@ -139,7 +142,7 @@ mod tests {
         for route in Route::ALL {
             if !has_handler(route) {
                 assert_eq!(
-                    serve(route, "/anything", None, &context(4)),
+                    serve(route, "/anything", None, b"", &context(4)),
                     None,
                     "{}",
                     route.name()
@@ -151,6 +154,7 @@ mod tests {
                 Route::AddressGroup,
                 "/addresses/%31/group",
                 None,
+                b"",
                 &context(4)
             ),
             None
@@ -162,6 +166,7 @@ mod tests {
                 Route::MempoolTransactions,
                 "/mempool/transactions",
                 None,
+                b"",
                 &context(4)
             ),
             None
@@ -171,6 +176,7 @@ mod tests {
                 Route::TransactionStatus,
                 "/transactions/status",
                 Some(&format!("txId={}", "00".repeat(32))),
+                b"",
                 &context(4)
             ),
             None
@@ -181,6 +187,7 @@ mod tests {
                 Route::BlockByHash,
                 &format!("/blockflow/blocks/{hash}"),
                 None,
+                b"",
                 &context(4)
             ),
             None

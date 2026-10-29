@@ -1,5 +1,6 @@
 //! Forwards an allowlisted HTTP request to the official node unchanged.
 
+use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
@@ -42,10 +43,11 @@ impl From<Failure> for Forwarded {
 
 /// Sends the request to the official node. Hop-by-hop headers are already
 /// stripped from the returned response.
-pub(crate) async fn send(
+/// The request with its body read, within `max_request_bytes`.
+pub(crate) async fn read(
     state: &State,
     request: Request<Incoming>,
-) -> Result<Response<Incoming>, Failure> {
+) -> Result<(hyper::http::request::Parts, Bytes), Failure> {
     let (parts, body) = request.into_parts();
 
     let declared_too_large = parts
@@ -79,7 +81,15 @@ pub(crate) async fn send(
             ));
         }
     };
+    Ok((parts, body))
+}
 
+/// Sends a request whose body was already read.
+pub(crate) async fn send_parts(
+    state: &State,
+    parts: hyper::http::request::Parts,
+    body: Bytes,
+) -> Result<Response<Incoming>, Failure> {
     let path_and_query = parts
         .uri
         .path_and_query()
@@ -123,7 +133,19 @@ pub(crate) async fn send(
 
 /// Forwards the request and streams the official response back.
 pub(crate) async fn forward(state: &State, request: Request<Incoming>) -> Forwarded {
-    match send(state, request).await {
+    match read(state, request).await {
+        Ok((parts, body)) => forward_parts(state, parts, body).await,
+        Err(failure) => failure.into(),
+    }
+}
+
+/// Forwards a request whose body was already read.
+pub(crate) async fn forward_parts(
+    state: &State,
+    parts: hyper::http::request::Parts,
+    body: Bytes,
+) -> Forwarded {
+    match send_parts(state, parts, body).await {
         Ok(response) => Forwarded {
             response: response.map(|body| body.map_err(Into::into).boxed()),
             upstream_error: false,
