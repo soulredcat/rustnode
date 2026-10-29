@@ -170,6 +170,7 @@ pub(crate) struct State {
     pub(crate) modes: [RouteMode; Route::ALL.len()],
     pub(crate) chain: Option<alephium_chain::SharedChainStore>,
     pub(crate) mempool: Option<alephium_flow::SharedMempool>,
+    pub(crate) state: Option<Arc<alephium_state::StateStore>>,
 }
 
 impl State {
@@ -178,6 +179,7 @@ impl State {
             groups: self.config.groups,
             chain: self.chain.as_ref(),
             mempool: self.mempool.as_ref(),
+            state: self.state.as_deref(),
         }
     }
 }
@@ -212,6 +214,7 @@ impl Gateway {
                 modes,
                 chain: None,
                 mempool: None,
+                state: None,
             }),
         })
     }
@@ -231,6 +234,15 @@ impl Gateway {
     pub fn with_mempool(mut self, mempool: alephium_flow::SharedMempool) -> Self {
         if let Some(state) = Arc::get_mut(&mut self.state) {
             state.mempool = Some(mempool);
+        }
+        self
+    }
+
+    /// Serves contract states from the followed world state.
+    #[must_use]
+    pub fn with_state(mut self, state: Arc<alephium_state::StateStore>) -> Self {
+        if let Some(gateway_state) = Arc::get_mut(&mut self.state) {
+            gateway_state.state = Some(state);
         }
         self
     }

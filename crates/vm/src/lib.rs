@@ -7,7 +7,7 @@
 
 mod arith;
 mod balances;
-mod contract;
+pub mod contract;
 mod exec;
 mod hashes;
 

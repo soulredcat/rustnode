@@ -28,6 +28,8 @@ dependencies = [
  "alephium-model",
  "alephium-protocol",
  "alephium-serde",
+ "alephium-state",
+ "alephium-vm",
  "bytes",
  "futures-util",
  "http-body-util",
@@ -47,6 +49,7 @@ dependencies = [
  "alephium-chain",
  "alephium-conf",
  "alephium-flow",
+ "alephium-state",
  "tokio",
 ]
 

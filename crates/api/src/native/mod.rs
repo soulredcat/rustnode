@@ -3,6 +3,7 @@
 //! the official node; that request is then proxied.
 
 mod address;
+mod contract;
 mod mempool;
 mod status;
 
@@ -19,6 +20,7 @@ pub(crate) struct Context<'a> {
     pub(crate) groups: u32,
     pub(crate) chain: Option<&'a SharedChainStore>,
     pub(crate) mempool: Option<&'a SharedMempool>,
+    pub(crate) state: Option<&'a alephium_state::StateStore>,
 }
 
 /// Routes that have a native handler. Only these accept `shadow` and `native`.
@@ -28,6 +30,7 @@ pub(crate) const fn has_handler(route: Route) -> bool {
         route,
         Route::AddressGroup
             | Route::BlockByHash
+            | Route::ContractState
             | Route::MempoolTransactions
             | Route::TransactionStatus
     )
@@ -57,6 +60,9 @@ pub(crate) fn serve(
         }
         Route::BlockByHash => block_by_hash(path.split('/').nth(3)?, context),
         Route::MempoolTransactions if query.is_none() => mempool::transactions(context),
+        Route::ContractState if query.is_none() => {
+            contract::state(path.split('/').nth(2)?, context)
+        }
         Route::TransactionStatus => status::transaction_status(query, context),
         _ => None,
     }
@@ -89,6 +95,7 @@ mod tests {
             groups,
             chain: None,
             mempool: None,
+            state: None,
         }
     }
 

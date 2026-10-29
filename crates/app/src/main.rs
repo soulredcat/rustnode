@@ -221,6 +221,19 @@ fn main() {
             .with_chain(chain.clone())
             .with_mempool(mempool.clone());
     }
+    // The world state, kept once copied from the official node's database.
+    let state_store =
+        (followed.is_some() && (state_from.is_some() || state_path.exists())).then(|| {
+            alephium_state::StateStore::open(&state_path)
+                .map(std::sync::Arc::new)
+                .unwrap_or_else(|error| {
+                    eprintln!("{}: {error}", state_path.display());
+                    process::exit(1);
+                })
+        });
+    if let Some(state_store) = &state_store {
+        gateway = gateway.with_state(state_store.clone());
+    }
 
     println!("rustnode");
     println!("configuration: {}", alephium_conf::STATUS);
@@ -265,21 +278,25 @@ fn main() {
                     *chain
                         .write()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(store);
-                    if let Some(official_db) = state_from {
+                    if let Some(state_store) = state_store {
                         let chain = chain.clone();
                         let groups = config.configured_groups;
+                        let secondary = state_path.with_extension("secondary");
                         thread::spawn(move || {
-                            if let Err(error) = alephium_flow::state::bootstrap(
-                                &official_db,
-                                &state_path,
-                                &chain,
-                                groups,
-                            ) {
+                            if let Some(official_db) = state_from
+                                && let Err(error) = alephium_flow::state::bootstrap(
+                                    &official_db,
+                                    &state_store,
+                                    &secondary,
+                                    &chain,
+                                    groups,
+                                )
+                            {
                                 eprintln!("state bootstrap failed: {error}");
                                 return;
                             }
                             if let Err(error) =
-                                alephium_flow::state::follow(&state_path, &chain, groups)
+                                alephium_flow::state::follow(state_store, &chain, groups)
                             {
                                 eprintln!("state follower stopped: {error}");
                             }

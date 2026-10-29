@@ -15,20 +15,20 @@ use crate::sync::SharedChainStore;
 const SETTLED_DEPTH: u32 = 20;
 
 /// Copies the world state of every group from the database at
-/// `official_db` into the store at `state_path`; the database is read as a
-/// secondary instance, which keeps its own files beside the store.
+/// `official_db` into `store`; the database is read as a secondary
+/// instance, which keeps its own files in `secondary`.
 pub fn bootstrap(
     official_db: &Path,
-    state_path: &Path,
+    store: &StateStore,
+    secondary: &Path,
     chain: &SharedChainStore,
     groups: u32,
 ) -> Result<(), String> {
-    let store = StateStore::open(state_path)?;
-    let official = Official::open(official_db, &state_path.with_extension("secondary"))?;
+    let official = Official::open(official_db, secondary)?;
     for group in 0..groups {
         let (block, child, dep_state_hash) = settled_pair(chain, group, groups)?;
         let started = Instant::now();
-        let (roots, copied) = copy_state(&official, &store, &block)?;
+        let (roots, copied) = copy_state(&official, store, &block)?;
         if roots.state_hash() != dep_state_hash {
             return Err(format!(
                 "group {group}: the world state after {} hashes to {}, but {} commits to {}",
@@ -84,7 +84,7 @@ fn settled_pair(
 /// builds on. A mismatch stops the follower: rustnode must not serve a state
 /// the network disagrees with.
 pub struct Follower {
-    store: StateStore,
+    store: std::sync::Arc<StateStore>,
     groups: u32,
     /// Out-blocks with transactions skipped as conflicted, by the
     /// intra-group block that applied them (`ConflictedTxsStorage`).
@@ -96,15 +96,16 @@ pub struct Follower {
 }
 
 impl Follower {
-    pub fn open(state_path: &Path, groups: u32) -> Result<Self, String> {
-        Ok(Self {
-            store: StateStore::open(state_path)?,
+    #[must_use]
+    pub fn new(store: std::sync::Arc<StateStore>, groups: u32) -> Self {
+        Self {
+            store,
             groups,
             conflicts: std::collections::HashMap::new(),
             checked: std::collections::HashSet::new(),
             applied: 0,
             verified: 0,
-        })
+        }
     }
 
     /// Applies every block whose parent's state is kept, oldest first, and
@@ -125,7 +126,8 @@ impl Follower {
                     let Some(parent_roots) = self.store.roots(&parent)? else {
                         continue;
                     };
-                    let mut world = alephium_state::WorldState::new(&parent_roots, &self.store);
+                    let mut world =
+                        alephium_state::WorldState::new(&parent_roots, self.store.as_ref());
                     let conflicts = &self.conflicts;
                     let groups = self.groups;
                     let deps = entry.block.header.deps.clone();
@@ -214,8 +216,12 @@ const FOLLOW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const FOLLOW_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Runs the follower until the state diverges from the network's.
-pub fn follow(state_path: &Path, chain: &SharedChainStore, groups: u32) -> Result<(), String> {
-    let mut follower = Follower::open(state_path, groups)?;
+pub fn follow(
+    store: std::sync::Arc<StateStore>,
+    chain: &SharedChainStore,
+    groups: u32,
+) -> Result<(), String> {
+    let mut follower = Follower::new(store, groups);
     let mut next_log = Instant::now() + FOLLOW_LOG_INTERVAL;
     loop {
         {

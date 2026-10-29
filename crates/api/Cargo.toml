@@ -15,6 +15,8 @@ alephium-flow = { path = "../flow" }
 alephium-model = { path = "../model" }
 alephium-protocol = { path = "../protocol" }
 alephium-serde = { path = "../serde" }
+alephium-state = { path = "../state" }
+alephium-vm = { path = "../vm" }
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = { version = "0.1", default-features = false }
