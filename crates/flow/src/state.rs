@@ -26,6 +26,9 @@ pub fn bootstrap(
 ) -> Result<(), String> {
     let official = Official::open(official_db, secondary)?;
     for group in 0..groups {
+        // A group's copy takes minutes: the next one starts from a block the
+        // official database has by then.
+        official.catch_up()?;
         let (block, child, dep_state_hash) = settled_pair(chain, group, groups)?;
         let started = Instant::now();
         let (roots, copied) = copy_state(&official, store, &block)?;

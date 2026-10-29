@@ -48,6 +48,14 @@ impl Official {
         Ok(Self { db })
     }
 
+    /// Reads what the running node wrote since the database was opened or
+    /// last caught up: a secondary instance otherwise sees that moment only.
+    pub fn catch_up(&self) -> Result<(), String> {
+        self.db
+            .try_catch_up_with_primary()
+            .map_err(|error| error.to_string())
+    }
+
     fn get(&self, family: &str, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
         let handle = self
             .db
