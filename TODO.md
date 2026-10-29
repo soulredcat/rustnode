@@ -62,12 +62,12 @@ Done so far: block, header, and transaction encoding and JSON identical to the o
 
 ## N4 — Native mempool
 
-- [ ] Decode `TransactionTemplate` into the official JSON shape.
-- [ ] Remove transactions once a followed block includes them; expire stale ones like the official node.
+- [x] Decode `TransactionTemplate` into the official JSON shape (with `seenAt`).
+- [x] Remove transactions once a block holding them enters the best view of their group, return them when it leaves (Danube best view: `calBestFlowSkeletonUnsafe`, `calMemPoolChangesUnsafe`); skip relayed transactions already confirmed; expire after 10 minutes like the official node.
 - [ ] Connect to direct mainnet peers (a local official node alone announces in 500 ms batches after its own mempool).
 - [x] Transaction index of the window on disk (`txs` table: id to the blocks holding it), kept by add, checkpoint import and pruning.
 - [x] Native `GET /transactions/status` for transactions confirmed in intra-group blocks of the window, searched in the official chain order with and without groups (`shadow`; 36 of 36 equal in `make mainnet-check`; confirmations may trail the official node by up to 2 blocks, as between any two nodes). `MemPooled` and `TxNotFound` wait for the native mempool; inter-group blocks can hold `Conflicted` transactions and wait for state (N6).
-- [ ] Native `GET /mempool/transactions`; `MemPooled` and `TxNotFound` statuses.
+- [x] Native `GET /mempool/transactions`; `MemPooled` and `TxNotFound` statuses (`shadow`; 84 of 84 mempools with 116 transactions and 54 of 54 statuses equal in `make mainnet-check`). Statuses are declined until every searched chain has a weight from the peer's `ChainState`. A pruned node does not find transactions confirmed before its window.
 
 ## N5 — State bootstrap
 

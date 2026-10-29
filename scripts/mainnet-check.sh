@@ -6,6 +6,7 @@
 #   OFFICIAL_PEER  official P2P address       (default 127.0.0.1:9973)
 #   API_BIND       rustnode gateway address   (default 127.0.0.1:22973)
 #   WINDOW         heights kept per chain     (default 300)
+#   MEMPOOL_SECONDS  how long the mempool is polled (default 180)
 #   KEEP_WORK=1    keep the store and logs instead of deleting them
 #
 # It checks, in order:
@@ -14,8 +15,8 @@
 #      and header validation (work target included) of the newest 30;
 #   3. a fresh rustnode bootstraps WINDOW heights into its store, follows the
 #      chain over P2P (Hello, Ping/Pong, ChainState weights equal to the
-#      peer's), serves blocks in shadow mode with no mismatch, and its gateway
-#      answers like the official node;
+#      peer's), serves blocks, transaction statuses and the mempool in shadow
+#      mode with no mismatch, and its gateway answers like the official node;
 #   4. after being killed, rustnode reopens the store and fetches only the
 #      heights it missed.
 set -euo pipefail
@@ -25,6 +26,7 @@ OFFICIAL_URL="${OFFICIAL_URL:-http://127.0.0.1:12973}"
 OFFICIAL_PEER="${OFFICIAL_PEER:-127.0.0.1:9973}"
 API_BIND="${API_BIND:-127.0.0.1:22973}"
 WINDOW="${WINDOW:-300}"
+MEMPOOL_SECONDS="${MEMPOOL_SECONDS:-180}"
 VIA="http://${API_BIND}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/rustnode-mainnet-check.XXXXXX")"
 RUSTNODE_PID=""
@@ -120,6 +122,8 @@ wait_for "${WORK}/run1.log" 'received matching pong' 60
 wait_for "${WORK}/run1.log" 'seeded weights' 60
 wait_for "${WORK}/run1.log" 'followed block|BlocksAndUnclesByHeightsResponse' 120
 wait_for "${WORK}/run1.log" 'weight checks=[1-9]' 120
+# Statuses are declined until the peer's ChainState gives every chain a weight.
+wait_for "${WORK}/run1.log" 'unweighted chains=0 ' 300
 
 # Intra-group blocks across the window, through the gateway in shadow mode.
 requested=0
@@ -151,6 +155,34 @@ for group in 0 1 2 3; do
       done
     done
   done
+done
+
+# The mempool, polled through the gateway in shadow mode: the same
+# transactions as the official node, but for those it has only just seen.
+# Transactions it has held for over 30 s are MemPooled here too, and an
+# unknown transaction is not found.
+confirmed_requests=${status_requests}
+mempool_requests=0
+mempool_seen=0
+deadline=$((SECONDS + MEMPOOL_SECONDS))
+while ((SECONDS < deadline)); do
+  body="$(curl -fsS -m 10 "${VIA}/mempool/transactions")" || fail "GET /mempool/transactions through rustnode"
+  mempool_requests=$((mempool_requests + 1))
+  mempool_seen=$((mempool_seen + $(printf '%s' "${body}" | json 'sum(len(c["transactions"]) for c in data)')))
+  for tx in $(printf '%s' "${body}" |
+    json '" ".join(t["unsigned"]["txId"] for c in data for t in c["transactions"] if t["seenAt"] < __import__("time").time() * 1000 - 30000)'); do
+    status="$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${VIA}/transactions/status?txId=${tx}")"
+    [[ "${status}" == "200" ]] || fail "GET /transactions/status?txId=${tx} through rustnode: ${status}"
+    status_requests=$((status_requests + 1))
+  done
+  sleep 2
+done
+((mempool_seen > 0)) || fail "the official mempool held no transaction in ${MEMPOOL_SECONDS} s; run again"
+unknown="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+for query in "txId=${unknown}" "txId=${unknown}&fromGroup=1" "txId=${unknown}&fromGroup=1&toGroup=3"; do
+  body="$(curl -fsS -m 10 "${VIA}/transactions/status?${query}")" || fail "GET /transactions/status?${query}"
+  [[ "${body}" == *TxNotFound* ]] || fail "unknown transaction: ${body}"
+  status_requests=$((status_requests + 1))
 done
 
 # Gateway: official build info, refusal outside the surface, and native
@@ -191,11 +223,21 @@ wait_for "${WORK}/run1.log" "blockflow/blocks/\{hash\}: requests=${requested} " 
 shadow="$(grep -E 'blockflow/blocks/\{hash\}: requests=' "${WORK}/run1.log" | tail -1)"
 [[ "${shadow}" =~ shadow_match=${requested}\ shadow_mismatch=0 ]] || fail "shadow check: ${shadow}"
 echo "   shadow: ${requested} of ${requested} blocks equal to the official node"
+# A transaction confirmed on an inter-group chain while polled is declined.
+wait_for "${WORK}/run1.log" "transactions/status: requests=${status_requests} " 90
 status_line="$(grep -E 'transactions/status: requests=' "${WORK}/run1.log" | tail -1)"
-[[ "${status_line}" =~ requests=${status_requests}\  ]] || fail "status requests not logged: ${status_line}"
-[[ "${status_line}" =~ shadow_match=${status_requests}\ shadow_mismatch=0 ]] ||
+[[ "${status_line}" =~ shadow_match=([0-9]+)\ shadow_mismatch=0\ shadow_declined=([0-9]+) ]] ||
   fail "transaction status shadow check: ${status_line}"
-echo "   shadow: ${status_requests} of ${status_requests} transaction statuses equal to the official node"
+matched="${BASH_REMATCH[1]}"
+((matched >= confirmed_requests && matched + BASH_REMATCH[2] == status_requests)) ||
+  fail "transaction status shadow check: ${status_line}"
+echo "   shadow: ${matched} of ${status_requests} transaction statuses equal to the official node, none different"
+wait_for "${WORK}/run1.log" "mempool/transactions: requests=${mempool_requests} " 90
+mempool_line="$(grep -E 'mempool/transactions: requests=' "${WORK}/run1.log" | tail -1)"
+[[ "${mempool_line}" =~ shadow_match=${mempool_requests}\ shadow_mismatch=0 ]] ||
+  fail "mempool shadow check: ${mempool_line}"
+grep -qE 'mempool=[1-9]' "${WORK}/run1.log" || fail "rustnode never held a mempool transaction"
+echo "   shadow: ${mempool_requests} of ${mempool_requests} mempools equal to the official node (${mempool_seen} transactions listed)"
 check_following "${WORK}/run1.log"
 rss_kib="$(ps -o rss= -p "${RUSTNODE_PID}" | tr -d ' ')"
 echo "   rss $((rss_kib / 1024)) MiB, store $(du -h "${WORK}/chain.redb" | cut -f1)"

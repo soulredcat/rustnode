@@ -9,7 +9,7 @@ use alephium_model::network::{HardFork, hard_fork};
 use alephium_model::tx::Tokens;
 use alephium_model::{
     AssetOutput, Block, BlockHeader, Codec, Hash, LockupScript, OutputRef, TimeStamp, Transaction,
-    TxInput, TxOutput, UnsignedTransaction, serialize,
+    TransactionTemplate, TxInput, TxOutput, UnsignedTransaction, serialize,
 };
 use serde_json::{Value, json};
 
@@ -92,6 +92,16 @@ pub fn transaction(tx: &Transaction) -> Value {
             .collect::<Vec<_>>(),
         "inputSignatures": tx.input_signatures.iter().map(|sig| hex(sig)).collect::<Vec<_>>(),
         "scriptSignatures": tx.script_signatures.iter().map(|sig| hex(sig)).collect::<Vec<_>>(),
+    })
+}
+
+/// `api.model.TransactionTemplate.fromProtocol`, with when it was first seen.
+pub fn transaction_template(template: &TransactionTemplate, seen_at: u64) -> Value {
+    json!({
+        "unsigned": unsigned_tx(&template.unsigned, &template.unsigned.id()),
+        "inputSignatures": template.input_signatures.iter().map(|sig| hex(sig)).collect::<Vec<_>>(),
+        "scriptSignatures": template.script_signatures.iter().map(|sig| hex(sig)).collect::<Vec<_>>(),
+        "seenAt": seen_at,
     })
 }
 

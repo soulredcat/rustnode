@@ -3,11 +3,13 @@
 //! the official node; that request is then proxied.
 
 mod address;
+mod mempool;
 mod status;
 
 use std::sync::PoisonError;
 
 use alephium_chain::SharedChainStore;
+use alephium_flow::SharedMempool;
 use alephium_model::Hash;
 
 use crate::routes::Route;
@@ -16,6 +18,7 @@ use crate::routes::Route;
 pub(crate) struct Context<'a> {
     pub(crate) groups: u32,
     pub(crate) chain: Option<&'a SharedChainStore>,
+    pub(crate) mempool: Option<&'a SharedMempool>,
 }
 
 /// Routes that have a native handler. Only these accept `shadow` and `native`.
@@ -23,7 +26,10 @@ pub(crate) struct Context<'a> {
 pub(crate) const fn has_handler(route: Route) -> bool {
     matches!(
         route,
-        Route::AddressGroup | Route::BlockByHash | Route::TransactionStatus
+        Route::AddressGroup
+            | Route::BlockByHash
+            | Route::MempoolTransactions
+            | Route::TransactionStatus
     )
 }
 
@@ -50,6 +56,7 @@ pub(crate) fn serve(
             Some(format!("{{\"group\":{group}}}").into_bytes())
         }
         Route::BlockByHash => block_by_hash(path.split('/').nth(3)?, context),
+        Route::MempoolTransactions if query.is_none() => mempool::transactions(context),
         Route::TransactionStatus => status::transaction_status(query, context),
         _ => None,
     }
@@ -81,6 +88,7 @@ mod tests {
         Context {
             groups,
             chain: None,
+            mempool: None,
         }
     }
 
@@ -116,7 +124,17 @@ mod tests {
             ),
             None
         );
-        // Without a followed chain, blocks and statuses are always deferred.
+        // Without a followed chain, blocks, statuses and the mempool are
+        // always deferred.
+        assert_eq!(
+            serve(
+                Route::MempoolTransactions,
+                "/mempool/transactions",
+                None,
+                &context(4)
+            ),
+            None
+        );
         assert_eq!(
             serve(
                 Route::TransactionStatus,

@@ -15,6 +15,7 @@ dependencies = [
  "alephium-chain",
  "alephium-conf",
  "alephium-crypto",
+ "alephium-flow",
  "alephium-model",
  "alephium-protocol",
  "alephium-serde",

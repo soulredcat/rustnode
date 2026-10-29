@@ -1,8 +1,13 @@
-//! `GET /transactions/status`: a transaction confirmed on an intra-group
-//! chain is answered from the followed chain (`TxUtils.getTxConfirmationStatus`
-//! searched like `EndpointsLogic.searchTransactionStatus`). Everything else is
-//! deferred: `MemPooled` and `TxNotFound` need the native mempool, and an
-//! inter-group block can hold `Conflicted` transactions, which need state.
+//! `GET /transactions/status`, searched like
+//! `EndpointsLogic.searchTransactionStatus`: per chain index, a transaction
+//! confirmed on it (`TxUtils.getTxConfirmedStatus`), else one in the mempool
+//! of its group (`MemPooled`); `TxNotFound` when no chain index has it. A
+//! transaction confirmed on an inter-group chain is deferred: such a block can
+//! hold `Conflicted` transactions, which need state. So is every request while
+//! a searched chain has a tip of unknown weight (before the peer's
+//! `ChainState`), as its canonical blocks are not known yet. The followed
+//! window is all rustnode keeps, so a transaction confirmed before it is not
+//! found.
 
 use std::sync::PoisonError;
 
@@ -32,10 +37,27 @@ pub(super) fn transaction_status(query: Option<&str>, context: &Context<'_>) -> 
         .read()
         .unwrap_or_else(PoisonError::into_inner);
     let store = store.as_ref()?;
+    let searched = |chain_from: u32, chain_to: u32| {
+        from.is_none_or(|from| from == chain_from) && to.is_none_or(|to| to == chain_to)
+    };
+    for chain_from in 0..context.groups {
+        for chain_to in 0..context.groups {
+            if searched(chain_from, chain_to) && !store.weights_known(chain_from, chain_to) {
+                return None;
+            }
+        }
+    }
+    let pool = context
+        .mempool?
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     // `brokerConfig.chainIndexes` order, filtered by the given groups.
     for chain_from in (0..context.groups).filter(|g| from.is_none_or(|from| from == *g)) {
         for chain_to in (0..context.groups).filter(|g| to.is_none_or(|to| to == *g)) {
             let Some(confirmed) = store.tx_confirmed(&tx, chain_from, chain_to) else {
+                if pool.holds(&tx, chain_from) {
+                    return Some(json!({"type": "MemPooled"}).to_string().into_bytes());
+                }
                 continue;
             };
             if chain_from != chain_to {
@@ -56,5 +78,5 @@ pub(super) fn transaction_status(query: Option<&str>, context: &Context<'_>) -> 
             );
         }
     }
-    None
+    Some(json!({"type": "TxNotFound"}).to_string().into_bytes())
 }

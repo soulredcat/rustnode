@@ -169,6 +169,7 @@ pub(crate) struct State {
     pub(crate) metrics: Metrics,
     pub(crate) modes: [RouteMode; Route::ALL.len()],
     pub(crate) chain: Option<alephium_chain::SharedChainStore>,
+    pub(crate) mempool: Option<alephium_flow::SharedMempool>,
 }
 
 impl State {
@@ -176,6 +177,7 @@ impl State {
         native::Context {
             groups: self.config.groups,
             chain: self.chain.as_ref(),
+            mempool: self.mempool.as_ref(),
         }
     }
 }
@@ -209,6 +211,7 @@ impl Gateway {
                 metrics: Metrics::default(),
                 modes,
                 chain: None,
+                mempool: None,
             }),
         })
     }
@@ -218,6 +221,16 @@ impl Gateway {
     pub fn with_chain(mut self, chain: alephium_chain::SharedChainStore) -> Self {
         if let Some(state) = Arc::get_mut(&mut self.state) {
             state.chain = Some(chain);
+        }
+        self
+    }
+
+    /// Serves the mempool and `MemPooled` statuses from `mempool`, which the
+    /// P2P sessions fill.
+    #[must_use]
+    pub fn with_mempool(mut self, mempool: alephium_flow::SharedMempool) -> Self {
+        if let Some(state) = Arc::get_mut(&mut self.state) {
+            state.mempool = Some(mempool);
         }
         self
     }

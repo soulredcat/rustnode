@@ -7,7 +7,9 @@ use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 pub use alephium_chain::SharedChainStore;
-use alephium_chain::{AddError, Added};
+
+use crate::mempool::SharedMempool;
+use alephium_chain::{AddError, Added, ChainStore};
 use alephium_model::{Block, BlockHeader, Hash};
 use alephium_protocol::message::payload::ChainTip;
 use alephium_protocol::message::sync::HeightRange;
@@ -28,6 +30,7 @@ pub struct BlockRequest {
 
 pub struct BlockSync {
     chain: SharedChainStore,
+    mempool: SharedMempool,
     groups: u32,
     window_size: Duration,
     window_start: Instant,
@@ -47,10 +50,11 @@ pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(30);
 
 impl BlockSync {
     #[must_use]
-    pub fn new(chain: SharedChainStore, groups: u32) -> Self {
+    pub fn new(chain: SharedChainStore, mempool: SharedMempool, groups: u32) -> Self {
         let chains = (groups * groups) as usize;
         Self {
             chain,
+            mempool,
             groups,
             window_size: RATE_LIMIT_WINDOW,
             window_start: Instant::now(),
@@ -63,6 +67,28 @@ impl BlockSync {
             weight_mismatches: 0,
             added: 0,
         }
+    }
+
+    /// Chains with a tip of unknown weight, for the following log.
+    #[must_use]
+    pub(crate) fn unweighted_chains(&self) -> usize {
+        let store = self.chain.read().unwrap_or_else(PoisonError::into_inner);
+        store.as_ref().map_or(0, ChainStore::unweighted_chains)
+    }
+
+    /// Transactions in the mempool, for the following log.
+    #[must_use]
+    pub(crate) fn mempool_size(&self) -> usize {
+        self.mempool
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .count()
+    }
+
+    #[must_use]
+    pub(crate) const fn chain(&self) -> &SharedChainStore {
+        &self.chain
     }
 
     /// Records the peer's tips and, for tips we already hold, checks that our
@@ -268,6 +294,21 @@ impl BlockSync {
         if let Err(error) = store.flush() {
             eprintln!("{error}");
         }
+        // The mempool follows the best view of every chain index that moved.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| {
+                u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+            });
+        let mut chains: Vec<(u32, u32)> =
+            added.iter().map(|block| (block.from, block.to)).collect();
+        chains.sort_unstable();
+        chains.dedup();
+        let mut pool = self.mempool.lock().unwrap_or_else(PoisonError::into_inner);
+        for (from, to) in chains {
+            pool.follow_view(store, from, to, now);
+        }
+        pool.clean(now);
         self.added += added.len() as u64;
         added
     }

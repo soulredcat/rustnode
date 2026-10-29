@@ -2,6 +2,9 @@
 //! computed alongside and compared, so a route can go native only after it has
 //! matched the official node on live traffic.
 
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use bytes::Bytes;
 use http_body_util::{BodyExt, Limited};
 use hyper::body::Incoming;
@@ -25,7 +28,6 @@ pub(crate) async fn forward_and_compare(
 ) -> Forwarded {
     let path = request.uri().path().to_owned();
     let query = request.uri().query().map(str::to_owned);
-    let native = native::serve(route, &path, query.as_deref(), &state.native_context());
 
     let upstream = match proxy::send(state, request).await {
         Ok(response) => response,
@@ -43,6 +45,9 @@ pub(crate) async fn forward_and_compare(
         .into();
     };
     let official = collected.to_bytes();
+    // Taken after the official answer: rustnode hears of blocks and
+    // transactions from the official node, so it is a moment behind it.
+    let native = native::serve(route, &path, query.as_deref(), &state.native_context());
 
     let result = match &native {
         None => ShadowResult::Declined,
@@ -72,9 +77,15 @@ pub(crate) async fn forward_and_compare(
 /// peer a moment after the official node, as any two nodes do.
 const CONFIRMATION_LAG: i64 = 2;
 
+/// The official node relays transactions in batches
+/// (`txs-broadcast-delay`), so one it saw less than this long ago may not
+/// have reached rustnode yet.
+const RELAY_LAG_MILLIS: u64 = 15_000;
+
 /// JSON equality ignoring formatting and key order, byte equality otherwise;
 /// a transaction status also allows confirmation counts within
-/// `CONFIRMATION_LAG` of the official ones.
+/// `CONFIRMATION_LAG` of the official ones, and the mempool is compared by
+/// `same_mempool`.
 fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
     match (
         serde_json::from_slice::<serde_json::Value>(official),
@@ -82,6 +93,14 @@ fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
     ) {
         (Ok(official), Ok(native)) if route == Route::TransactionStatus => {
             same_status(&official, &native)
+        }
+        (Ok(official), Ok(native)) if route == Route::MempoolTransactions => {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |elapsed| {
+                    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+                });
+            same_mempool(&official, &native, now)
         }
         (Ok(official), Ok(native)) => official == native,
         _ => official.as_ref() == native,
@@ -94,6 +113,15 @@ fn same_status(official: &serde_json::Value, native: &serde_json::Value) -> bool
         "fromGroupConfirmations",
         "toGroupConfirmations",
     ];
+    // Confirmed within the lag: rustnode may not have the block yet.
+    if official["type"] == "Confirmed"
+        && official["chainConfirmations"]
+            .as_i64()
+            .is_some_and(|count| count <= CONFIRMATION_LAG)
+        && (native["type"] == "MemPooled" || native["type"] == "TxNotFound")
+    {
+        return true;
+    }
     let (Some(official_fields), Some(native_fields)) = (official.as_object(), native.as_object())
     else {
         return official == native;
@@ -114,6 +142,44 @@ fn same_status(official: &serde_json::Value, native: &serde_json::Value) -> bool
         })
 }
 
+/// The same transactions on the same chain indexes, in any order and with
+/// any `seenAt`, except that the official node may hold some it saw within
+/// `RELAY_LAG_MILLIS` of `now`.
+fn same_mempool(official: &serde_json::Value, native: &serde_json::Value, now: u64) -> bool {
+    let (Some(official), Some(native)) = (mempool_txs(official), mempool_txs(native)) else {
+        return false;
+    };
+    native
+        .iter()
+        .all(|(id, (tx, _))| official.get(id).is_some_and(|(theirs, _)| theirs == tx))
+        && official.iter().all(|(id, (_, seen_at))| {
+            native.contains_key(id) || now.saturating_sub(*seen_at) < RELAY_LAG_MILLIS
+        })
+}
+
+/// A mempool answer's transactions by id, each with its chain index in place
+/// of `seenAt`, and that `seenAt`; `None` for any other shape.
+fn mempool_txs(body: &serde_json::Value) -> Option<HashMap<String, (serde_json::Value, u64)>> {
+    let mut txs = HashMap::new();
+    for chain in body.as_array()? {
+        let (from, to) = (chain.get("fromGroup")?, chain.get("toGroup")?);
+        for tx in chain.get("transactions")?.as_array()? {
+            let mut tx = tx.as_object()?.clone();
+            let seen_at = tx.remove("seenAt")?.as_u64()?;
+            let id = tx.get("unsigned")?.get("txId")?.as_str()?.to_owned();
+            tx.insert("fromGroup".to_owned(), from.clone());
+            tx.insert("toGroup".to_owned(), to.clone());
+            if txs
+                .insert(id, (serde_json::Value::Object(tx), seen_at))
+                .is_some()
+            {
+                return None;
+            }
+        }
+    }
+    Some(txs)
+}
+
 fn excerpt(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)
         .chars()
@@ -126,7 +192,7 @@ mod tests {
     use bytes::Bytes;
     use serde_json::json;
 
-    use super::{same_answer, same_status};
+    use super::{RELAY_LAG_MILLIS, same_answer, same_mempool, same_status};
     use crate::routes::Route;
 
     #[test]
@@ -168,5 +234,56 @@ mod tests {
             &json!({"type": "MemPooled"}),
             &status("aa", 1)
         ));
+        // A block rustnode may not have yet, and one it must have.
+        assert!(same_status(&status("aa", 2), &json!({"type": "MemPooled"})));
+        assert!(same_status(
+            &status("aa", 1),
+            &json!({"type": "TxNotFound"})
+        ));
+        assert!(!same_status(
+            &status("aa", 3),
+            &json!({"type": "MemPooled"})
+        ));
+        assert!(!same_status(
+            &json!({"type": "MemPooled"}),
+            &json!({"type": "TxNotFound"})
+        ));
+    }
+
+    #[test]
+    fn mempools_match_in_any_order_and_within_the_relay_lag_only() {
+        let tx = |id: &str, seen_at: u64| {
+            json!({"unsigned": {"txId": id, "gasAmount": 20000}, "inputSignatures": [],
+                "scriptSignatures": [], "seenAt": seen_at})
+        };
+        let chain = |from: u32, txs: Vec<serde_json::Value>| json!({"fromGroup": from, "toGroup": 2, "transactions": txs});
+        let now = 100_000_000;
+        let official = json!([
+            chain(0, vec![tx("aa", 1_000), tx("bb", 2_000)]),
+            chain(1, vec![tx("cc", 3)])
+        ]);
+        // Any order, any seenAt.
+        let native = json!([
+            chain(1, vec![tx("cc", 9)]),
+            chain(0, vec![tx("bb", 7), tx("aa", 8)])
+        ]);
+        assert!(same_mempool(&official, &native, now));
+        // Missing one the official node saw long ago.
+        let native = json!([chain(0, vec![tx("aa", 8), tx("bb", 7)])]);
+        assert!(!same_mempool(&official, &native, now));
+        // Missing one it has only just seen.
+        let official = json!([chain(
+            0,
+            vec![tx("aa", 1_000), tx("bb", now - RELAY_LAG_MILLIS + 1)]
+        )]);
+        let native = json!([chain(0, vec![tx("aa", 8)])]);
+        assert!(same_mempool(&official, &native, now));
+        // Holding one the official node does not, or on another chain index.
+        let native = json!([chain(0, vec![tx("aa", 8), tx("bb", 7), tx("dd", 1)])]);
+        assert!(!same_mempool(&official, &native, now));
+        let native = json!([chain(1, vec![tx("aa", 8), tx("bb", 7)])]);
+        assert!(!same_mempool(&official, &native, now));
+        assert!(same_mempool(&json!([]), &json!([]), now));
+        assert!(!same_mempool(&json!([]), &json!({}), now));
     }
 }

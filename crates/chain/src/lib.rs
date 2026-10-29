@@ -8,7 +8,10 @@
 //! survives restarts; only the newest [`HOT_HEIGHTS`] heights of each chain
 //! stay in memory, and anything older is read from disk.
 
+mod best;
 mod difficulty;
+
+pub use best::ViewChange;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -509,6 +512,26 @@ impl ChainStore {
             }
         }
         Some((best.0, best.1))
+    }
+
+    /// Whether every tip of `from -> to` has a known weight: until then its
+    /// heaviest tip, and so confirmations, are not known.
+    #[must_use]
+    pub fn weights_known(&self, from: u32, to: u32) -> bool {
+        self.tips[self.chain(from, to)].keys().all(|tip| {
+            self.entries
+                .get(tip)
+                .is_some_and(|entry| entry.weight.is_some())
+        })
+    }
+
+    /// The chains with a tip of unknown weight, for the following log.
+    #[must_use]
+    pub fn unweighted_chains(&self) -> usize {
+        (0..self.groups)
+            .flat_map(|from| (0..self.groups).map(move |to| (from, to)))
+            .filter(|(from, to)| !self.weights_known(*from, *to))
+            .count()
     }
 
     /// The heaviest tip as `(hash, height, weight)`, for `ChainState`.

@@ -9,7 +9,7 @@ use alephium_conf::{
     API_KEY_ENV, ApiConfig, DEFAULT_API_BIND_ADDRESS, DEFAULT_UPSTREAM_URL, NodeConfig,
     resolve_node_identity_path,
 };
-use alephium_flow::{RawMempool, SharedChainStore, SharedRawMempool, run};
+use alephium_flow::{Mempool, SharedChainStore, SharedMempool, run};
 
 fn print_usage() {
     println!("rustnode: Alephium mainnet node for nixiaproject");
@@ -74,7 +74,7 @@ fn parse_u64(flag: &str, value: Option<String>) -> u64 {
 
 fn run_with_reconnect(
     config: &NodeConfig,
-    mempool: &SharedRawMempool,
+    mempool: &SharedMempool,
     chain: &SharedChainStore,
     interval: Duration,
 ) -> ! {
@@ -191,8 +191,12 @@ fn main() {
             eprintln!("{error}");
             process::exit(1);
         });
+    // Transactions the P2P sessions hear of, read by native handlers.
+    let mempool = Mempool::shared(config.max_mempool_txs);
     if let Some((_, chain)) = &followed {
-        gateway = gateway.with_chain(chain.clone());
+        gateway = gateway
+            .with_chain(chain.clone())
+            .with_mempool(mempool.clone());
     }
 
     println!("rustnode");
@@ -221,7 +225,6 @@ fn main() {
             data_path.display()
         );
         println!("runtime: {}", alephium_flow::STATUS);
-        let mempool = RawMempool::shared(config.max_mempool_txs);
         let bootstrap_source =
             alephium_flow::bootstrap::Source::new(&api.upstream_url, api.api_key.clone());
         thread::spawn(move || {

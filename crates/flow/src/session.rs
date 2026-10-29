@@ -33,7 +33,7 @@ use alephium_protocol::message::{
 };
 use alephium_serde::Error as SerdeError;
 
-use crate::mempool::{RawMempoolTx, SharedRawMempool};
+use crate::mempool::{MempoolTx, SharedMempool};
 use crate::request_tracker::TxRequestTracker;
 use crate::sync::{BlockSync, SharedChainStore};
 
@@ -102,7 +102,7 @@ impl From<SerdeError> for FastPathError {
 /// Runs one P2P session. With `chain`, blocks are followed into it.
 pub fn run(
     config: &NodeConfig,
-    mempool: &SharedRawMempool,
+    mempool: &SharedMempool,
     chain: Option<&SharedChainStore>,
 ) -> Result<(), FastPathError> {
     let mut stream = TcpStream::connect(&config.peer_address)?;
@@ -123,7 +123,8 @@ pub fn run(
             config.tx_request_timeout,
             config.max_tx_request_retries,
         ),
-        block_sync: chain.map(|chain| BlockSync::new(chain.clone(), config.configured_groups)),
+        block_sync: chain
+            .map(|chain| BlockSync::new(chain.clone(), mempool.clone(), config.configured_groups)),
         next_sync_log: Instant::now(),
         sent_chain_state: None,
     };
@@ -236,9 +237,11 @@ fn request_blocks(
     if now >= session.next_sync_log {
         session.next_sync_log = now + std::time::Duration::from_secs(10);
         println!(
-            "blocks followed={} orphans={} weight checks={} mismatches={}",
+            "blocks followed={} orphans={} mempool={} unweighted chains={} weight checks={} mismatches={}",
             sync.added,
             sync.orphan_count(),
+            sync.mempool_size(),
+            sync.unweighted_chains(),
             sync.weight_checks,
             sync.weight_mismatches
         );
@@ -250,7 +253,7 @@ fn process_inbound(
     magic: &NetworkMagic,
     stream: &mut TcpStream,
     config: &NodeConfig,
-    mempool: &SharedRawMempool,
+    mempool: &SharedMempool,
     inbound: &mut Vec<u8>,
     session: &mut Session,
 ) -> Result<(), FastPathError> {
@@ -473,7 +476,7 @@ fn flush_tx_requests(
     Ok(())
 }
 
-fn handle_txs_response(mempool: &SharedRawMempool, session: &mut Session, response: TxsResponse) {
+fn handle_txs_response(mempool: &SharedMempool, session: &mut Session, response: TxsResponse) {
     let response_id = response.id.value;
     let completion = session.tx_tracker.complete(response_id, response.txs);
     if completion.unknown_request {
@@ -486,18 +489,43 @@ fn handle_txs_response(mempool: &SharedRawMempool, session: &mut Session, respon
     }
 
     if !completion.transactions.is_empty() {
-        let seen_at_unix_ms = now_millis().unwrap_or_default();
+        let seen_at = u64::try_from(now_millis().unwrap_or_default()).unwrap_or_default();
+        // The chain before the mempool, as when blocks are added.
+        let chain = session.block_sync.as_ref().map(BlockSync::chain);
+        let store = chain.map(|chain| chain.read().unwrap_or_else(PoisonError::into_inner));
+        let store = store.as_ref().and_then(|store| store.as_ref());
         let mut pool = mempool.lock().unwrap_or_else(PoisonError::into_inner);
         for transaction in completion.transactions {
-            pool.insert(
-                transaction.transaction_id,
-                RawMempoolTx {
-                    chain_from: transaction.chain_index.from,
-                    chain_to: transaction.chain_index.to,
-                    raw: transaction.raw_transaction,
-                    seen_at_unix_ms,
-                },
-            );
+            let (Ok(chain_from), Ok(chain_to)) = (
+                u32::try_from(transaction.chain_index.from),
+                u32::try_from(transaction.chain_index.to),
+            ) else {
+                continue;
+            };
+            match alephium_model::deserialize::<alephium_model::TransactionTemplate>(
+                &transaction.raw_transaction,
+            ) {
+                // A peer must answer with the transaction that was asked for.
+                Ok(template) if template.unsigned.id().0 != transaction.transaction_id => {
+                    eprintln!("the peer answered with a transaction other than the one requested");
+                }
+                // Relayed after its block: its inputs are spent.
+                Ok(template)
+                    if store.is_some_and(|store| {
+                        store
+                            .tx_confirmed(&template.unsigned.id(), chain_from, chain_to)
+                            .is_some()
+                    }) => {}
+                Ok(template) => {
+                    pool.insert(MempoolTx {
+                        chain_from,
+                        chain_to,
+                        template,
+                        seen_at,
+                    });
+                }
+                Err(error) => eprintln!("undecodable transaction from the peer: {error}"),
+            }
         }
     }
 

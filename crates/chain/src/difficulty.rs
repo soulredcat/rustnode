@@ -396,7 +396,7 @@ impl ChainStore {
 
     /// `isExtendingUnsafe`: `current` is `previous` or a descendant of it, on
     /// `previous`'s chain.
-    fn is_extending(&self, current: &Hash, previous: &Hash) -> Result<bool, AddError> {
+    pub(crate) fn is_extending(&self, current: &Hash, previous: &Hash) -> Result<bool, AddError> {
         let (current_from, current_to) = BlockHeader::chain_index(current, self.groups);
         let (previous_from, previous_to) = BlockHeader::chain_index(previous, self.groups);
         if current_from != previous_from {

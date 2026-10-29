@@ -4,7 +4,8 @@
 //! It owns:
 //! - official Alephium P2P framing and session liveness;
 //! - immediate transaction-announcement fetch with bounded concurrency; and
-//! - the bounded raw mempool that `GET /mempool/transactions` will be served from.
+//! - the mempool `GET /mempool/transactions` is served from, kept against the
+//!   best view of every chain index.
 
 pub mod bootstrap;
 mod mempool;
@@ -12,6 +13,6 @@ mod request_tracker;
 mod session;
 pub mod sync;
 
-pub use mempool::{RawMempool, RawMempoolTx, SharedRawMempool};
+pub use mempool::{Mempool, MempoolTx, SharedMempool};
 pub use session::{FastPathError, STATUS, run};
 pub use sync::{BlockSync, SharedChainStore};
