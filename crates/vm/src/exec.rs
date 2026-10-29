@@ -89,6 +89,9 @@ pub struct Event {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Execution {
     pub contract_inputs: Vec<OutputRef>,
+    /// The contracts whose outputs `contract_inputs` spent
+    /// (`contractPrevOutputs`).
+    pub contract_input_ids: Vec<Hash>,
     pub generated_outputs: Vec<TxOutput>,
     pub events: Vec<Event>,
     /// `(parent, child)` contracts created as sub-contracts.
@@ -255,6 +258,11 @@ pub fn run_script<S: NodeSource>(
         gas_remaining: ctx.gas,
         execution: Execution {
             contract_inputs: ctx.contract_inputs.iter().map(|(r, _)| *r).collect(),
+            contract_input_ids: ctx
+                .contract_inputs
+                .iter()
+                .map(|(_, output)| output.contract_id)
+                .collect(),
             generated_outputs: ctx.generated_outputs,
             events: ctx.events,
             sub_contracts: ctx.sub_contracts,

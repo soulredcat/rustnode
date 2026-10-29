@@ -164,7 +164,7 @@ fn fixed_output(output: &AssetOutput, tx_id: &Hash, index: i32) -> Value {
 }
 
 /// `Output.from`: generated outputs carry their type.
-fn generated_output(output: &TxOutput, tx_id: &Hash, index: i32) -> Value {
+pub(crate) fn generated_output(output: &TxOutput, tx_id: &Hash, index: i32) -> Value {
     match output {
         TxOutput::Asset(asset) => {
             let mut value = json!({ "type": "AssetOutput" });

@@ -125,6 +125,23 @@ fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
             }
             official == native
         }
+        (Ok(mut official), Ok(mut native)) if route == Route::CallContract => {
+            // Without a `txId` each side draws a random one, which only the
+            // generated outputs' keys show.
+            for body in [&mut official, &mut native] {
+                if let Some(outputs) = body
+                    .get_mut("txOutputs")
+                    .and_then(serde_json::Value::as_array_mut)
+                {
+                    for output in outputs {
+                        if let Some(output) = output.as_object_mut() {
+                            output.remove("key");
+                        }
+                    }
+                }
+            }
+            official == native
+        }
         (Ok(official), Ok(native)) => official == native,
         _ => official.as_ref() == native,
     }

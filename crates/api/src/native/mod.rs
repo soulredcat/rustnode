@@ -3,6 +3,7 @@
 //! the official node; that request is then proxied.
 
 mod address;
+mod call;
 mod contract;
 mod events;
 mod mempool;
@@ -34,6 +35,7 @@ pub(crate) const fn has_handler(route: Route) -> bool {
             | Route::AddressBalance
             | Route::AddressUtxos
             | Route::BlockByHash
+            | Route::CallContract
             | Route::BlockWithEvents
             | Route::ContractEventCount
             | Route::ContractEvents
@@ -62,7 +64,6 @@ pub(crate) fn serve(
     body: &[u8],
     context: &Context<'_>,
 ) -> Option<Vec<u8>> {
-    let _ = body;
     match route {
         Route::AddressGroup => {
             let address = path.split('/').nth(2)?;
@@ -78,6 +79,7 @@ pub(crate) fn serve(
         Route::AddressUtxos if query.is_none() => {
             utxos::utxos_json(path.split('/').nth(2)?, context)
         }
+        Route::CallContract => call::call_contract(body, context),
         Route::AddressBalance => utxos::balance_json(path.split('/').nth(2)?, query, context),
         Route::ContractEventCount if query.is_none() => {
             events::current_count(path.split('/').nth(3)?, context)

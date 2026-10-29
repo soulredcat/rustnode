@@ -577,8 +577,8 @@ async fn invalid_route_modes_are_rejected() {
         "address-group",
         "unknown-route=native",
         "address-group=fast",
-        "call-contract=native",
-        "call-contract=shadow",
+        "infos-node=native",
+        "infos-node=shadow",
     ] {
         let config = ApiConfig {
             bind_address: "127.0.0.1:0".to_owned(),
@@ -590,7 +590,7 @@ async fn invalid_route_modes_are_rejected() {
     let config = ApiConfig {
         bind_address: "127.0.0.1:0".to_owned(),
         route_modes: vec![
-            "call-contract=proxy".to_owned(),
+            "infos-node=proxy".to_owned(),
             "mempool-transactions=proxy".to_owned(),
             "address-group=proxy".to_owned(),
         ],

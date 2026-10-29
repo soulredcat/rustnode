@@ -44,6 +44,15 @@ pub(super) fn state(address: &str, context: &Context<'_>) -> Option<Vec<u8>> {
     let states = context.state?;
     let roots = states.roots(&tip).ok()??;
     let world = WorldState::new(&roots, states);
+    Some(contract_json(&world, &id)?.to_string().into_bytes())
+}
+
+/// `ServerUtils.fetchContractState` in `world`.
+pub(crate) fn contract_json<S: alephium_state::trie::NodeSource>(
+    world: &WorldState<'_, S>,
+    id: &Hash,
+) -> Option<Value> {
+    let id = *id;
     let stored = StoredState::decode(&world.contracts.get(&id.0).ok()??).ok()?;
     let (code, initial_state_hash, imm_fields, mut_fields) = match stored.clone() {
         StoredState::Mutable {
@@ -52,9 +61,9 @@ pub(super) fn state(address: &str, context: &Context<'_>) -> Option<Vec<u8>> {
             ..
         } => {
             let immutable =
-                ImmutableState::decode(&tagged(&world, &immutable_hash, IMMUTABLE_STATE_TAG)?)
+                ImmutableState::decode(&tagged(world, &immutable_hash, IMMUTABLE_STATE_TAG)?)
                     .ok()?;
-            let code = Code::decode(&tagged(&world, &immutable.code_hash, CODE_TAG)?).ok()?;
+            let code = Code::decode(&tagged(world, &immutable.code_hash, CODE_TAG)?).ok()?;
             (
                 code,
                 immutable.initial_state_hash,
@@ -86,7 +95,7 @@ pub(super) fn state(address: &str, context: &Context<'_>) -> Option<Vec<u8>> {
             })).collect::<Vec<_>>(),
         },
     });
-    Some(body.to_string().into_bytes())
+    Some(body)
 }
 
 fn tagged<S: alephium_state::trie::NodeSource>(
