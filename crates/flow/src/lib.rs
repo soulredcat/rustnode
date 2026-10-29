@@ -5,12 +5,14 @@
 //! - official Alephium P2P framing and session liveness;
 //! - immediate transaction-announcement fetch with bounded concurrency; and
 //! - the mempool `GET /mempool/transactions` is served from, kept against the
-//!   best view of every chain index.
+//!   best view of every chain index; and
+//! - the world state bootstrap from the official node's database.
 
 pub mod bootstrap;
 mod mempool;
 mod request_tracker;
 mod session;
+pub mod state;
 pub mod sync;
 
 pub use mempool::{Mempool, MempoolTx, SharedMempool};

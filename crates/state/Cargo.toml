@@ -1,0 +1,18 @@
+[package]
+name = "alephium-state"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+alephium-model = { path = "../model" }
+redb = "4.4"
+rocksdb = { version = "0.25", default-features = false, features = ["lz4", "bindgen-runtime"] }
+
+[dev-dependencies]
+serde_json = "1"
+ureq = "2"

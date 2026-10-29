@@ -40,6 +40,13 @@ fn print_usage() {
         "                                (default: {})",
         alephium_conf::DEFAULT_CHAIN_DATA_PATH
     );
+    println!("  --state <path>                file holding the world state");
+    println!(
+        "                                (default: {})",
+        alephium_conf::DEFAULT_STATE_DATA_PATH
+    );
+    println!("  --state-from <dir>            copy the world state from this official node");
+    println!("                                database (its `db` folder), read only");
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -101,6 +108,8 @@ fn main() {
     let mut watch_interval = Duration::from_secs(2);
     let mut window = alephium_chain::DEFAULT_WINDOW;
     let mut data_path = None;
+    let mut state_path = None;
+    let mut state_from = None;
     let mut args = std::env::args().skip(1);
 
     while let Some(argument) = args.next() {
@@ -123,6 +132,18 @@ fn main() {
             "--data" => {
                 data_path = Some(std::path::PathBuf::from(required_value(
                     "--data",
+                    args.next(),
+                )));
+            }
+            "--state" => {
+                state_path = Some(std::path::PathBuf::from(required_value(
+                    "--state",
+                    args.next(),
+                )));
+            }
+            "--state-from" => {
+                state_from = Some(std::path::PathBuf::from(required_value(
+                    "--state-from",
                     args.next(),
                 )));
             }
@@ -169,6 +190,8 @@ fn main() {
     // The kept window lives on disk, so a restart continues from it.
     let data_path = data_path
         .unwrap_or_else(|| std::path::PathBuf::from(alephium_conf::DEFAULT_CHAIN_DATA_PATH));
+    let state_path = state_path
+        .unwrap_or_else(|| std::path::PathBuf::from(alephium_conf::DEFAULT_STATE_DATA_PATH));
     // Followed blocks, written by the P2P session and read by native handlers.
     let followed = following.then(|| {
         let disk = alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
@@ -242,6 +265,20 @@ fn main() {
                     *chain
                         .write()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(store);
+                    if let Some(official_db) = state_from {
+                        let chain = chain.clone();
+                        let groups = config.configured_groups;
+                        thread::spawn(move || {
+                            if let Err(error) = alephium_flow::state::bootstrap(
+                                &official_db,
+                                &state_path,
+                                &chain,
+                                groups,
+                            ) {
+                                eprintln!("state bootstrap failed: {error}");
+                            }
+                        });
+                    }
                 }
                 Err(error) => eprintln!(
                     "no chain to start from ({error}); following from genesis over P2P, which replaces the stored chain"

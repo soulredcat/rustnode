@@ -12,6 +12,7 @@ alephium-model = { path = "../model" }
 alephium-protocol = { path = "../protocol" }
 alephium-crypto = { path = "../crypto" }
 alephium-serde = { path = "../serde" }
+alephium-state = { path = "../state" }
 serde_json = "1"
 ureq = { version = "2", default-features = false }
 

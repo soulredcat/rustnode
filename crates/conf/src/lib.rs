@@ -249,6 +249,8 @@ impl Default for ApiConfig {
 
 /// The file holding the kept block window, next to the P2P identity.
 pub const DEFAULT_CHAIN_DATA_PATH: &str = ".local/rustnode/chain.redb";
+/// The file holding the world state.
+pub const DEFAULT_STATE_DATA_PATH: &str = ".local/rustnode/state.redb";
 
 #[must_use]
 pub fn resolve_node_identity_path() -> PathBuf {
