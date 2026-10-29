@@ -72,7 +72,7 @@ Done so far: block, header, and transaction encoding and JSON identical to the o
 ## N5 — State bootstrap
 
 - [ ] Read world state from a copy of the operator's synced official node data.
-- [ ] Copy the permanent data the same way: DEX factory events and the sub-contract index from index 0, which the bot reads in full.
+- [x] Copy contract events and the sub-contract index the same way, for every contract alike (the node knows no application).
 - [ ] Recompute the state root and require it to equal the next block's `depStateHash`.
 - [ ] Native read-only `GET /contracts/{address}/state`, `GET /addresses/{address}/utxos`, `GET /addresses/{address}/balance` at the bootstrap point.
 
@@ -83,7 +83,7 @@ Exit gate: state hash matches for every group; this proves the bootstrap path be
 - [ ] Ralph VM for the current hard fork only (state starts after bootstrap, so historical rules are not needed).
 - [ ] Apply every followed block; fail closed on any `depStateHash` mismatch.
 - [ ] Keep the state of every height in the block window (100,000 per chain), on disk next to it, and answer pinned reads (`worldStateBlockHash`) anywhere inside it: the bot's CLAMM audit tools replay quotes at blocks recorded days earlier. Trie nodes are shared between heights; a node goes only when no height left in the window reaches it.
-- [ ] Keep spent outputs for retained blocks (for `rich-details`), DEX factory events permanently, and the sub-contract index permanently.
+- [ ] Keep spent outputs for retained blocks (for `rich-details`); events and the sub-contract index are kept for every contract alike.
 - [ ] Events for the indexes on the surface only; native `/events/*`, `blocks-with-events`, `sub-contracts`, `/ws` `contract` notifications.
 
 ## N7 — VM calls and transaction building

@@ -59,8 +59,8 @@ Legend for **needs**: `B` recent blocks, `M` mempool, `S` world state, `VM` Ralp
 | World state | current, plus every height of the block window | pinned reads (`worldStateBlockHash`) at the tip and at blocks recorded earlier: the bot's CLAMM audit tools (`tools/clamm-route-simulate`, `tools/prebuild-state-audit`) replay quotes days later |
 | Blocks and their events | the last 100,000 heights per chain: 1.6 million blocks over 16 chains, about 9 days at the 8 s Danube block time (9.8 days measured on mainnet chain 0 -> 0 in October 2026); on disk, with the newest 1,024 heights per chain in memory | event-refresh gap recovery, block-tx audit, status and events of the bot's own recent transactions, CLAMM audit replay |
 | Spent outputs of transactions in retained blocks | same window as blocks | `rich-details` resolves every input, and an input can be much older than the window |
-| Events of the DEX factory contracts the bot scans | permanently | `background/token-discovery` reads factory events from index 0 |
-| Sub-contract index | permanently | factory sub-contracts are listed from index 0 |
+| Contract events | for every contract alike, from index 0 | the bot reads some contracts' events from index 0 |
+| Sub-contract index | for every contract alike, from index 0 | sub-contracts are listed from index 0 |
 | Mempool | official limits (2000 per chain) | `GET /mempool/transactions` |
 
 If the bot is stopped for longer than the block window (about 9 days), gap recovery cannot reread the gap and the bot must reload state, as it already does after a long stop. The window is configurable; it must not go below 128 heights, and raising it costs disk only: the window is on disk, and only its newest 1,024 heights per chain are held in memory.
