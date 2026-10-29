@@ -25,3 +25,7 @@ Compatibility evidence comes from the pinned official implementation (`UPSTREAM.
 ## 5. Tests take at most one minute
 
 Every test and check finishes within 60 seconds: `make check` as a whole, `make mainnet-check` as a whole, and any single test run by hand. A check that needs longer is shrunk, not kept. Few small checks beat many large ones; the node's own `depStateHash` check of every followed block is the standing proof against the network.
+
+## 6. Under 200 GB on disk
+
+All of rustnode's data together (block window, world state with its history, events and indexes, logs) stays under 200 GB on mainnet. Going over is a failure, not a tuning matter: what grows without bound is pruned to the block window.
