@@ -246,6 +246,9 @@ fn in_conflicted(
     })
 }
 
+/// How often states that left the block window are pruned.
+const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
 /// How often the follower looks for new blocks, and logs.
 const FOLLOW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const FOLLOW_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -256,14 +259,36 @@ pub fn follow(
     chain: &SharedChainStore,
     groups: u32,
 ) -> Result<(), String> {
-    let mut follower = Follower::new(store, groups);
+    let mut follower = Follower::new(std::sync::Arc::clone(&store), groups);
     let mut next_log = Instant::now() + FOLLOW_LOG_INTERVAL;
+    let mut next_prune = Instant::now() + PRUNE_INTERVAL;
     loop {
+        let mut window_blocks = Vec::new();
         {
             let guard = chain.read().unwrap_or_else(PoisonError::into_inner);
-            if let Some(store) = guard.as_ref() {
-                follower.step(store)?;
+            if let Some(chain) = guard.as_ref() {
+                follower.step(chain)?;
+                if Instant::now() >= next_prune {
+                    for group in 0..groups {
+                        let top = chain.max_height(group, group);
+                        for height in top.saturating_sub(chain.window())..=top {
+                            window_blocks.extend(chain.hashes_at(group, group, height));
+                        }
+                    }
+                }
             }
+        }
+        if !window_blocks.is_empty() {
+            next_prune = Instant::now() + PRUNE_INTERVAL;
+            let started = Instant::now();
+            let pruned = store.prune(&window_blocks)?;
+            println!(
+                "state: pruned {} nodes and {} states outside the window in {:.0?}; {} nodes kept",
+                pruned.nodes,
+                pruned.roots,
+                started.elapsed(),
+                pruned.kept_nodes
+            );
         }
         if Instant::now() >= next_log {
             next_log = Instant::now() + FOLLOW_LOG_INTERVAL;

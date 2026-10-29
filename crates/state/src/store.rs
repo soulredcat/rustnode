@@ -11,8 +11,8 @@ use std::path::Path;
 use alephium_model::Hash;
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 
-const NODES: TableDefinition<[u8; 32], &[u8]> = TableDefinition::new("nodes");
-const ROOTS: TableDefinition<[u8; 32], [u8; 96]> = TableDefinition::new("roots");
+pub(crate) const NODES: TableDefinition<[u8; 32], &[u8]> = TableDefinition::new("nodes");
+pub(crate) const ROOTS: TableDefinition<[u8; 32], [u8; 96]> = TableDefinition::new("roots");
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
 const IMPORTING: &str = "importing";
 /// redb's page cache; the rest is read through the OS page cache.
@@ -101,6 +101,10 @@ impl StateStore {
         txn.open_table(META).map_err(|error| error.to_string())?;
         txn.commit().map_err(|error| error.to_string())?;
         Ok(Self { db })
+    }
+
+    pub(crate) const fn db(&self) -> &Database {
+        &self.db
     }
 
     pub fn node(&self, hash: &Hash) -> Result<Option<Vec<u8>>, String> {
