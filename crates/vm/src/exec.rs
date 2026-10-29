@@ -35,6 +35,48 @@ pub struct BlockEnv {
     pub block_hash: Hash,
 }
 
+/// What a transaction gives its script (`TxEnv`): the spent outputs, the
+/// fixed outputs and the gas it pays for, and its script signatures.
+#[derive(Debug, Clone)]
+pub struct TxEnv {
+    pub tx_id: Hash,
+    pub prev_outputs: Vec<AssetOutput>,
+    pub fixed_outputs: Vec<AssetOutput>,
+    pub gas_price: U256,
+    pub gas_amount: u64,
+    pub signatures: Vec<[u8; 64]>,
+}
+
+impl TxEnv {
+    /// `TxEnv.Default` of a transaction spending `prev_outputs`.
+    #[must_use]
+    pub fn of(tx: &Transaction, prev_outputs: &[AssetOutput]) -> Self {
+        Self {
+            tx_id: tx.id(),
+            prev_outputs: prev_outputs.to_vec(),
+            fixed_outputs: tx.unsigned.fixed_outputs.clone(),
+            gas_price: tx.unsigned.gas_price,
+            gas_amount: u64::try_from(tx.unsigned.gas_amount).unwrap_or(0),
+            signatures: tx.script_signatures.clone(),
+        }
+    }
+
+    /// `gasFeeUnsafe`.
+    #[must_use]
+    pub fn gas_fee(&self) -> U256 {
+        U256::from(self.gas_amount).saturating_mul(self.gas_price)
+    }
+}
+
+/// A script run: the main function's returns, what the script did, and the
+/// gas left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Run {
+    pub returns: Vec<Val>,
+    pub execution: Execution,
+    pub gas_remaining: u64,
+}
+
 /// A contract event (`writeLog`); `system` for creation and destruction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
@@ -103,7 +145,7 @@ struct Frame {
 struct Ctx<'w, 'a, S: NodeSource> {
     world: &'w mut WorldState<'a, S>,
     block: &'w BlockEnv,
-    tx: &'w Transaction,
+    tx: &'w TxEnv,
     tx_id: Hash,
     prev_outputs: &'w [AssetOutput],
     signatures: VecDeque<[u8; 64]>,
@@ -125,7 +167,7 @@ struct Ctx<'w, 'a, S: NodeSource> {
 
 /// Runs the script of `tx`, whose inputs spend `prev_outputs`, on `world`
 /// (`StatefulVM.runTxScript`). The block says the script succeeded, so gas
-/// is not metered: any failure here is a divergence from the official VM.
+/// is not limited: any failure here is a divergence from the official VM.
 pub fn run_tx_script<S: NodeSource>(
     world: &mut WorldState<'_, S>,
     block: &BlockEnv,
@@ -133,16 +175,28 @@ pub fn run_tx_script<S: NodeSource>(
     prev_outputs: &[AssetOutput],
     script: &StatefulScript,
 ) -> VmResult<Execution> {
-    let gas_fee = U256::from(u32::try_from(tx.unsigned.gas_amount).unwrap_or(0))
-        .checked_mul(tx.unsigned.gas_price)
-        .ok_or_else(|| Fail("gas fee overflow".to_owned()))?;
+    let env = TxEnv::of(tx, prev_outputs);
+    run_script(world, block, &env, script, u64::MAX, false).map(|run| run.execution)
+}
+
+/// `StatefulVM.runTxScript`, or with `with_outputs` its `...WithOutputs`
+/// variant that keeps the main function's returns, with `gas` to spend.
+pub fn run_script<S: NodeSource>(
+    world: &mut WorldState<'_, S>,
+    block: &BlockEnv,
+    tx: &TxEnv,
+    script: &StatefulScript,
+    gas: u64,
+    with_outputs: bool,
+) -> VmResult<Run> {
+    let gas_fee = tx.gas_fee();
     let mut ctx = Ctx {
         world,
         block,
         tx,
-        tx_id: tx.id(),
-        prev_outputs,
-        signatures: tx.script_signatures.iter().copied().collect(),
+        tx_id: tx.tx_id,
+        prev_outputs: &tx.prev_outputs,
+        signatures: tx.signatures.iter().copied().collect(),
         gas_fee,
         tx_caller_balance: None,
         output_balances: MutBalances::default(),
@@ -155,7 +209,7 @@ pub fn run_tx_script<S: NodeSource>(
         gas_fee_paid: U256::ZERO,
         events: Vec::new(),
         sub_contracts: Vec::new(),
-        gas: u64::MAX,
+        gas,
     };
     let methods: Rc<Vec<Rc<Method>>> =
         Rc::new(script.methods.iter().cloned().map(Rc::new).collect());
@@ -167,9 +221,10 @@ pub fn run_tx_script<S: NodeSource>(
         return fail("private entry method");
     }
     let balance = if entry.use_preapproved_assets {
-        let mut balances = MutBalances::from_io(prev_outputs, &tx.unsigned.fixed_outputs)
+        let mut balances = MutBalances::from_io(&tx.prev_outputs, &tx.fixed_outputs)
             .ok_or_else(|| Fail("invalid balances".to_owned()))?;
-        let payer = prev_outputs
+        let payer = tx
+            .prev_outputs
             .first()
             .ok_or_else(|| Fail("no input".to_owned()))?
             .lockup_script
@@ -189,22 +244,29 @@ pub fn run_tx_script<S: NodeSource>(
     let mut vm = Vm {
         ctx,
         frames: Vec::new(),
+        returns: with_outputs.then(Vec::new),
     };
     let frame = vm.build_frame(Obj::Script(methods), entry, Vec::new(), balance, Kind::Main)?;
     vm.frames.push(frame);
     vm.run()?;
     let ctx = vm.ctx;
-    Ok(Execution {
-        contract_inputs: ctx.contract_inputs.iter().map(|(r, _)| *r).collect(),
-        generated_outputs: ctx.generated_outputs,
-        events: ctx.events,
-        sub_contracts: ctx.sub_contracts,
+    Ok(Run {
+        returns: vm.returns.unwrap_or_default(),
+        gas_remaining: ctx.gas,
+        execution: Execution {
+            contract_inputs: ctx.contract_inputs.iter().map(|(r, _)| *r).collect(),
+            generated_outputs: ctx.generated_outputs,
+            events: ctx.events,
+            sub_contracts: ctx.sub_contracts,
+        },
     })
 }
 
 struct Vm<'w, 'a, S: NodeSource> {
     ctx: Ctx<'w, 'a, S>,
     frames: Vec<Frame>,
+    /// The main function's returns, kept when running with outputs.
+    returns: Option<Vec<Val>>,
 }
 
 fn bool_of(value: Val) -> VmResult<bool> {
@@ -425,7 +487,7 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
     }
 
     fn next_output_index(&self) -> usize {
-        self.tx.unsigned.fixed_outputs.len() + self.generated_outputs.len()
+        self.tx.fixed_outputs.len() + self.generated_outputs.len()
     }
 
     fn output_ref(&self, output: &TxOutput, index: usize) -> VmResult<OutputRef> {
@@ -688,7 +750,7 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
                         }
                     }
                     Some(generated_index) => {
-                        let index = self.tx.unsigned.fixed_outputs.len() + generated_index;
+                        let index = self.tx.fixed_outputs.len() + generated_index;
                         self.contract_inputs.remove(input_index);
                         self.update_contract_asset(&id, &output, index)?;
                         self.generated_outputs[generated_index] = output;
@@ -1092,13 +1154,14 @@ impl<S: NodeSource> Vm<'_, '_, S> {
         let callee_is_contract = matches!(frame.obj, Obj::Contract(_));
         let depth = self.frames.len();
         match kind {
-            Kind::Main => {
-                if values.is_empty() {
+            Kind::Main => match &mut self.returns {
+                Some(returns) => {
+                    *returns = values;
                     Ok(())
-                } else {
-                    fail("non-empty return of the main function")
                 }
-            }
+                None if values.is_empty() => Ok(()),
+                None => fail("non-empty return of the main function"),
+            },
             Kind::Local => {
                 self.frames[depth - 2].stack.extend(values);
                 Ok(())
@@ -2210,9 +2273,9 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("BlockHash", _) => self.push(Val::ByteVec(self.ctx.block.block_hash.0.to_vec())),
             ("TxId", _) => self.push(Val::ByteVec(self.ctx.tx_id.0.to_vec())),
-            ("TxGasPrice", _) => self.push(Val::U256(self.ctx.tx.unsigned.gas_price)),
+            ("TxGasPrice", _) => self.push(Val::U256(self.ctx.tx.gas_price)),
             ("TxGasAmount", _) => {
-                let amount = u64::try_from(self.ctx.tx.unsigned.gas_amount).unwrap_or(0);
+                let amount = self.ctx.tx.gas_amount;
                 self.push(Val::U256(U256::from(amount)))
             }
             ("TxGasFee", _) => self.push(Val::U256(self.ctx.gas_fee)),

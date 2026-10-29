@@ -14,7 +14,7 @@ mod hashes;
 
 use std::cmp::Ordering;
 
-pub use exec::{BlockEnv, Event, Execution, run_tx_script};
+pub use exec::{BlockEnv, Event, Execution, Run, TxEnv, run_script, run_tx_script};
 
 /// A script that failed here: a divergence from the official VM when the
 /// block says it succeeded.
