@@ -117,6 +117,30 @@ impl StateStore {
         Ok(value.map(|value| Roots::from_bytes(&value.value())))
     }
 
+    /// Keeps the world state after `block`: its new trie nodes and
+    /// immutable entries, then its roots, in one commit.
+    pub fn put_state<'n>(
+        &self,
+        block: &Hash,
+        roots: &Roots,
+        nodes: impl Iterator<Item = (&'n Hash, &'n Vec<u8>)>,
+    ) -> Result<(), String> {
+        let txn = self.db.begin_write().map_err(|error| error.to_string())?;
+        {
+            let mut table = txn.open_table(NODES).map_err(|error| error.to_string())?;
+            for (hash, bytes) in nodes {
+                table
+                    .insert(hash.0, bytes.as_slice())
+                    .map_err(|error| error.to_string())?;
+            }
+            txn.open_table(ROOTS)
+                .map_err(|error| error.to_string())?
+                .insert(block.0, roots.to_bytes())
+                .map_err(|error| error.to_string())?;
+        }
+        txn.commit().map_err(|error| error.to_string())
+    }
+
     /// Starts an import: the mark goes to disk first.
     pub(crate) fn writer(&self) -> Result<Writer, String> {
         let txn = self.db.begin_write().map_err(|error| error.to_string())?;

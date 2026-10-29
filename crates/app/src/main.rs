@@ -276,6 +276,12 @@ fn main() {
                                 groups,
                             ) {
                                 eprintln!("state bootstrap failed: {error}");
+                                return;
+                            }
+                            if let Err(error) =
+                                alephium_flow::state::follow(&state_path, &chain, groups)
+                            {
+                                eprintln!("state follower stopped: {error}");
                             }
                         });
                     }

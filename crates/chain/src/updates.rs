@@ -42,6 +42,14 @@ impl ChainStore {
         Ok(tips)
     }
 
+    /// `isInBlockFlowUnsafe`: whether `intra`, an intra-group block, is in
+    /// the view of `checkpoint`.
+    pub fn in_block_flow(&self, checkpoint: &Hash, intra: &Hash) -> Result<bool, AddError> {
+        let (group, _) = alephium_model::BlockHeader::chain_index(intra, self.groups);
+        let tip = self.group_tip(checkpoint, group)?;
+        self.is_extending(&tip, intra)
+    }
+
     /// The blocks in the view of `deps` that the intra-group dependency of
     /// `group` did not see, chain by chain, oldest first.
     pub fn hashes_for_updates(&self, group: u32, deps: &[Hash]) -> Result<Vec<Hash>, AddError> {

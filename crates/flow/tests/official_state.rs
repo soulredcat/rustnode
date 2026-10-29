@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! RUSTNODE_OFFICIAL_DB=<official db folder> \
+//!   [RUSTNODE_STATE_BLOCKS=<blocks per group, default 30>] \
 //!   cargo test --release -p alephium-flow --test official_state -- --ignored --nocapture
 //! ```
 
@@ -15,10 +16,9 @@ use alephium_flow::execute::apply_block;
 use alephium_state::{Official, WorldState};
 
 const GROUPS: u32 = 4;
-const WINDOW: u32 = 128;
-/// Blocks checked per group, below the newest settled heights.
-const BLOCKS: u32 = 30;
 const SETTLED: u32 = 10;
+/// Heights kept below the checked ones, for the blocks their views add.
+const MARGIN: u32 = 100;
 
 #[test]
 #[ignore = "needs the operator's official node database and REST API"]
@@ -28,14 +28,20 @@ fn blocks_reproduce_the_official_state() {
     let db = std::env::var("RUSTNODE_OFFICIAL_DB").expect("RUSTNODE_OFFICIAL_DB");
     let work = std::env::temp_dir().join(format!("rustnode-official-state-{}", std::process::id()));
     std::fs::create_dir_all(&work).expect("work dir");
+    // Blocks checked per group, below the newest settled heights.
+    let blocks: u32 = std::env::var("RUSTNODE_STATE_BLOCKS")
+        .ok()
+        .and_then(|blocks| blocks.parse().ok())
+        .unwrap_or(30);
     let disk = Disk::open(&work.join("chain.redb")).expect("disk");
-    let chain = start(&Source::new(&url, None), GROUPS, WINDOW, 8, disk).expect("bootstrap");
+    let window = (blocks + SETTLED + MARGIN).max(128);
+    let chain = start(&Source::new(&url, None), GROUPS, window, 8, disk).expect("bootstrap");
     let official = Official::open(db.as_ref(), &work.join("secondary")).expect("official db");
 
     let (mut matched, mut checked, mut scripts) = (0, 0, 0);
     for group in 0..GROUPS {
         let top = chain.max_height(group, group) - SETTLED;
-        for height in top - BLOCKS..top {
+        for height in top - blocks..top {
             let hash = chain.hashes_at(group, group, height)[0];
             let block = std::sync::Arc::clone(&chain.get(&hash).expect("block").block);
             let parent = block.header.deps[(GROUPS - 1 + group) as usize];

@@ -2129,7 +2129,11 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             ("NetworkId", _) => self.push(Val::ByteVec(vec![alephium_model::network::NETWORK_ID])),
             ("BlockTimeStamp", _) => self.push(Val::U256(U256::from(self.ctx.block.timestamp.0))),
             ("BlockTarget", _) => {
-                let target = self.ctx.block.target.ok_or_else(|| Fail("invalid block target".to_owned()))?;
+                let target = self
+                    .ctx
+                    .block
+                    .target
+                    .ok_or_else(|| Fail("invalid block target".to_owned()))?;
                 self.push(Val::U256(target))
             }
             ("BlockHash", _) => self.push(Val::ByteVec(self.ctx.block.block_hash.0.to_vec())),
