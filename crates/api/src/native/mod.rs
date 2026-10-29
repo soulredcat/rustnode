@@ -6,6 +6,7 @@ mod address;
 mod contract;
 mod mempool;
 mod status;
+mod utxos;
 
 use std::sync::PoisonError;
 
@@ -29,6 +30,8 @@ pub(crate) const fn has_handler(route: Route) -> bool {
     matches!(
         route,
         Route::AddressGroup
+            | Route::AddressBalance
+            | Route::AddressUtxos
             | Route::BlockByHash
             | Route::ContractState
             | Route::MempoolTransactions
@@ -64,6 +67,10 @@ pub(crate) fn serve(
             contract::state(path.split('/').nth(2)?, context)
         }
         Route::TransactionStatus => status::transaction_status(query, context),
+        Route::AddressUtxos if query.is_none() => {
+            utxos::utxos_json(path.split('/').nth(2)?, context)
+        }
+        Route::AddressBalance => utxos::balance_json(path.split('/').nth(2)?, query, context),
         _ => None,
     }
 }

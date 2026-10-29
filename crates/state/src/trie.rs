@@ -179,6 +179,53 @@ impl<'a, S: NodeSource> Trie<'a, S> {
         })
     }
 
+    /// `getAll(prefix)`: every key starting with `prefix` and its value, in
+    /// key order.
+    pub fn get_all(&self, prefix: &[u8]) -> Result<Vec<Entry>, String> {
+        let mut out = Vec::new();
+        self.collect(self.root, Vec::new(), &nibbles(prefix), &mut out)?;
+        Ok(out)
+    }
+
+    fn collect(
+        &self,
+        hash: Hash,
+        consumed: Vec<u8>,
+        prefix: &[u8],
+        out: &mut Vec<Entry>,
+    ) -> Result<(), String> {
+        let node = self.load(&hash)?;
+        let path = node.path().to_vec();
+        let common = path.len().min(prefix.len());
+        if path[..common] != prefix[..common] {
+            return Ok(());
+        }
+        let mut here = consumed;
+        here.extend_from_slice(&path);
+        match node {
+            Node::Leaf { data, .. } => {
+                if path.len() >= prefix.len() {
+                    out.push((pack(&here), data));
+                }
+            }
+            Node::Branch { children, .. } => {
+                let rest = &prefix[common..];
+                for (nibble, child) in children.iter().enumerate() {
+                    let Some(child) = child else { continue };
+                    let nibble = u8::try_from(nibble).unwrap_or(0);
+                    if let Some((first, tail)) = rest.split_first() {
+                        if *first == nibble {
+                            self.collect(*child, [&here[..], &[nibble]].concat(), tail, out)?;
+                        }
+                    } else {
+                        self.collect(*child, [&here[..], &[nibble]].concat(), &[], out)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// `putRaw`.
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<(), String> {
         let (_, hash) = self.put_at(self.root, &nibbles(key), value)?;
@@ -310,6 +357,17 @@ impl<'a, S: NodeSource> Trie<'a, S> {
 pub fn nibbles(key: &[u8]) -> Vec<u8> {
     key.iter()
         .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .collect()
+}
+
+/// A key and its value.
+pub type Entry = (Vec<u8>, Vec<u8>);
+
+/// Nibbles back to bytes, high nibble first.
+fn pack(nibbles: &[u8]) -> Vec<u8> {
+    nibbles
+        .chunks(2)
+        .map(|pair| (pair[0] << 4) | pair.get(1).copied().unwrap_or(0))
         .collect()
 }
 

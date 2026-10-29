@@ -102,6 +102,19 @@ fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
                 });
             same_mempool(&official, &native, now)
         }
+        (Ok(mut official), Ok(mut native)) if route == Route::AddressBalance => {
+            // The official token lists follow a hash map's order.
+            for body in [&mut official, &mut native] {
+                for key in ["tokenBalances", "lockedTokenBalances"] {
+                    if let Some(tokens) =
+                        body.get_mut(key).and_then(serde_json::Value::as_array_mut)
+                    {
+                        tokens.sort_by_key(ToString::to_string);
+                    }
+                }
+            }
+            official == native
+        }
         (Ok(official), Ok(native)) => official == native,
         _ => official.as_ref() == native,
     }
