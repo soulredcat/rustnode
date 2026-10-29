@@ -1,8 +1,11 @@
+mod common;
+
 use alephium_protocol::message::{
-    CURRENT_WIRE_VERSION, FrameDecode, NetworkMagic, decode_frame_exact, decode_frame_prefix,
-    decode_raw_message_data, djb_checksum, encode_frame, encode_raw_message_data,
+    CURRENT_WIRE_VERSION, FrameDecode, NetworkMagic, decode_frame_prefix, decode_raw_message_data,
+    djb_checksum, encode_frame, encode_raw_message_data,
 };
 use alephium_serde::Error;
+use common::decode_frame_exact;
 
 const HELLO_FRAME: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),

@@ -1,10 +1,13 @@
+mod common;
+
 use alephium_crypto::{PublicKey, SIGNATURE_LENGTH, Signature, verify};
 use alephium_protocol::message::payload::{HELLO_CODE, PING_CODE, PONG_CODE};
 use alephium_protocol::message::{
-    CURRENT_WIRE_VERSION, NetworkMagic, Ping, Pong, RequestId, decode_frame_exact,
-    decode_hello_payload, decode_ping_payload, decode_pong_payload, decode_raw_message_data,
-    encode_hello_payload, encode_ping_payload, encode_pong_payload, encode_raw_message_data,
+    CURRENT_WIRE_VERSION, NetworkMagic, Ping, Pong, RequestId, decode_hello_payload,
+    decode_ping_payload, decode_pong_payload, decode_raw_message_data, encode_hello_payload,
+    encode_ping_payload, encode_pong_payload, encode_raw_message_data,
 };
+use common::decode_frame_exact;
 
 const BROKER_INFO_HASH: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),

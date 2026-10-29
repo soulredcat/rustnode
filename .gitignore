@@ -6,5 +6,3 @@
 .env
 .env.*
 !.env.example
-/tests/interoperability/fastpath/commands.txt
-/tests/interoperability/fastpath/error.txt

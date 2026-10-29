@@ -12,7 +12,7 @@ use alephium_conf::{
 use alephium_flow::{RawMempool, SharedChainStore, SharedRawMempool, run};
 
 fn print_usage() {
-    println!("rustnode: Alephium node for nixiaproject");
+    println!("rustnode: Alephium mainnet node for nixiaproject");
     println!("Usage:");
     println!("  rustnode [options] [peer-address]");
     println!();
@@ -29,15 +29,17 @@ fn print_usage() {
     println!();
     println!("Chain following (only when a peer is given or --follow):");
     println!("  --peer <addr>                 Alephium P2P peer; repeatable, also positional");
-    println!("  --follow                      follow from the built-in mainnet bootstrap peers");
-    println!("                                when no --peer is given (mainnet only)");
-    println!("  --network-id <id>             0 mainnet (default), 1 testnet, other ids devnet");
+    println!("  --follow                      follow from the official mainnet bootstrap peers");
+    println!("                                when no --peer is given");
     println!(
         "  --window <heights>            heights kept per chain (default: {})",
         alephium_chain::DEFAULT_WINDOW
     );
     println!("  --data <path>                 file holding the kept window; reopened on restart");
-    println!("                                (default: .local/rustnode/chain-<network-id>.redb)");
+    println!(
+        "                                (default: {})",
+        alephium_conf::DEFAULT_CHAIN_DATA_PATH
+    );
     println!("  --max-inflight <n>            concurrent TxsRequest limit");
     println!("  --tx-batch-size <n>           must be 1 until typed tx parsing is complete");
     println!("  --request-timeout-ms <ms>     retry timeout for TxsRequest");
@@ -91,7 +93,7 @@ fn run_with_reconnect(
 }
 
 fn main() {
-    let mut config = NodeConfig::default().set_network_id(0);
+    let mut config = NodeConfig::default();
     let mut api = ApiConfig::default();
     let mut peers: Vec<String> = Vec::new();
     let mut follow = false;
@@ -114,14 +116,6 @@ fn main() {
                 .push(required_value("--route-mode", args.next())),
             "--peer" => peers.push(required_value("--peer", args.next())),
             "--follow" => follow = true,
-            "--network-id" => {
-                let value = parse_u64("--network-id", args.next());
-                let Ok(network_id) = u8::try_from(value) else {
-                    eprintln!("--network-id must be at most 255");
-                    process::exit(2);
-                };
-                config = config.set_network_id(network_id);
-            }
             "--window" => {
                 let value = parse_u64("--window", args.next());
                 window = u32::try_from(value).unwrap_or(u32::MAX).max(128);
@@ -160,26 +154,21 @@ fn main() {
         }
     }
 
-    // No explicit --peer: follow the built-in public peers when asked (mainnet).
+    // No explicit --peer: follow the official mainnet bootstrap peers when asked.
     if peers.is_empty() && follow {
-        peers = alephium_conf::default_bootstrap_peers(config.network_id);
-        if peers.is_empty() {
-            eprintln!(
-                "--follow has no built-in peers for network {}; pass --peer <addr>",
-                config.network_id
-            );
-            process::exit(2);
-        }
+        peers = alephium_conf::BOOTSTRAP_PEERS
+            .iter()
+            .map(ToString::to_string)
+            .collect();
     }
     let following = !peers.is_empty();
 
     api.api_key = std::env::var(API_KEY_ENV)
         .ok()
         .filter(|key| !key.is_empty());
-    api.network_id = config.network_id;
     // The kept window lives on disk, so a restart continues from it.
-    let data_path =
-        data_path.unwrap_or_else(|| alephium_conf::default_chain_data_path(config.network_id));
+    let data_path = data_path
+        .unwrap_or_else(|| std::path::PathBuf::from(alephium_conf::DEFAULT_CHAIN_DATA_PATH));
     let disk = if following {
         Some(
             alephium_chain::Disk::open(&data_path).unwrap_or_else(|error| {
@@ -246,7 +235,6 @@ fn main() {
             match alephium_flow::bootstrap::start(
                 &bootstrap_source,
                 config.configured_groups,
-                config.network_id,
                 window,
                 8,
                 disk,

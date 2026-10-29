@@ -160,20 +160,6 @@ pub fn decode_frame_prefix<'a>(
     }))
 }
 
-pub fn decode_frame_exact<'a>(
-    input: &'a [u8],
-    magic: NetworkMagic,
-    max_data_len: usize,
-) -> Result<Frame<'a>, Error> {
-    match decode_frame_prefix(input, magic, max_data_len)? {
-        FrameDecode::NeedMoreData { required_total } => {
-            Err(Error::not_enough_bytes(required_total, input.len()))
-        }
-        FrameDecode::Complete(frame) if frame.consumed == input.len() => Ok(frame),
-        FrameDecode::Complete(frame) => Err(Error::redundant_bytes(frame.consumed, input.len())),
-    }
-}
-
 pub fn encode_raw_message_data(payload_code: i32, payload_body: &[u8]) -> Result<Vec<u8>, Error> {
     validate_payload_code(payload_code)?;
 

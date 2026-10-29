@@ -1,8 +1,8 @@
-//! Differential check against a running official node: every block it holds is
-//! fetched raw (`GET /blockflow/raw-blocks/{hash}`), decoded, re-encoded, and
-//! hashed by this crate; bytes and hashes must match exactly.
+//! Differential check against the operator's official mainnet node: the
+//! newest `RUSTNODE_MAX_BLOCKS_PER_CHAIN` heights (default 100) of every chain
+//! are fetched raw (`GET /blockflow/raw-blocks/{hash}`), decoded, re-encoded,
+//! and hashed by this crate; bytes and hashes must match exactly.
 //!
-//! Run with an official node (any network):
 //! `RUSTNODE_OFFICIAL_URL=http://127.0.0.1:12973 [RUSTNODE_OFFICIAL_API_KEY=...]
 //!  cargo test -p alephium-model --test official_raw_blocks -- --ignored --nocapture`
 
@@ -34,20 +34,24 @@ impl Node {
 }
 
 #[test]
-#[ignore = "needs a running official node"]
-fn every_official_block_round_trips() {
+#[ignore = "needs the official mainnet node"]
+fn official_blocks_round_trip() {
     let node = Node {
         url: std::env::var("RUSTNODE_OFFICIAL_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:12973".into()),
         api_key: std::env::var("RUSTNODE_OFFICIAL_API_KEY").ok(),
     };
-    let groups = node.get("/infos/chain-params")["groups"]
-        .as_u64()
-        .expect("groups") as u32;
+    let params = node.get("/infos/chain-params");
+    assert_eq!(
+        params["networkId"].as_u64(),
+        Some(u64::from(alephium_model::network::NETWORK_ID)),
+        "not a mainnet node"
+    );
+    let groups = params["groups"].as_u64().expect("groups") as u32;
     let max_blocks: u64 = std::env::var("RUSTNODE_MAX_BLOCKS_PER_CHAIN")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(u64::MAX);
+        .unwrap_or(100);
 
     let (mut blocks, mut transactions, mut scripts) = (0usize, 0usize, 0usize);
     let mut kinds = BTreeMap::<&'static str, usize>::new();

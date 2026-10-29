@@ -54,10 +54,10 @@ jobs:
 
       - name: Check committed fixtures against the pinned official code
         run: |
-          # manifest.tsv records the generator's commit; every other committed
-          # fixture must be byte-identical to what the current pin generates.
-          grep -v ' ./manifest.tsv$' tests/vectors/m1/generated/COMMITTED_SHA256SUMS \
-            | (cd "${RUNNER_TEMP}/m1-vectors" && sha256sum -c --strict -)
+          # Every committed fixture, manifest included, must be byte-identical
+          # to what the pinned official code generates for mainnet.
+          (cd "${RUNNER_TEMP}/m1-vectors" &&
+            sha256sum -c --strict "${GITHUB_WORKSPACE}/tests/vectors/m1/generated/COMMITTED_SHA256SUMS")
 
       - name: Upload generated fixtures
         uses: actions/upload-artifact@v7

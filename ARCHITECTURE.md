@@ -42,7 +42,7 @@ crates/
 ├── chain/      recent blocks per chain: height-based canonical chain with the official
 │               hash tie-break, tips and their pruning, flow weights, the kept window;
 │               the newest 1,024 heights per chain in memory, the rest read from `store`
-├── store/      the kept window on disk, one redb file per network: blocks, hashes per
+├── store/      the kept window on disk, one redb file: blocks, hashes per
 │               height, what the file holds; batched commits, fsynced at least every 10 s
 ├── protocol/   official P2P frames and the payloads the runtime uses
 ├── conf/       peer, limits, retry, mempool capacity, and P2P identity configuration

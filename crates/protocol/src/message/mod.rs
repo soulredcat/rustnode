@@ -9,7 +9,7 @@ pub use fastpath::decode_single_txs_response_payload;
 pub use frame::{
     CHECKSUM_LENGTH, CURRENT_WIRE_VERSION, ENVELOPE_LENGTH, Frame, FrameDecode,
     LENGTH_FIELD_LENGTH, MAGIC_LENGTH, MAX_PAYLOAD_CODE, NetworkMagic, RawMessageData,
-    decode_frame_exact, decode_frame_prefix, decode_raw_message_data, djb_checksum, encode_frame,
+    decode_frame_prefix, decode_raw_message_data, djb_checksum, encode_frame,
     encode_raw_message_data,
 };
 pub use payload::{

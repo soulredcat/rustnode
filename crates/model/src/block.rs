@@ -6,6 +6,7 @@ use ethnum::U256;
 
 use crate::codec::{Codec, Reader, TimeStamp, serialize};
 use crate::hash::Hash;
+use crate::network::MIN_HASH_ZERO_BITS;
 use crate::tx::Transaction;
 
 /// `Target`: 4-byte compact bits, `mantissa * 256^(size - 3)`.
@@ -82,16 +83,18 @@ impl BlockHeader {
             .is_none_or(|target| U256::from_be_bytes(hash.0) <= target)
     }
 
+    /// `PoW.checkWork` against `maxMiningTarget`: the hash, big-endian, has at
+    /// least `network::MIN_HASH_ZERO_BITS` leading zero bits. The cheapest
+    /// floor to apply to an announced hash before fetching its block.
+    #[must_use]
+    pub fn check_min_work(hash: &Hash) -> bool {
+        U256::from_be_bytes(hash.0).leading_zeros() >= MIN_HASH_ZERO_BITS
+    }
+
     /// `BlockDeps.outDeps`: the tips of this group's chains.
     #[must_use]
     pub fn out_deps(&self) -> &[Hash] {
         &self.deps[self.deps.len() / 2..]
-    }
-
-    /// `BlockDeps.inDeps`.
-    #[must_use]
-    pub fn in_deps(&self) -> &[Hash] {
-        &self.deps[..self.deps.len() / 2]
     }
 }
 
@@ -181,6 +184,19 @@ mod tests {
             &Hash([0xff; 32]),
             &Target([0x20, 0xff, 0xff, 0xff])
         ));
+    }
+
+    #[test]
+    fn min_work_needs_the_mainnet_floor_of_leading_zero_bits() {
+        assert!(BlockHeader::check_min_work(&Hash::ZERO));
+        assert!(!BlockHeader::check_min_work(&Hash([0xff; 32])));
+        // Four zero bytes then 0x04 (0b0000_0100): exactly 32 + 5 = 37 bits.
+        let mut hash = Hash([0xff; 32]);
+        hash.0[..5].copy_from_slice(&[0, 0, 0, 0, 0x04]);
+        assert!(BlockHeader::check_min_work(&hash));
+        // Then 0x08: 36 bits, one short.
+        hash.0[4] = 0x08;
+        assert!(!BlockHeader::check_min_work(&hash));
     }
 
     #[test]

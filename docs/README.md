@@ -8,7 +8,7 @@
 
 ## Compatibility and testing
 
-- [`INTEROPERABILITY.md`](INTEROPERABILITY.md) — rules for official-node interoperability evidence.
-- [`LOCAL_OFFICIAL_NODE.md`](LOCAL_OFFICIAL_NODE.md) — the isolated local official node used by the interop harness.
+- [`../IMMUTABLE.md`](../IMMUTABLE.md) — mainnet only, only what is used, dead code deleted, clean build.
+- [`MAINNET_CHECK.md`](MAINNET_CHECK.md) — the check against the official mainnet node, and its evidence.
 - [`UPSTREAM_MAPPING.md`](UPSTREAM_MAPPING.md) — official source areas behind each implemented responsibility.
 - [`../tests/vectors/m1/README.md`](../tests/vectors/m1/README.md) — Scala-generated wire vectors and their provenance.

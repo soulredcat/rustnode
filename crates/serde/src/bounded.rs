@@ -48,28 +48,6 @@ pub fn decode_bytes<'a>(input: &'a [u8], max_len: usize) -> DecodeResult<'a, &'a
     Ok(Staging::new(value, rest))
 }
 
-/// Encode an M1 protocol string.
-///
-/// M1 client identifiers are ASCII. The pinned Scala serializer counts
-/// `String.length` before appending UTF-8 bytes, so non-ASCII serialization is
-/// intentionally rejected until dedicated upstream vectors define that edge.
-pub fn encode_string(value: &str, max_len: usize) -> Result<Vec<u8>, Error> {
-    if !value.is_ascii() {
-        return Err(Error::validation(
-            "non-ASCII M1 string serialization is not vector-locked",
-        ));
-    }
-    encode_bytes(value.as_bytes(), max_len)
-}
-
-pub fn decode_string(input: &[u8], max_len: usize) -> DecodeResult<'_, String> {
-    let staged = decode_bytes(input, max_len)?;
-    let value = core::str::from_utf8(staged.value)
-        .map_err(|_| Error::validation("invalid UTF-8 string"))?
-        .to_owned();
-    Ok(Staging::new(value, staged.rest))
-}
-
 pub fn encode_vec<T>(
     values: &[T],
     max_items: usize,
@@ -89,39 +67,10 @@ pub fn encode_vec<T>(
     Ok(encoded)
 }
 
-pub fn decode_vec<'a, T>(
-    input: &'a [u8],
-    max_items: usize,
-    mut decode_item: impl FnMut(&'a [u8]) -> DecodeResult<'a, T>,
-) -> DecodeResult<'a, Vec<T>> {
-    let staged_len = decode_non_negative_len(input, "vector")?;
-    let count = staged_len.value;
-
-    if count > staged_len.rest.len() {
-        return Err(Error::validation(format!("malicious vector size: {count}")));
-    }
-    if count > max_items {
-        return Err(Error::LimitExceeded {
-            declared: count,
-            limit: max_items,
-        });
-    }
-
-    let mut values = Vec::with_capacity(count);
-    let mut rest = staged_len.rest;
-    for _ in 0..count {
-        let staged = decode_item(rest)?;
-        values.push(staged.value);
-        rest = staged.rest;
-    }
-
-    Ok(Staging::new(values, rest))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{decode_bytes, decode_string, decode_vec, encode_bytes, encode_string, encode_vec};
-    use crate::{Error, fixed};
+    use super::{decode_bytes, encode_bytes};
+    use crate::Error;
 
     #[test]
     fn bounded_bytes_round_trip_and_preserve_rest() {
@@ -152,69 +101,6 @@ mod tests {
             Err(Error::NotEnoughBytes {
                 expected: 2,
                 actual: 1,
-            })
-        );
-    }
-
-    #[test]
-    fn bounded_string_validates_utf8() {
-        let encoded = encode_string("alephium", 8).expect("fixture must encode");
-        assert_eq!(
-            decode_string(&encoded, 8)
-                .expect("fixture must decode")
-                .value,
-            "alephium"
-        );
-        assert!(matches!(
-            decode_string(&[0x01, 0xff], 8),
-            Err(Error::Validation { .. })
-        ));
-        assert!(matches!(
-            encode_string("é", 8),
-            Err(Error::Validation { .. })
-        ));
-    }
-
-    #[test]
-    fn bounded_vector_composes_staged_decoders() {
-        let values = [1_i32, -1, i32::MAX];
-        let encoded = encode_vec(&values, 3, |value, output| {
-            output.extend_from_slice(&fixed::encode_i32_be(*value));
-            Ok(())
-        })
-        .expect("fixture must encode");
-
-        let decoded = decode_vec(&encoded, 3, fixed::decode_i32_be).expect("fixture must decode");
-        assert_eq!(decoded.value, values);
-        assert!(decoded.rest.is_empty());
-    }
-
-    #[test]
-    fn vector_rejects_negative_malicious_and_locally_excessive_counts() {
-        assert!(matches!(
-            decode_vec::<u8>(&[0x3f], 8, |input| {
-                let staged = fixed::take(input, 1)?;
-                Ok(staged.map(|bytes| bytes[0]))
-            }),
-            Err(Error::Validation { .. })
-        ));
-
-        assert!(matches!(
-            decode_vec::<u8>(&[0x02, 0xaa], 8, |input| {
-                let staged = fixed::take(input, 1)?;
-                Ok(staged.map(|bytes| bytes[0]))
-            }),
-            Err(Error::Validation { .. })
-        ));
-
-        assert_eq!(
-            decode_vec::<u8>(&[0x02, 0xaa, 0xbb], 1, |input| {
-                let staged = fixed::take(input, 1)?;
-                Ok(staged.map(|bytes| bytes[0]))
-            }),
-            Err(Error::LimitExceeded {
-                declared: 2,
-                limit: 1,
             })
         );
     }

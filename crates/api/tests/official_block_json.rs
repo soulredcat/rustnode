@@ -1,13 +1,14 @@
-//! Differential check of block JSON against a running official node: every
-//! block is fetched raw, decoded, rendered with `alephium_api::json`, and
-//! compared with the official `GET /blockflow/blocks/{hash}`.
+//! Differential check of block JSON against the operator's official mainnet
+//! node: the newest `RUSTNODE_MAX_BLOCKS_PER_CHAIN` heights (default 100) of
+//! every chain are fetched raw, decoded, rendered with `alephium_api::json`,
+//! and compared with the official `GET /blockflow/blocks/{hash}`.
 //!
 //! `RUSTNODE_OFFICIAL_URL=http://127.0.0.1:12973 [RUSTNODE_OFFICIAL_API_KEY=...]
 //!  cargo test -p alephium-api --test official_block_json -- --ignored --nocapture`
 
 use alephium_api::json::block_entry;
 use alephium_model::hash::from_hex;
-use alephium_model::network::Network;
+use alephium_model::network::NETWORK_ID;
 use alephium_model::{Block, deserialize};
 use serde_json::Value;
 
@@ -50,19 +51,23 @@ fn first_difference(path: &str, ours: &Value, official: &Value) -> Option<String
 }
 
 #[test]
-#[ignore = "needs a running official node"]
-fn every_official_block_renders_the_same_json() {
+#[ignore = "needs the official mainnet node"]
+fn official_blocks_render_the_same_json() {
     let url =
         std::env::var("RUSTNODE_OFFICIAL_URL").unwrap_or_else(|_| "http://127.0.0.1:12973".into());
     let key = std::env::var("RUSTNODE_OFFICIAL_API_KEY").ok();
     let key = key.as_deref();
     let params = get(&url, key, "/infos/chain-params");
     let groups = params["groups"].as_u64().expect("groups") as u32;
-    let network = Network::from_id(params["networkId"].as_u64().expect("networkId") as u8);
+    assert_eq!(
+        params["networkId"].as_u64(),
+        Some(u64::from(NETWORK_ID)),
+        "not a mainnet node"
+    );
     let max_blocks: u64 = std::env::var("RUSTNODE_MAX_BLOCKS_PER_CHAIN")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(u64::MAX);
+        .unwrap_or(100);
 
     let mut checked = 0usize;
     for from in 0..groups {
@@ -97,9 +102,8 @@ fn every_official_block_renders_the_same_json() {
                             })
                             .collect()
                     });
-                    let ours =
-                        block_entry(&block, h as u32, groups, &network, conflicted.as_deref())
-                            .unwrap_or_else(|| panic!("no JSON for {hash}"));
+                    let ours = block_entry(&block, h as u32, groups, conflicted.as_deref())
+                        .unwrap_or_else(|| panic!("no JSON for {hash}"));
                     if let Some(difference) = first_difference("block", &ours, &official) {
                         panic!("{hash} ({from}->{to} h{h}) differs at {difference}");
                     }

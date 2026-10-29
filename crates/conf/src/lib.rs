@@ -15,15 +15,17 @@ use alephium_crypto::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH, PrivateKey, PublicK
 
 pub const STATUS: &str = "nixiaproject-only node configuration";
 
-pub const NETWORK_MAGIC_BYTES: [u8; 4] = [0xa2, 0xfd, 0xc6, 0xbb];
-pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:19985";
-pub const DEFAULT_NETWORK_ID: u8 = 2;
+/// Mainnet's `NetworkConfig.magicBytes`: the sum of the eight big-endian ints
+/// of Blake2b(`alephium-0`). rustnode speaks mainnet only (`IMMUTABLE.md`).
+pub const NETWORK_MAGIC: [u8; 4] = [0xb0, 0xa6, 0x80, 0x8e];
+/// The operator's official mainnet node.
+pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:9973";
 
 /// Official mainnet discovery bootstrap nodes (`network_mainnet.conf.tmpl`).
 /// They accept inter-clique TCP connections on port 9973, the same protocol
 /// rustnode speaks to the operator's official node, so following the chain
 /// from them needs no UDP peer discovery and does not depend on that node.
-pub const MAINNET_BOOTSTRAP_PEERS: [&str; 6] = [
+pub const BOOTSTRAP_PEERS: [&str; 6] = [
     "bootstrap0.alephium.org:9973",
     "bootstrap1.alephium.org:9973",
     "bootstrap2.alephium.org:9973",
@@ -126,7 +128,6 @@ impl From<io::Error> for NodeIdentityError {
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
     pub peer_address: String,
-    pub network_magic: [u8; 4],
     pub configured_groups: u32,
     pub client_id: String,
     pub broker_id: i32,
@@ -143,14 +144,12 @@ pub struct NodeConfig {
     pub max_tracked_tx_ids: usize,
     pub max_tx_request_retries: u8,
     pub max_mempool_txs: usize,
-    pub network_id: u8,
 }
 
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             peer_address: DEFAULT_PEER_ADDRESS.to_owned(),
-            network_magic: NETWORK_MAGIC_BYTES,
             configured_groups: DEFAULT_CONFIGURED_GROUPS,
             client_id: CLIENT_ID.to_owned(),
             broker_id: DEFAULT_BROKER_ID,
@@ -167,57 +166,11 @@ impl Default for NodeConfig {
             max_tracked_tx_ids: DEFAULT_MAX_TRACKED_TX_IDS,
             max_tx_request_retries: DEFAULT_MAX_TX_REQUEST_RETRIES,
             max_mempool_txs: DEFAULT_MAX_MEMPOOL_TXS,
-            network_id: DEFAULT_NETWORK_ID,
         }
-    }
-}
-
-/// `NetworkConfig.magicBytes`: the sum of the eight big-endian ints of
-/// Blake2b(`alephium-{network id}`).
-#[must_use]
-pub fn network_magic(network_id: u8) -> [u8; 4] {
-    let hash = alephium_crypto::hash_blake2b_256(format!("alephium-{network_id}").as_bytes());
-    let sum = hash
-        .chunks(4)
-        .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .fold(0i32, i32::wrapping_add);
-    sum.to_be_bytes()
-}
-
-/// Built-in public peers to follow when the operator names none (`--follow`).
-/// Mainnet uses the official bootstrap nodes; testnet and devnet have no public
-/// defaults (`network_{testnet,devnet}.conf.tmpl` leave `bootstrap` empty), so
-/// following those networks still requires an explicit `--peer`.
-#[must_use]
-pub fn default_bootstrap_peers(network_id: u8) -> Vec<String> {
-    // Network id 0 is mainnet; testnet (1) and devnet (others) have no defaults.
-    if network_id == 0 {
-        MAINNET_BOOTSTRAP_PEERS
-            .iter()
-            .map(|peer| (*peer).to_owned())
-            .collect()
-    } else {
-        Vec::new()
     }
 }
 
 impl NodeConfig {
-    /// Network id and the frame magic derived from it.
-    #[must_use]
-    pub fn set_network_id(mut self, network_id: u8) -> Self {
-        self.network_id = network_id;
-        self.network_magic = network_magic(network_id);
-        self
-    }
-
-    #[must_use]
-    pub fn with_peer_address(peer_address: impl Into<String>) -> Self {
-        Self {
-            peer_address: peer_address.into(),
-            ..Self::default()
-        }
-    }
-
     #[must_use]
     pub fn set_peer_address(mut self, peer_address: impl Into<String>) -> Self {
         self.peer_address = peer_address.into();
@@ -256,11 +209,6 @@ impl NodeConfig {
         let identity = load_or_create_node_identity_at(path)?;
         Ok(self.with_node_identity(identity))
     }
-
-    #[must_use]
-    pub const fn configured_groups(&self) -> u32 {
-        self.configured_groups
-    }
 }
 
 /// HTTP and `/ws` gateway settings.
@@ -277,8 +225,6 @@ pub struct ApiConfig {
     pub groups: u32,
     /// `route-id=mode` overrides, validated by the gateway at startup.
     pub route_modes: Vec<String>,
-    /// Network of the official node and the followed chain (0 mainnet).
-    pub network_id: u8,
     /// The official node's `api-key`, if it has one (from [`API_KEY_ENV`]).
     /// Natively answered requests must carry exactly this key.
     pub api_key: Option<String>,
@@ -296,18 +242,13 @@ impl Default for ApiConfig {
             header_read_timeout: DEFAULT_API_HEADER_READ_TIMEOUT,
             groups: DEFAULT_CONFIGURED_GROUPS,
             route_modes: Vec::new(),
-            network_id: 0,
             api_key: None,
         }
     }
 }
 
-/// The file holding the kept block window of a network, next to the P2P
-/// identity; one file per network, so a devnet run never touches mainnet data.
-#[must_use]
-pub fn default_chain_data_path(network_id: u8) -> PathBuf {
-    PathBuf::from(format!(".local/rustnode/chain-{network_id}.redb"))
-}
+/// The file holding the kept block window, next to the P2P identity.
+pub const DEFAULT_CHAIN_DATA_PATH: &str = ".local/rustnode/chain.redb";
 
 #[must_use]
 pub fn resolve_node_identity_path() -> PathBuf {
@@ -400,33 +341,16 @@ fn set_restrictive_permissions(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MAINNET_BOOTSTRAP_PEERS, NETWORK_MAGIC_BYTES, default_bootstrap_peers, network_magic,
-    };
+    use super::NETWORK_MAGIC;
 
+    /// `NetworkConfig.magicBytes` for network id 0.
     #[test]
     fn network_magic_matches_the_official_derivation() {
-        assert_eq!(network_magic(2), NETWORK_MAGIC_BYTES);
-        assert_eq!(network_magic(0), [0xb0, 0xa6, 0x80, 0x8e]);
-        assert_eq!(network_magic(1), [0xd7, 0x72, 0x8c, 0x8e]);
-    }
-
-    #[test]
-    fn mainnet_defaults_to_the_official_bootstrap_nodes() {
-        let peers = default_bootstrap_peers(0);
-        assert_eq!(peers.len(), MAINNET_BOOTSTRAP_PEERS.len());
-        assert!(
-            peers
-                .iter()
-                .zip(MAINNET_BOOTSTRAP_PEERS)
-                .all(|(got, want)| got.as_str() == want)
-        );
-        assert_eq!(
-            peers.first().map(String::as_str),
-            Some("bootstrap0.alephium.org:9973")
-        );
-        // Testnet and devnet have no public defaults; following needs --peer.
-        assert!(default_bootstrap_peers(1).is_empty());
-        assert!(default_bootstrap_peers(2).is_empty());
+        let hash = alephium_crypto::hash_blake2b_256(b"alephium-0");
+        let sum = hash
+            .chunks(4)
+            .map(|chunk| i32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .fold(0i32, i32::wrapping_add);
+        assert_eq!(sum.to_be_bytes(), NETWORK_MAGIC);
     }
 }

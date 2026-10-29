@@ -175,7 +175,6 @@ impl State {
     pub(crate) fn native_context(&self) -> native::Context<'_> {
         native::Context {
             groups: self.config.groups,
-            network: alephium_model::network::Network::from_id(self.config.network_id),
             chain: self.chain.as_ref(),
         }
     }

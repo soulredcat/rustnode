@@ -26,13 +26,14 @@ Every change must state:
 - keep bot domain policy outside this repository;
 - keep wallet keys outside this process;
 - do not add `unsafe` without a separate reviewed decision;
-- do not claim canonical validity from a raw peer event.
+- do not claim canonical validity from a raw peer event;
+- mainnet only, nothing unused, no dead code (`IMMUTABLE.md`).
 
 ## Verification
 
 ```bash
 make check
-make official-interop-fastpath
+make mainnet-check
 ```
 
 ## Commit format

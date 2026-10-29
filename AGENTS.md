@@ -2,7 +2,9 @@
 
 ## Mission
 
-`rustnode` is an Alephium node built only for the `soulredcat/nixiaproject` arbitrage bot.
+`rustnode` is an Alephium mainnet node built only for the `soulredcat/nixiaproject` arbitrage bot.
+
+`IMMUTABLE.md` comes before everything here: mainnet only (devnet and testnet code is forbidden and deleted on sight), only what the binary uses, dead code deleted at once, and a clean build on every commit.
 
 It serves exactly the HTTP and WebSocket surface that `nixiaproject` uses, listed in `docs/NIXIA_API_SURFACE.md`, with the same paths, parameters, and JSON shapes as the official node, optimized and pruned for that bot. Switching the bot over must require only changing its `ALEPHIUM_NODE_URL`.
 
@@ -12,11 +14,12 @@ rustnode is the bot's permanent node: once it is complete, the operator shuts th
 
 ## Read order
 
-1. `README.md`
-2. `docs/NIXIA_API_SURFACE.md`
-3. `ARCHITECTURE.md`
-4. `TODO.md`
-5. relevant official Alephium source pinned by `UPSTREAM.toml`
+1. `IMMUTABLE.md`
+2. `README.md`
+3. `docs/NIXIA_API_SURFACE.md`
+4. `ARCHITECTURE.md`
+5. `TODO.md`
+6. relevant official Alephium source pinned by `UPSTREAM.toml`
 
 ## Scope rule
 
@@ -33,6 +36,7 @@ In scope, as the roadmap reaches them:
 
 Out of scope:
 
+- devnet and testnet, in any form (`IMMUTABLE.md`);
 - any endpoint or subscription `nixiaproject` does not call;
 - mining, wallet APIs, or any private key with funds;
 - explorer/indexer functionality beyond the indexes the surface needs;
@@ -54,7 +58,7 @@ Out of scope:
 - `protocol`, `serde`, and `crypto` own compatibility primitives, limited to what the runtime uses.
 - `model` owns the protocol data types (blocks, transactions, scripts, values) and their official encoding and hashes.
 - `chain` owns followed blocks: canonical chains, tips, weights, and the kept window.
-- `store` owns the kept window on disk: one redb file per network, batched commits.
+- `store` owns the kept window on disk: one redb file, batched commits.
 - `conf` owns configuration and the non-funded P2P identity.
 - `flow` owns the P2P session, request tracking, and the raw mempool.
 - `api` owns the HTTP and `/ws` gateway: the allowlist, the upstream proxy, and native handlers as they arrive.
@@ -69,17 +73,17 @@ Run:
 make check
 ```
 
-For P2P changes, also run:
+For P2P and API changes, also run, against the operator's official mainnet node (`docs/MAINNET_CHECK.md`):
 
 ```bash
-make official-interop-fastpath
+make mainnet-check
 ```
 
 Required evidence depends on the change:
 
 - official Scala source/test reference;
 - byte-for-byte fixture from the official implementation;
-- Rust/official interoperability log;
+- `make mainnet-check` log;
 - differential comparison of API responses against the official node;
 - bounded overload test;
 - latency and memory measurements, not one anecdotal timing.

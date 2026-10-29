@@ -5,7 +5,7 @@ use alephium_model::address::{address_string, output_hint, output_key};
 use alephium_model::codec::Reader;
 use alephium_model::hash::hex;
 use alephium_model::lockup::decode_asset_lockup;
-use alephium_model::network::{HardFork, Network};
+use alephium_model::network::{HardFork, hard_fork};
 use alephium_model::tx::Tokens;
 use alephium_model::{
     AssetOutput, Block, BlockHeader, Codec, Hash, LockupScript, OutputRef, TimeStamp, Transaction,
@@ -22,13 +22,12 @@ pub fn block_entry(
     block: &Block,
     height: u32,
     groups: u32,
-    network: &Network,
     conflicted_txs: Option<&[Hash]>,
 ) -> Option<Value> {
     let header = &block.header;
     let hash = block.hash();
     let (chain_from, chain_to) = BlockHeader::chain_index(&hash, groups);
-    let ghost_uncles = ghost_uncles(block, network)?;
+    let ghost_uncles = ghost_uncles(block)?;
     let mut entry = json!({
         "hash": hash.to_hex(),
         "timestamp": header.timestamp.0,
@@ -51,11 +50,11 @@ pub fn block_entry(
 }
 
 /// `Block.ghostUncleData`, as `GhostUncleBlockEntry` JSON.
-fn ghost_uncles(block: &Block, network: &Network) -> Option<Vec<Value>> {
+fn ghost_uncles(block: &Block) -> Option<Vec<Value>> {
     if block.header.timestamp == GENESIS_TIMESTAMP {
         return Some(Vec::new());
     }
-    let prefix_length = match network.hard_fork(block.header.timestamp) {
+    let prefix_length = match hard_fork(block.header.timestamp) {
         HardFork::Danube => 2,
         HardFork::Rhone => 2 + 8,
         HardFork::Leman | HardFork::Mainnet => return Some(Vec::new()),

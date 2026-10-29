@@ -1,5 +1,4 @@
-.PHONY: check fmt check-build clippy test run upstream official-build official-run \
-        official-interop-fastpath m1-vectors
+.PHONY: check fmt check-build clippy test run mainnet-check m1-vectors
 
 check: fmt check-build clippy test
 
@@ -18,17 +17,8 @@ test:
 run:
 	cargo run --release -p alephium-app -- --watch
 
-upstream:
-	./scripts/fetch-upstream.sh
-
-official-build:
-	./scripts/official-node/build.sh
-
-official-run:
-	./scripts/official-node/run.sh
-
-official-interop-fastpath:
-	./scripts/official-node/interoperability.sh
+mainnet-check:
+	./scripts/mainnet-check.sh
 
 m1-vectors:
 	./scripts/generate-m1-vectors.sh

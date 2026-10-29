@@ -42,24 +42,17 @@ pub struct BlockSync {
     pub added: u64,
 }
 
-/// Official `getRateLimiterWindowSize`: 30 s on mainnet, 10 s elsewhere.
-#[must_use]
-pub const fn rate_limit_window(network_id: u8) -> Duration {
-    if network_id == 0 {
-        Duration::from_secs(30)
-    } else {
-        Duration::from_secs(10)
-    }
-}
+/// Official `getRateLimiterWindowSize` on mainnet.
+pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(30);
 
 impl BlockSync {
     #[must_use]
-    pub fn new(chain: SharedChainStore, groups: u32, network_id: u8) -> Self {
+    pub fn new(chain: SharedChainStore, groups: u32) -> Self {
         let chains = (groups * groups) as usize;
         Self {
             chain,
             groups,
-            window_size: rate_limit_window(network_id),
+            window_size: RATE_LIMIT_WINDOW,
             window_start: Instant::now(),
             window_used: 0,
             in_flight: None,
@@ -206,9 +199,14 @@ impl BlockSync {
         self.add_all(blocks)
     }
 
-    /// Whether an announced hash should be downloaded: valid PoW for the
-    /// easiest possible target is not checked here, only novelty.
+    /// Whether an announced hash should be downloaded: it must carry at least
+    /// mainnet's minimum proof of work (`network::MIN_HASH_ZERO_BITS`) and be
+    /// new. The work floor bounds how many fetches a peer can trigger with
+    /// hashes it did not actually mine.
     pub fn should_fetch(&mut self, hash: &Hash) -> bool {
+        if !BlockHeader::check_min_work(hash) {
+            return false;
+        }
         let known = self
             .chain
             .read()

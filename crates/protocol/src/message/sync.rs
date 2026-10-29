@@ -4,7 +4,7 @@
 //! `HeadersByHeightsResponse`, and `NewBlock`.
 
 use alephium_model::codec::Reader;
-use alephium_model::{Block, BlockHeader, Codec};
+use alephium_model::{Block, Codec};
 use alephium_serde::{Error, compact};
 
 /// `(ChainIndex, BlockHeightRange)`: from and to group as compact ints, then
@@ -53,11 +53,6 @@ pub fn encode_blocks_and_uncles_by_heights_request(id: u32, ranges: &[HeightRang
     encode_request(id, ranges)
 }
 
-#[must_use]
-pub fn encode_headers_by_heights_request(id: u32, ranges: &[HeightRange]) -> Vec<u8> {
-    encode_request(id, ranges)
-}
-
 fn decode_id(reader: &mut Reader<'_>) -> Result<u32, Error> {
     let staging = compact::decode_u32(reader.rest())?;
     let consumed = reader.remaining() - staging.rest.len();
@@ -82,15 +77,6 @@ pub fn decode_blocks_and_uncles_by_heights_response(
     let id = decode_id(&mut reader)?;
     let blocks = Vec::<Vec<Block>>::decode(&mut reader)?;
     finish(&reader, (id, blocks))
-}
-
-pub fn decode_headers_by_heights_response(
-    payload: &[u8],
-) -> Result<(u32, Vec<Vec<BlockHeader>>), Error> {
-    let mut reader = Reader::new(payload);
-    let id = decode_id(&mut reader)?;
-    let headers = Vec::<Vec<BlockHeader>>::decode(&mut reader)?;
-    finish(&reader, (id, headers))
 }
 
 /// `BlocksRequest`: request id, then block hashes (v4.7 fetches announced

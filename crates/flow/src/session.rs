@@ -123,9 +123,7 @@ pub fn run(
             config.tx_request_timeout,
             config.max_tx_request_retries,
         ),
-        block_sync: chain.map(|chain| {
-            BlockSync::new(chain.clone(), config.configured_groups, config.network_id)
-        }),
+        block_sync: chain.map(|chain| BlockSync::new(chain.clone(), config.configured_groups)),
         next_sync_log: Instant::now(),
         sent_chain_state: None,
     };
@@ -135,7 +133,7 @@ pub fn run(
 
     let mut inbound = Vec::with_capacity(64 * 1024);
     let mut read_buffer = vec![0u8; 64 * 1024];
-    let magic = NetworkMagic::new(config.network_magic);
+    let magic = NetworkMagic::new(alephium_conf::NETWORK_MAGIC);
 
     loop {
         match stream.read(&mut read_buffer) {
@@ -616,7 +614,7 @@ fn send_payload(
 ) -> Result<(), FastPathError> {
     let raw_message = encode_raw_message_data(payload_code, payload_body)?;
     let frame = encode_frame(
-        NetworkMagic::new(config.network_magic),
+        NetworkMagic::new(alephium_conf::NETWORK_MAGIC),
         &raw_message,
         config.max_frame_data,
     )?;

@@ -46,8 +46,6 @@ version = "0.0.1"
 dependencies = [
  "alephium-model",
  "alephium-store",
- "serde_json",
- "ureq",
 ]
 
 [[package]]

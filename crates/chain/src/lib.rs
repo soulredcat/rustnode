@@ -267,11 +267,6 @@ impl ChainStore {
         Ok(Some(store))
     }
 
-    #[must_use]
-    pub const fn groups(&self) -> u32 {
-        self.groups
-    }
-
     const fn chain(&self, from: u32, to: u32) -> usize {
         (from * self.groups + to) as usize
     }
@@ -453,13 +448,6 @@ impl ChainStore {
         self.chain_hashes(self.chain(from, to), height)
     }
 
-    #[must_use]
-    pub fn is_canonical(&self, hash: &Hash) -> bool {
-        self.get(hash).is_some_and(|entry| {
-            self.hashes_at(entry.from, entry.to, entry.height).first() == Some(hash)
-        })
-    }
-
     /// Highest height held for the chain.
     #[must_use]
     pub fn max_height(&self, from: u32, to: u32) -> u32 {
@@ -468,11 +456,6 @@ impl ChainStore {
             .next_back()
             .copied()
             .unwrap_or(0)
-    }
-
-    #[must_use]
-    pub fn tips(&self, from: u32, to: u32) -> Vec<Hash> {
-        self.tips[self.chain(from, to)].keys().copied().collect()
     }
 
     /// `BlockHashChain.maxWeightTipUnsafe`: the tip of greatest weight, ties
@@ -503,21 +486,6 @@ impl ChainStore {
             .and_then(|entry| entry.weight)
             .unwrap_or(U256::ZERO);
         (hash, height, weight)
-    }
-
-    /// `BlockChain.maxHeightByWeight`.
-    #[must_use]
-    pub fn max_height_by_weight(&self, from: u32, to: u32) -> u32 {
-        self.max_weight_tip(from, to)
-            .map_or(0, |(_, height)| height)
-    }
-
-    /// The canonical block at a height.
-    #[must_use]
-    pub fn canonical_at(&self, from: u32, to: u32, height: u32) -> Option<Entry> {
-        self.hashes_at(from, to, height)
-            .first()
-            .and_then(|hash| self.get(hash))
     }
 
     fn height(&self, hash: &Hash) -> Result<u32, AddError> {
@@ -960,46 +928,6 @@ impl ChainStore {
             Err(error) => eprintln!("{error}"),
         }
     }
-
-    /// Main-chain blocks of a chain with timestamps in `[from_ts, to_ts]`, up
-    /// to the height of the heaviest tip (`BlockChain.getHeightedBlocks`).
-    /// With a disk this reads every stored height of the chain.
-    #[must_use]
-    pub fn blocks_between(
-        &self,
-        from: u32,
-        to: u32,
-        from_ts: TimeStamp,
-        to_ts: TimeStamp,
-    ) -> Vec<(Arc<Block>, u32)> {
-        let top = self.max_height_by_weight(from, to);
-        let chain = self.chain(from, to);
-        let mut heights: BTreeMap<u32, Vec<Hash>> = BTreeMap::new();
-        if let Some(disk) = &self.disk {
-            match disk.heights(chain as u32, 0..=top) {
-                Ok(rows) => heights.extend(
-                    rows.into_iter()
-                        .map(|(height, hashes)| (height, hashes.into_iter().map(Hash).collect())),
-                ),
-                Err(error) => eprintln!("{error}"),
-            }
-        }
-        heights.extend(
-            self.heights[chain]
-                .range(..=top)
-                .map(|(height, hashes)| (*height, hashes.clone())),
-        );
-        let mut result = Vec::new();
-        for (height, hashes) in heights {
-            if let Some(entry) = hashes.first().and_then(|hash| self.get(hash)) {
-                let ts = entry.block.header.timestamp;
-                if ts >= from_ts && ts <= to_ts {
-                    result.push((entry.block, height));
-                }
-            }
-        }
-        result
-    }
 }
 
 #[cfg(test)]
@@ -1109,7 +1037,7 @@ mod tests {
         let oldest = store.get(&at(bottom)).expect("oldest kept height");
         assert_eq!(oldest.height, bottom);
         assert_eq!(oldest.weight, Some(U256::from(bottom)));
-        assert!(store.is_canonical(&at(bottom)));
+        assert_eq!(store.hashes_at(0, 0, bottom), vec![at(bottom)]);
         // Memory holds genesis and the hot heights only.
         assert_eq!(store.entries.len(), HOT_HEIGHTS as usize + 2);
         let tip = store.chain_tip(0, 0);
@@ -1123,10 +1051,12 @@ mod tests {
         assert_eq!(store.hashes_at(0, 0, bottom + 1), vec![at(bottom + 1)]);
         assert_eq!(store.hashes_at(0, 0, top), vec![at(top)]);
         assert_eq!(store.entries.len(), HOT_HEIGHTS as usize + 2);
-        let by_time =
-            store.blocks_between(0, 0, TimeStamp(time_of(bottom)), TimeStamp(time_of(top)));
-        assert_eq!(by_time.len(), window as usize + 1);
-        assert_eq!(by_time.first().map(|(_, height)| *height), Some(bottom));
+        // The oldest heights are read back from disk.
+        assert!(!store.entries.contains_key(&at(bottom)));
+        assert_eq!(
+            store.get(&at(bottom)).map(|entry| entry.height),
+            Some(bottom)
+        );
 
         // Following continues on the reopened store, and a smaller window
         // prunes on the next reopening.
@@ -1187,7 +1117,10 @@ mod tests {
         let store = ChainStore::open(1, 100, Disk::open(&path).expect("reopen"))
             .expect("open")
             .expect("a complete store");
-        assert_eq!(store.tips(0, 0), vec![second.hash()]);
+        assert_eq!(
+            store.tips[0].keys().copied().collect::<Vec<_>>(),
+            vec![second.hash()]
+        );
         assert_eq!(store.max_height(0, 0), 2);
         assert!(!store.has_weight(&second.hash()));
         drop(store);

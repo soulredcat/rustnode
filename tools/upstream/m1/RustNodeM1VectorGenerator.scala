@@ -28,11 +28,11 @@ object RustNodeM1VectorGenerator {
   }
 
   private object FixtureNetworkConfig extends NetworkConfig {
-    override val networkId: NetworkId              = NetworkId.AlephiumDevNet
+    override val networkId: NetworkId              = NetworkId.AlephiumMainNet
     override val noPreMineProof: ByteString         = ByteString.empty
-    override val lemanHardForkTimestamp: TimeStamp  = TimeStamp.zero
-    override val rhoneHardForkTimestamp: TimeStamp  = TimeStamp.zero
-    override val danubeHardForkTimestamp: TimeStamp = TimeStamp.zero
+    override val lemanHardForkTimestamp: TimeStamp  = TimeStamp.unsafe(1680170400000L)
+    override val rhoneHardForkTimestamp: TimeStamp  = TimeStamp.unsafe(1718186400000L)
+    override val danubeHardForkTimestamp: TimeStamp = TimeStamp.unsafe(1752573600000L)
   }
 
   private implicit val groupConfig: GroupConfig     = FixtureGroupConfig

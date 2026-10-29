@@ -115,12 +115,6 @@ fn grouped_script_hint(pre_image: &[u8], group_byte: u8) -> i32 {
     script_hint_from_int((i32::from(new_byte0) << 24) | (initial & 0x00ff_ffff))
 }
 
-/// `ScriptHint.groupIndex`.
-#[must_use]
-pub fn hint_group(script_hint: i32, groups: u32) -> u32 {
-    u32::from(xor_byte(script_hint)) % groups
-}
-
 /// `Hint.ofAsset` / `Hint.ofContract`: contract hints have the low bit cleared.
 #[must_use]
 pub fn output_hint(lockup: &LockupScript) -> i32 {
@@ -139,13 +133,11 @@ pub fn output_key(tx_id: &Hash, index: i32) -> Hash {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        address_string, base58_decode, base58_encode, hint_group, output_hint, script_hint,
-    };
+    use super::{address_string, base58_decode, base58_encode, output_hint};
     use crate::codec::deserialize;
     use crate::lockup::LockupScript;
 
-    /// Devnet addresses and output hints as printed by the official node.
+    /// Addresses and output hints as printed by the official node.
     #[test]
     fn addresses_and_hints_match_the_official_node() {
         for (address, hint) in [
@@ -166,7 +158,6 @@ mod tests {
                 deserialize(&base58_decode(address).expect("base58")).expect("lockup");
             assert_eq!(address_string(&lockup), address);
             assert_eq!(output_hint(&lockup), hint, "{address}");
-            assert_eq!(hint_group(script_hint(&lockup), 4), 0);
         }
     }
 

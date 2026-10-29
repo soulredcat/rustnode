@@ -18,20 +18,21 @@ N3 — Follow the chain
 - [x] Bounded transaction acquisition (`NewTxHashes` → `TxsRequest`) with dedupe, in-flight limit, timeout, retry.
 - [x] Bounded raw mempool fed by acquisition.
 - [x] Removed everything the bot does not use: ALFP/IPC event server, block/header codecs without typed parsing, blake3, peer version parsing, the `util` crate, broken M2 interop modes, and stale milestone docs.
+- [x] Mainnet only (`IMMUTABLE.md`): every non-mainnet path, the old interop harness and its CI job, and `--network-id` deleted; M1 vectors regenerated from the pinned official code for mainnet; dead code swept; `make mainnet-check` replaces the devnet run.
 
 ## N0 — API gateway
 
 - [x] `api` crate: HTTP server (default `127.0.0.1:22973`) forwarding every path in the surface to a configured official node, preserving status codes, headers, bodies, and the optional API key; everything else `404`/`405`.
 - [x] `/ws` passthrough with JSON-RPC subscriptions forwarded both ways.
 - [x] Per-endpoint latency and error counters, logged every 60 s.
-- [x] Integration tests against a mock official node; passthrough also checked against the real official node in `make official-interop-fastpath`.
+- [x] Integration tests against a mock official node; passthrough also checked against the official mainnet node in `make mainnet-check`.
 - [x] Added latency measured: p50 56–67 µs, p99 126–193 µs (`ARCHITECTURE.md` §4).
-- [x] End-to-end on a devnet with the official v4.7.2 release: every endpoint and `/ws` with real chain data, `nixiaproject`'s own client crate, restart, and load (`docs/INTEROPERABILITY.md`).
+- [x] Gateway checked against the official mainnet node on every `make mainnet-check`: official build info, refusal outside the surface, and native address groups (`docs/MAINNET_CHECK.md`).
 - [x] Upstream refusals keep the official status: a rejected WebSocket upgrade returns the official `401`/`404`, not `502`.
 - [x] Native answers honour the official API key (`RUSTNODE_API_KEY`); other requests are forwarded.
 - [ ] Optional before N8: an operator run of `nixiaproject` with only `ALEPHIUM_NODE_URL` changed, to compare native handlers on the bot's live traffic. The bot otherwise stays on the official node until N8.
 
-Exit gate: met by the devnet end-to-end check; the measurement is done.
+Exit gate: met by `make mainnet-check` against the official mainnet node; the measurement is done.
 
 ## N1 — Differential checking
 
@@ -42,20 +43,21 @@ Exit gate: a native handler can be enabled and rolled back per endpoint without 
 
 ## N2 — Free endpoints
 
-- [x] `GET /addresses/{address}/group` natively for asset addresses (P2PKH, P2MPKH, P2SH), matching the official `AddressSpec` vectors and the official node in `make official-interop-fastpath`. Contract addresses need state and stay proxied until N5.
+- [x] `GET /addresses/{address}/group` natively for asset addresses (P2PKH, P2MPKH, P2SH), matching the official `AddressSpec` vectors and the official mainnet node in `make mainnet-check`. Contract addresses need state and stay proxied until N5.
 - [ ] `GET /infos/node` stays proxied while the official node is behind the gateway; it reports rustnode's own build info only after N8.
 
 ## N3 — Follow the chain
 
-Done so far: block, header, and transaction encoding and JSON identical to the official node for every devnet block; P2P v2 following of an official v4.7.2 node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 100,000-height window on disk; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
+Done so far: block, header, and transaction encoding and JSON identical to the official mainnet node for its newest blocks (`make mainnet-check`); P2P v2 following of the official v4.7.2 mainnet node (download by heights within its rate limit, `NewBlockHash` fetch, `ChainState` both ways, weights equal to the peer's); canonical chains, tips, weights, and the 100,000-height window on disk; native `GET /blockflow/blocks/{hash}` for intra-group blocks.
 
-- [x] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node: `--follow` (and a repeatable `--peer`) follows from the six official `bootstrap{0..5}.alephium.org:9973` nodes over inter-clique TCP, no UDP discovery yet; each peer runs its own follow worker sharing the chain store and mempool (`conf::default_bootstrap_peers`, `app`).
+- [x] Mainnet P2P settings (network id, official bootstrap peers) and several public peers, so following the chain does not depend on the operator's official node: `--follow` (and a repeatable `--peer`) follows from the six official `bootstrap{0..5}.alephium.org:9973` nodes over inter-clique TCP, no UDP discovery yet; each peer runs its own follow worker sharing the chain store and mempool (`conf::BOOTSTRAP_PEERS`, `app`).
+- [x] Fetch an announced block only when its hash carries mainnet's minimum work (37 leading zero bits, `network::MIN_HASH_ZERO_BITS`), so a peer cannot trigger fetches with hashes it did not mine.
 - [ ] Typed block and header codecs with official vectors; blake3 PoW hash.
 - [ ] Header PoW and target checks; fork choice by weight across the 16 chains.
 - [x] Start from a recent checkpoint taken from the operator's synced official node, never by replaying from genesis: the window is read from its REST API (`raw-blocks`), weights are seeded from a peer's `ChainState` and derived backwards along intra-group chains and forwards with `calWeight`; then new blocks are followed over P2P.
 - [x] Keep blocks for a configured window only (`--window`, default 100,000 heights per chain, about 9 days; at least 128; see the retention table in `docs/NIXIA_API_SURFACE.md`).
-- [x] Keep the window on disk (`crates/store`, one redb file per network, `--data`) with only the newest 1,024 heights per chain in memory. A restart reopens it and fetches only the missed heights: from the official node when it agrees with the stored chain (same genesis, same canonical block 200 heights below the lower tip, at most a window behind), otherwise from peers. Commits are fsynced at least every 10 s; a crash loses at most that, and peers bring it back.
-- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications. Blocks by time need a timestamp-to-height lookup on disk first: `ChainStore::blocks_between` reads every stored height of the chain.
+- [x] Keep the window on disk (`crates/store`, one redb file, `--data`) with only the newest 1,024 heights per chain in memory. A restart reopens it and fetches only the missed heights: from the official node when it agrees with the stored chain (same genesis, same canonical block 200 heights below the lower tip, at most a window behind), otherwise from peers. Commits are fsynced at least every 10 s; a crash loses at most that, and peers bring it back.
+- [ ] Native `GET /blockflow/blocks/{hash}`, `GET /blockflow/blocks?fromTs=&toTs=` within the window, `/ws` `block` notifications. Blocks by time need a timestamp-to-height lookup on disk.
 
 ## N4 — Native mempool
 

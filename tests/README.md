@@ -6,9 +6,10 @@ Current layout:
 
 ```text
 tests/
-├── vectors/m1/                Scala-generated wire vectors (handshake, liveness, framing)
-└── interoperability/fastpath/ live run against the pinned official node
+└── vectors/m1/   Scala-generated mainnet wire vectors (handshake, liveness, framing)
 ```
+
+The live check against the official mainnet node is `scripts/mainnet-check.sh` (`docs/MAINNET_CHECK.md`).
 
 Later stages in `TODO.md` add vectors for block/header and transaction serde, and a `differential/` record of native API responses compared against the official node.
 

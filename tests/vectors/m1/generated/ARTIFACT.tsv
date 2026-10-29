@@ -1,9 +1,0 @@
-workflow_run_id	31461562600
-workflow_head_sha	375bb1fa3356491d69971bfd6e4a9d68a557a27a
-artifact_id	9090048325
-artifact_name	m1-official-scala-vectors
-artifact_zip_sha256	2e8f635fc2e79b3b3c4fa9cb90b924652a0b30829d6d25b29d9c829aa8b7f5b1
-artifact_files	30
-committed_official_fixture_files	28
-artifact_only_file	truncated-hello.tsv
-artifact_retention_expires	2026-08-25T05:29:52Z

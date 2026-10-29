@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use alephium_chain::{ChainStore, Disk, MAX_FORK_DEPTH};
 use alephium_model::hash::from_hex;
+use alephium_model::network::NETWORK_ID;
 use alephium_model::{Block, Hash, deserialize};
 
 /// Heights fetched in parallel before they are imported together.
@@ -50,15 +51,16 @@ impl Source {
         serde_json::from_str(&body).map_err(|error| format!("GET {path}: {error}"))
     }
 
-    fn check_params(&self, groups: u32, network_id: u8) -> Result<(), String> {
+    /// The official node must serve mainnet with `groups` groups.
+    fn check_params(&self, groups: u32) -> Result<(), String> {
         let params = self.get("/infos/chain-params")?;
         if params["groups"].as_u64() == Some(u64::from(groups))
-            && params["networkId"].as_u64() == Some(u64::from(network_id))
+            && params["networkId"].as_u64() == Some(u64::from(NETWORK_ID))
         {
             Ok(())
         } else {
             Err(format!(
-                "the official node runs network {} with {} groups, expected network {network_id} with {groups}",
+                "the official node runs network {} with {} groups, expected mainnet ({NETWORK_ID}) with {groups}",
                 params["networkId"], params["groups"]
             ))
         }
@@ -154,7 +156,6 @@ fn disagreement(
 pub fn start(
     source: &Source,
     groups: u32,
-    network_id: u8,
     window: u32,
     threads: usize,
     disk: Option<Disk>,
@@ -170,7 +171,7 @@ pub fn start(
     };
     if let Some(mut store) = stored {
         let verdict = source
-            .check_params(groups, network_id)
+            .check_params(groups)
             .and_then(|()| disagreement(source, &store, window));
         match verdict {
             Ok(None) => {
@@ -198,7 +199,7 @@ pub fn start(
             }
         }
     } else {
-        source.check_params(groups, network_id)?;
+        source.check_params(groups)?;
     }
 
     let mut genesis = Vec::new();
