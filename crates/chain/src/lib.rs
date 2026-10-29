@@ -10,6 +10,7 @@
 
 mod best;
 mod difficulty;
+mod updates;
 
 pub use best::ViewChange;
 

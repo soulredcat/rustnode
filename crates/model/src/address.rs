@@ -115,6 +115,12 @@ fn grouped_script_hint(pre_image: &[u8], group_byte: u8) -> i32 {
     script_hint_from_int((i32::from(new_byte0) << 24) | (initial & 0x00ff_ffff))
 }
 
+/// `LockupScript.groupIndex` (`ScriptHint.groupIndex`).
+#[must_use]
+pub fn lockup_group(lockup: &LockupScript, groups: u32) -> u32 {
+    u32::from(xor_byte(script_hint(lockup))) % groups
+}
+
 /// `Hint.ofAsset` / `Hint.ofContract`: contract hints have the low bit cleared.
 #[must_use]
 pub fn output_hint(lockup: &LockupScript) -> i32 {
