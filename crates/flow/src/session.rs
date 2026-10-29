@@ -222,6 +222,16 @@ fn request_blocks(
             request.ranges.len()
         );
     }
+    let wanted = sync.take_wanted(now);
+    if !wanted.is_empty() {
+        let id = next_request_id(&mut session.next_request_id);
+        let payload = encode_blocks_request(id, &wanted);
+        send_payload(stream, config, BLOCKS_REQUEST_CODE, &payload)?;
+        println!(
+            "sent BlocksRequest id={id} for {} missing dependencies",
+            wanted.len()
+        );
+    }
     // v2 peers decide whether they are synced from our ChainState; without it
     // they never consider themselves synced and stop relaying blocks.
     if let Some(tips) = sync.chain_state() {

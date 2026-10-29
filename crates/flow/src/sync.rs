@@ -20,6 +20,11 @@ pub const MAX_SYNC_BLOCKS_PER_CHAIN: i32 = 50;
 pub const MAX_BLOCKS_PER_WINDOW: usize = 50 * 16;
 /// Blocks kept while their dependencies are missing.
 pub const MAX_ORPHANS: usize = 4096;
+/// Missing dependencies tracked at once, and per `BlocksRequest`.
+const MAX_WANTED: usize = 1024;
+const MAX_WANTED_PER_REQUEST: usize = 64;
+/// A missing dependency is asked for again after this long.
+const WANTED_RETRY: Duration = Duration::from_secs(5);
 
 /// What the session should send next.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +43,10 @@ pub struct BlockSync {
     in_flight: Option<(u32, Instant)>,
     peer_tips: Vec<Option<(i32, Hash, Vec<u8>)>>,
     orphans: HashMap<Hash, Block>,
+    /// Dependencies of parked blocks to fetch by hash, with when they were
+    /// last requested: a fork block at a height already held is never
+    /// returned again by a request by heights.
+    wanted: HashMap<Hash, Option<Instant>>,
     /// Announced hashes already fetched or held, bounded.
     seen: std::collections::VecDeque<Hash>,
     pub weight_checks: u64,
@@ -62,6 +71,7 @@ impl BlockSync {
             in_flight: None,
             peer_tips: vec![None; chains],
             orphans: HashMap::new(),
+            wanted: HashMap::new(),
             seen: std::collections::VecDeque::new(),
             weight_checks: 0,
             weight_mismatches: 0,
@@ -249,6 +259,26 @@ impl BlockSync {
         true
     }
 
+    /// Missing dependencies to request by hash now: not held, and not
+    /// requested within `WANTED_RETRY`.
+    pub fn take_wanted(&mut self, now: Instant) -> Vec<Hash> {
+        let store = self.chain.read().unwrap_or_else(PoisonError::into_inner);
+        let Some(store) = store.as_ref() else {
+            return Vec::new();
+        };
+        self.wanted.retain(|hash, _| !store.contains(hash));
+        let mut due = Vec::new();
+        for (hash, requested) in &mut self.wanted {
+            if due.len() < MAX_WANTED_PER_REQUEST
+                && requested.is_none_or(|at| now.duration_since(at) >= WANTED_RETRY)
+            {
+                *requested = Some(now);
+                due.push(*hash);
+            }
+        }
+        due
+    }
+
     /// Adds blocks, parking those with missing dependencies and retrying the
     /// parked ones after every successful addition.
     fn add_all(&mut self, blocks: Vec<Block>) -> Vec<Added> {
@@ -271,9 +301,14 @@ impl BlockSync {
                         self.orphans.remove(&hash);
                         added.push(result);
                     }
-                    Err(AddError::MissingDeps(_)) => {
+                    Err(AddError::MissingDeps(missing)) => {
                         if self.orphans.len() < MAX_ORPHANS {
                             self.orphans.insert(hash, block);
+                        }
+                        for dep in missing {
+                            if self.wanted.len() < MAX_WANTED {
+                                self.wanted.entry(dep).or_insert(None);
+                            }
                         }
                     }
                     Err(AddError::AlreadyKnown) => {
