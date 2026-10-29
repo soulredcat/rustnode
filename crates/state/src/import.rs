@@ -16,6 +16,8 @@ use crate::trie::{Node, NodeSource};
 /// `Storages.trieHashPostfix`: a block's world state roots are stored in
 /// the `all` column family under its hash and this byte.
 const TRIE_HASH_POSTFIX: u8 = 2;
+/// Block cache for the official database's index, filter and data blocks.
+const BLOCK_CACHE_BYTES: usize = 256 * 1024 * 1024;
 /// Readers fetching trie nodes at once: random reads of 32 KiB blocks on
 /// the official node's SSD are fast only when many are in flight.
 const READERS: usize = 16;
@@ -34,12 +36,15 @@ impl Official {
     /// Opens the database at `path` as a secondary instance keeping its own
     /// files in `secondary`.
     pub fn open(path: &Path, secondary: &Path) -> Result<Self, String> {
-        let mut options = Options::default();
+        let at = |error: rocksdb::Error| format!("{}: {error}", path.display());
+        // The database's own options: its column families' bloom filters,
+        // without which every read searches each level.
+        let env = rocksdb::Env::new().map_err(at)?;
+        let cache = rocksdb::Cache::new_lru_cache(BLOCK_CACHE_BYTES);
+        let (mut options, families) = Options::load_latest(path, env, true, cache).map_err(at)?;
         options.set_max_open_files(-1);
-        let families =
-            DB::list_cf(&options, path).map_err(|error| format!("{}: {error}", path.display()))?;
-        let db = DB::open_cf_as_secondary(&options, path, secondary, families)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let db = DB::open_cf_descriptors_as_secondary(&options, path, secondary, families)
+            .map_err(at)?;
         Ok(Self { db })
     }
 

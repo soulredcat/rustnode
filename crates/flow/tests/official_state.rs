@@ -1,7 +1,8 @@
-//! The output state transition against the official node: for recent
-//! intra-group blocks, the world state of the block's parent (read from the
-//! official node's database) with the block's view and the block applied
-//! must have the official output root of the block.
+//! The state transition against the official node: for recent intra-group
+//! blocks, the world state of the block's parent (read from the official
+//! node's database) with the block's view and the block applied, scripts
+//! replayed by the VM, must have the official output and contract roots of
+//! the block.
 //!
 //! ```text
 //! RUSTNODE_OFFICIAL_DB=<official db folder> \
@@ -10,7 +11,7 @@
 
 use alephium_chain::Disk;
 use alephium_flow::bootstrap::{Source, start};
-use alephium_flow::execute::apply_outputs;
+use alephium_flow::execute::apply_block;
 use alephium_state::{Official, WorldState};
 
 const GROUPS: u32 = 4;
@@ -21,7 +22,7 @@ const SETTLED: u32 = 10;
 
 #[test]
 #[ignore = "needs the operator's official node database and REST API"]
-fn outputs_follow_the_official_state() {
+fn blocks_reproduce_the_official_state() {
     let url = std::env::var("RUSTNODE_OFFICIAL_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:12973".to_owned());
     let db = std::env::var("RUSTNODE_OFFICIAL_DB").expect("RUSTNODE_OFFICIAL_DB");
@@ -31,7 +32,7 @@ fn outputs_follow_the_official_state() {
     let chain = start(&Source::new(&url, None), GROUPS, WINDOW, 8, disk).expect("bootstrap");
     let official = Official::open(db.as_ref(), &work.join("secondary")).expect("official db");
 
-    let (mut matched, mut checked) = (0, 0);
+    let (mut matched, mut checked, mut scripts) = (0, 0, 0);
     for group in 0..GROUPS {
         let top = chain.max_height(group, group) - SETTLED;
         for height in top - BLOCKS..top {
@@ -44,23 +45,40 @@ fn outputs_follow_the_official_state() {
                 .expect("parent roots");
             let after = official.roots(&hash).expect("read").expect("block roots");
             let mut world = WorldState::new(&before, &official);
-            let conflicts =
-                apply_outputs(&chain, &mut world, &block, GROUPS, |_, _| false).expect("apply");
             checked += 1;
-            if world.roots().outputs == after.outputs {
-                matched += 1;
-            } else {
-                println!(
-                    "group {group} height {height} block {}: outputs root {} instead of {} ({} txs, conflicts {conflicts:?})",
-                    hash.to_hex(),
-                    world.roots().outputs.to_hex(),
-                    after.outputs.to_hex(),
-                    block.transactions.len()
-                );
+            match apply_block(&chain, &mut world, &block, GROUPS, |_, _| false) {
+                Ok(applied) => {
+                    scripts += applied.executions.len();
+                    let roots = world.roots();
+                    if roots.outputs == after.outputs && roots.contracts == after.contracts {
+                        matched += 1;
+                    } else {
+                        println!(
+                            "group {group} height {height} block {}: outputs {} contracts {} ({} txs)",
+                            hash.to_hex(),
+                            if roots.outputs == after.outputs {
+                                "equal"
+                            } else {
+                                "different"
+                            },
+                            if roots.contracts == after.contracts {
+                                "equal"
+                            } else {
+                                "different"
+                            },
+                            block.transactions.len()
+                        );
+                    }
+                }
+                Err(error) => println!(
+                    "group {group} height {height} block {}: {error}",
+                    hash.to_hex()
+                ),
             }
         }
     }
-    println!("{matched} of {checked} blocks reproduce the official output root");
+    println!("{scripts} transaction scripts replayed");
+    println!("{matched} of {checked} blocks reproduce the official output and contract roots");
     drop(official);
     let _ = std::fs::remove_dir_all(&work);
     assert_eq!(matched, checked);

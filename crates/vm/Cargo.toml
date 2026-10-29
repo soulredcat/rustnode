@@ -1,0 +1,17 @@
+[package]
+name = "alephium-vm"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+alephium-model = { path = "../model" }
+alephium-state = { path = "../state" }
+num-bigint = "0.4"
+num-traits = "0.2"
+sha2 = "0.10"
+sha3 = "0.10"

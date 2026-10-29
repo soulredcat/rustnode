@@ -75,6 +75,15 @@ pub fn lookup(code: u8, context: Context) -> Option<(&'static str, OperandKind)>
     }
 }
 
+/// The code of the instruction named `name`.
+#[must_use]
+pub fn code_of(name: &str) -> Option<u8> {
+    INSTRS
+        .iter()
+        .find(|entry| entry.1 == name)
+        .map(|entry| entry.0)
+}
+
 impl Instr {
     #[must_use]
     pub fn name(&self) -> &'static str {

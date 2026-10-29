@@ -1,32 +1,45 @@
 //! The Danube state transition of an intra-group block
-//! (`getMutableGroupViewDanube`, then `BlockFlowState.updateState`), for
-//! what the blocks themselves record: asset outputs, and the contract
-//! outputs a block's scripts spent and created. Contract fields need the VM.
+//! (`getMutableGroupViewDanube`, the scripts run by `checkTxScript`, then
+//! `BlockFlowState.updateState`): the blocks its view adds, its transaction
+//! scripts in block order, then its asset inputs and outputs.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use alephium_chain::ChainStore;
 use alephium_model::address::{lockup_group, output_hint, output_key};
-use alephium_model::{Block, BlockHeader, Hash, LockupScript, OutputRef, Transaction, TxOutput};
+use alephium_model::{
+    AssetOutput, Block, BlockHeader, Hash, OutputRef, Transaction, TxOutput, deserialize,
+};
 use alephium_state::WorldState;
 use alephium_state::trie::NodeSource;
+use alephium_vm::{BlockEnv, Execution, run_tx_script};
 
 /// Out-blocks with transactions whose inputs were already spent, which the
 /// block applying them skips (`conflictedTxs`).
 pub type Conflicts = Vec<(Hash, Vec<Hash>)>;
 
+/// What applying a block produced besides the world state.
+#[derive(Debug, Default)]
+pub struct Applied {
+    pub conflicts: Conflicts,
+    /// Per transaction index, the replay of its script.
+    pub executions: Vec<(usize, Execution)>,
+}
+
 /// Applies to `world`, the world state of `block`'s intra-group
 /// dependency, the blocks its view adds and then `block` itself.
 /// `in_conflicted(block, tx)` says whether a transaction of an incoming
 /// block was skipped where it came from.
-pub fn apply_outputs<S: NodeSource>(
+pub fn apply_block<S: NodeSource>(
     chain: &ChainStore,
     world: &mut WorldState<'_, S>,
     block: &Block,
     groups: u32,
     in_conflicted: impl Fn(&Hash, &Hash) -> bool,
-) -> Result<Conflicts, String> {
-    let (group, to) = BlockHeader::chain_index(&block.hash(), groups);
+) -> Result<Applied, String> {
+    let hash = block.hash();
+    let (group, to) = BlockHeader::chain_index(&hash, groups);
     if group != to {
         return Err("only intra-group blocks carry a world state".to_owned());
     }
@@ -43,14 +56,14 @@ pub fn apply_outputs<S: NodeSource>(
         .collect::<Result<_, _>>()?;
     diff.sort_by_key(|block| block.header.timestamp);
 
-    let mut conflicts = Conflicts::new();
+    let mut applied = Applied::default();
     for other in &diff {
-        let hash = other.hash();
-        let (from, to) = BlockHeader::chain_index(&hash, groups);
+        let other_hash = other.hash();
+        let (from, to) = BlockHeader::chain_index(&other_hash, groups);
         if to == group && from != group {
             // `updateStateForInBlock`.
             for tx in &other.transactions {
-                if !in_conflicted(&hash, &tx.id()) {
+                if !in_conflicted(&other_hash, &tx.id()) {
                     add_outputs(world, tx, other, group, groups)?;
                 }
             }
@@ -73,35 +86,88 @@ pub fn apply_outputs<S: NodeSource>(
                 }
             }
             if !conflicted.is_empty() {
-                conflicts.push((hash, conflicted));
+                applied.conflicts.push((other_hash, conflicted));
             }
         }
     }
 
-    for tx in &block.transactions {
-        // What the scripts did to contract outputs.
-        for input in &tx.contract_inputs {
-            world.remove_output(input)?;
+    // `checkTxScript`, in block order since Leman. Since Rhone a transaction
+    // may spend what an earlier one of the block created.
+    let env = BlockEnv {
+        group,
+        groups,
+        timestamp: block.header.timestamp,
+        target: block.header.target.value(),
+        block_hash: hash,
+    };
+    let mut created: HashMap<OutputRef, AssetOutput> = HashMap::new();
+    for (index, tx) in block.transactions.iter().enumerate() {
+        if let Some(script) = &tx.unsigned.script
+            && tx.script_execution_ok
+        {
+            let prev_outputs = tx
+                .unsigned
+                .inputs
+                .iter()
+                .map(|input| asset_output(world, &created, &input.output_ref))
+                .collect::<Result<Vec<_>, _>>()?;
+            let execution = run_tx_script(world, &env, tx, &prev_outputs, script)
+                .map_err(|failure| format!("transaction {}: {}", tx.id().to_hex(), failure.0))?;
+            if execution.contract_inputs != tx.contract_inputs
+                || execution.generated_outputs != tx.generated_outputs
+            {
+                return Err(format!(
+                    "transaction {}: the replay gave contract inputs {:?} and outputs {:?}, the block {:?} and {:?}",
+                    tx.id().to_hex(),
+                    execution.contract_inputs,
+                    execution.generated_outputs,
+                    tx.contract_inputs,
+                    tx.generated_outputs
+                ));
+            }
+            applied.executions.push((index, execution));
         }
         let id = tx.id();
-        let fixed = tx.unsigned.fixed_outputs.len();
-        for (offset, output) in tx.generated_outputs.iter().enumerate() {
-            if let TxOutput::Contract(contract) = output {
-                let output_ref = OutputRef {
-                    hint: output_hint(&LockupScript::P2c(contract.contract_id)),
-                    key: output_key(&id, output_index(fixed + offset)),
-                };
-                world.put_output(&output_ref, output)?;
-            }
+        for (output_index, output) in tx.unsigned.fixed_outputs.iter().enumerate() {
+            created.insert(
+                OutputRef {
+                    hint: output_hint(&output.lockup_script),
+                    key: output_key(&id, output_index_of(output_index)),
+                },
+                output.clone(),
+            );
         }
-        // `updateStateForInOutBlock`.
+    }
+
+    // `updateStateForInOutBlock`.
+    for tx in &block.transactions {
         remove_inputs(world, tx)?;
         add_outputs(world, tx, block, group, groups)?;
     }
-    Ok(conflicts)
+    Ok(applied)
 }
 
-fn output_index(index: usize) -> i32 {
+/// The asset output an input spends: in the world state, or created by an
+/// earlier transaction of the block.
+fn asset_output<S: NodeSource>(
+    world: &WorldState<'_, S>,
+    created: &HashMap<OutputRef, AssetOutput>,
+    output_ref: &OutputRef,
+) -> Result<AssetOutput, String> {
+    if let Some(output) = created.get(output_ref) {
+        return Ok(output.clone());
+    }
+    let bytes = world
+        .outputs
+        .get(&alephium_model::serialize(output_ref))?
+        .ok_or_else(|| format!("missing input {}", output_ref.key.to_hex()))?;
+    match deserialize::<TxOutput>(&bytes).map_err(|error| error.to_string())? {
+        TxOutput::Asset(output) => Ok(output),
+        TxOutput::Contract(_) => Err("an input spends a contract output".to_owned()),
+    }
+}
+
+fn output_index_of(index: usize) -> i32 {
     i32::try_from(index).unwrap_or(i32::MAX)
 }
 
@@ -126,22 +192,17 @@ fn add_outputs<S: NodeSource>(
     groups: u32,
 ) -> Result<(), String> {
     let id = tx.id();
-    let fixed = tx.unsigned.fixed_outputs.iter();
-    let generated = tx
-        .generated_outputs
-        .iter()
-        .filter_map(|output| match output {
-            TxOutput::Asset(asset) => Some(asset),
-            TxOutput::Contract(_) => None,
-        });
-    let indexes = (0..tx.unsigned.fixed_outputs.len()).chain(
+    let fixed = tx.unsigned.fixed_outputs.len();
+    let all = tx.unsigned.fixed_outputs.iter().enumerate().chain(
         tx.generated_outputs
             .iter()
             .enumerate()
-            .filter(|(_, output)| matches!(output, TxOutput::Asset(_)))
-            .map(|(offset, _)| tx.unsigned.fixed_outputs.len() + offset),
+            .filter_map(|(offset, output)| match output {
+                TxOutput::Asset(asset) => Some((fixed + offset, asset)),
+                TxOutput::Contract(_) => None,
+            }),
     );
-    for (index, output) in indexes.zip(fixed.chain(generated)) {
+    for (index, output) in all {
         if lockup_group(&output.lockup_script, groups) != group {
             continue;
         }
@@ -151,7 +212,7 @@ fn add_outputs<S: NodeSource>(
         }
         let output_ref = OutputRef {
             hint: output_hint(&output.lockup_script),
-            key: output_key(&id, output_index(index)),
+            key: output_key(&id, output_index_of(index)),
         };
         world.put_output(&output_ref, &TxOutput::Asset(output))?;
     }

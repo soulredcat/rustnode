@@ -5,6 +5,7 @@ members = [
     "crates/model",
     "crates/store",
     "crates/state",
+    "crates/vm",
     "crates/chain",
     "crates/protocol",
     "crates/conf",
