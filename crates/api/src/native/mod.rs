@@ -36,6 +36,8 @@ pub(crate) const fn has_handler(route: Route) -> bool {
             | Route::AddressUtxos
             | Route::BlockByHash
             | Route::CallContract
+            | Route::CallTxScript
+            | Route::MulticallContract
             | Route::BlockWithEvents
             | Route::ContractEventCount
             | Route::ContractEvents
@@ -80,6 +82,8 @@ pub(crate) fn serve(
             utxos::utxos_json(path.split('/').nth(2)?, context)
         }
         Route::CallContract => call::call_contract(body, context),
+        Route::CallTxScript => call::call_tx_script(body, context),
+        Route::MulticallContract => call::multicall(body, context),
         Route::AddressBalance => utxos::balance_json(path.split('/').nth(2)?, query, context),
         Route::ContractEventCount if query.is_none() => {
             events::current_count(path.split('/').nth(3)?, context)

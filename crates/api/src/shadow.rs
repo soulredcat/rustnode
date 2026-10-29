@@ -125,7 +125,9 @@ fn same_answer(route: Route, official: &Bytes, native: &[u8]) -> bool {
             }
             official == native
         }
-        (Ok(mut official), Ok(mut native)) if route == Route::CallContract => {
+        (Ok(mut official), Ok(mut native))
+            if matches!(route, Route::CallContract | Route::CallTxScript) =>
+        {
             // Without a `txId` each side draws a random one, which only the
             // generated outputs' keys show.
             for body in [&mut official, &mut native] {

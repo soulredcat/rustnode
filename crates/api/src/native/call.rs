@@ -194,10 +194,147 @@ fn runner_script(
 
 pub(super) fn call_contract(body: &[u8], context: &Context<'_>) -> Option<Vec<u8>> {
     let request: Value = serde_json::from_slice(body).ok()?;
-    Some(call(&request, context)?.to_string().into_bytes())
+    let mut result = call(&request, None, context)?;
+    result
+        .as_object_mut()?
+        .insert("type".to_owned(), json!("CallContractSucceeded"));
+    Some(order_type_first(result).to_string().into_bytes())
 }
 
-pub(super) fn call(request: &Value, context: &Context<'_>) -> Option<Value> {
+/// `POST /contracts/call-tx-script`.
+pub(super) fn call_tx_script(body: &[u8], context: &Context<'_>) -> Option<Vec<u8>> {
+    let request: Value = serde_json::from_slice(body).ok()?;
+    let groups = context.groups;
+    let group = u32::try_from(request.get("group")?.as_u64()?).ok()?;
+    if group >= groups {
+        return None;
+    }
+    if let Some(caller) = request.get("callerAddress") {
+        let caller = parse_address(caller.as_str()?)?;
+        if !caller.is_asset() || alephium_model::address::lockup_group(&caller, groups) != group {
+            return None;
+        }
+    }
+    let bytes = alephium_model::hash::from_hex(request.get("bytecode")?.as_str()?)?;
+    let script = deserialize::<StatefulScript>(&bytes).ok()?;
+    let interested = contracts_of(request.get("interestedContracts"))?;
+    let tx_id = tx_id_of(&request)?;
+    let (block_hash, block_time) = block_of(&request, group, None, context)?;
+    let gas_price = U256::from(MIN_GAS_PRICE);
+    let assets = input_assets(&request, gas_price * U256::from(MAXIMAL_GAS_PER_TX))?;
+    let result = execute(
+        context,
+        group,
+        block_hash,
+        block_time,
+        tx_id,
+        assets,
+        &script,
+        &interested,
+    )?;
+    Some(result.to_string().into_bytes())
+}
+
+/// `POST /contracts/multicall-contract`: every call or nothing.
+pub(super) fn multicall(body: &[u8], context: &Context<'_>) -> Option<Vec<u8>> {
+    let request: Value = serde_json::from_slice(body).ok()?;
+    let calls = request.get("calls")?.as_array()?;
+    if calls.len() > MAX_CALLS_IN_MULTICALL {
+        return None;
+    }
+    // `bestDepss`: taken once for every group before the calls.
+    let mut best = Vec::new();
+    {
+        let store = context
+            .chain?
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        let store = store.as_ref()?;
+        for group in 0..context.groups {
+            if !store.weights_known(group, group) {
+                return None;
+            }
+            best.push(store.best_deps(group, group).ok()?[(context.groups - 1 + group) as usize]);
+        }
+    }
+    let mut results = Vec::with_capacity(calls.len());
+    for one in calls {
+        let mut result = call(one, Some(&best), context)?;
+        result
+            .as_object_mut()?
+            .insert("type".to_owned(), json!("CallContractSucceeded"));
+        results.push(order_type_first(result));
+    }
+    Some(json!({"results": results}).to_string().into_bytes())
+}
+
+/// `ServerUtils.maxCallsInMultipleCall`.
+const MAX_CALLS_IN_MULTICALL: usize = 20;
+
+/// `type` first, as the official encoder writes it.
+fn order_type_first(result: Value) -> Value {
+    let Value::Object(fields) = result else {
+        return result;
+    };
+    let mut ordered = serde_json::Map::new();
+    if let Some(kind) = fields.get("type") {
+        ordered.insert("type".to_owned(), kind.clone());
+    }
+    for (key, value) in fields {
+        if key != "type" {
+            ordered.insert(key, value);
+        }
+    }
+    Value::Object(ordered)
+}
+
+fn contracts_of(list: Option<&Value>) -> Option<Vec<Hash>> {
+    match list {
+        Some(list) => list
+            .as_array()?
+            .iter()
+            .map(|address| contract_of(address.as_str()?))
+            .collect(),
+        None => Some(Vec::new()),
+    }
+}
+
+fn tx_id_of(request: &Value) -> Option<Hash> {
+    match request.get("txId") {
+        Some(id) => Hash::from_hex(id.as_str()?),
+        None => Some(random_tx_id()),
+    }
+}
+
+/// `worldStateBlockHash`, or the group's best intra-group block, with its
+/// timestamp.
+fn block_of(
+    request: &Value,
+    group: u32,
+    best: Option<&[Hash]>,
+    context: &Context<'_>,
+) -> Option<(Hash, u64)> {
+    let groups = context.groups;
+    let store = context
+        .chain?
+        .read()
+        .unwrap_or_else(PoisonError::into_inner);
+    let store = store.as_ref()?;
+    let block_hash = match (request.get("worldStateBlockHash"), best) {
+        (Some(hash), _) => Hash::from_hex(hash.as_str()?)?,
+        (None, Some(best)) => *best.get(group as usize)?,
+        (None, None) => {
+            if !store.weights_known(group, group) {
+                return None;
+            }
+            store.best_deps(group, group).ok()?[(groups - 1 + group) as usize]
+        }
+    };
+    Some((block_hash, store.get(&block_hash)?.block.header.timestamp.0))
+}
+
+/// One `call-contract` call, without its `type`.
+pub(super) fn call(request: &Value, best: Option<&[Hash]>, context: &Context<'_>) -> Option<Value> {
     if request.get("callerAddress").is_some() {
         return None;
     }
@@ -216,40 +353,13 @@ pub(super) fn call(request: &Value, context: &Context<'_>) -> Option<Value> {
             .collect::<Option<_>>()?,
         None => Vec::new(),
     };
-    let mut interested: Vec<Hash> = match request.get("interestedContracts") {
-        Some(list) => list
-            .as_array()?
-            .iter()
-            .map(|address| contract_of(address.as_str()?))
-            .collect::<Option<_>>()?,
-        None => Vec::new(),
-    };
+    let mut interested = contracts_of(request.get("interestedContracts"))?;
     interested.push(contract);
-    let tx_id = match request.get("txId") {
-        Some(id) => Hash::from_hex(id.as_str()?)?,
-        None => random_tx_id(),
-    };
-    let (block_hash, block_time) = {
-        let store = context
-            .chain?
-            .read()
-            .unwrap_or_else(PoisonError::into_inner);
-        let store = store.as_ref()?;
-        let block_hash = match request.get("worldStateBlockHash") {
-            Some(hash) => Hash::from_hex(hash.as_str()?)?,
-            None => {
-                if !store.weights_known(group, group) {
-                    return None;
-                }
-                store.best_deps(group, group).ok()?[(groups - 1 + group) as usize]
-            }
-        };
-        (block_hash, store.get(&block_hash)?.block.header.timestamp.0)
-    };
+    let tx_id = tx_id_of(request)?;
+    let (block_hash, block_time) = block_of(request, group, best, context)?;
     let states = context.state?;
     let roots = states.roots(&block_hash).ok()??;
-    let mut world = WorldState::new(&roots, states);
-
+    let world = WorldState::new(&roots, states);
     let gas_price = U256::from(MIN_GAS_PRICE);
     let gas_fee = gas_price * U256::from(MAXIMAL_GAS_PER_TX);
     let assets = input_assets(request, gas_fee)?;
@@ -276,6 +386,35 @@ pub(super) fn call(request: &Value, context: &Context<'_>) -> Option<Value> {
         return None;
     }
     let script = runner_script(&assets, gas_fee, &contract, method_index, &method, &args)?;
+    execute(
+        context,
+        group,
+        block_hash,
+        block_time,
+        tx_id,
+        assets,
+        &script,
+        &interested,
+    )
+}
+
+/// Runs `script` with `maximalGasPerTx` on the state after `block_hash`
+/// and describes the run (`CallTxScriptResult`'s fields).
+#[allow(clippy::too_many_arguments)]
+fn execute(
+    context: &Context<'_>,
+    group: u32,
+    block_hash: Hash,
+    block_time: u64,
+    tx_id: Hash,
+    assets: Vec<AssetOutput>,
+    script: &StatefulScript,
+    interested: &[Hash],
+) -> Option<Value> {
+    let states = context.state?;
+    let roots = states.roots(&block_hash).ok()??;
+    let mut world = WorldState::new(&roots, states);
+    let gas_price = U256::from(MIN_GAS_PRICE);
     let tx = TxEnv {
         tx_id,
         prev_outputs: assets,
@@ -286,13 +425,13 @@ pub(super) fn call(request: &Value, context: &Context<'_>) -> Option<Value> {
     };
     let block = BlockEnv {
         group,
-        groups,
+        groups: context.groups,
         timestamp: TimeStamp(now_millis()),
         // `maxMiningTarget`: 2^219 - 1.
         target: Some((U256::ONE << 219u32) - U256::ONE),
         block_hash,
     };
-    let run = run_script(&mut world, &block, &tx, &script, MAXIMAL_GAS_PER_TX, true).ok()?;
+    let run = run_script(&mut world, &block, &tx, script, MAXIMAL_GAS_PER_TX, true).ok()?;
 
     let contracts: Vec<Value> = interested
         .iter()
@@ -345,7 +484,6 @@ pub(super) fn call(request: &Value, context: &Context<'_>) -> Option<Value> {
         }
     }
     Some(json!({
-        "type": "CallContractSucceeded",
         "returns": run.returns.iter().map(val_json).collect::<Vec<_>>(),
         "gasUsed": MAXIMAL_GAS_PER_TX - run.gas_remaining,
         "contracts": contracts,
