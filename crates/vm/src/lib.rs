@@ -9,6 +9,7 @@ mod arith;
 mod balances;
 pub mod contract;
 mod exec;
+pub mod gas;
 mod hashes;
 
 use std::cmp::Ordering;

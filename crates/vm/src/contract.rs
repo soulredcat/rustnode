@@ -23,6 +23,8 @@ pub struct Code {
     method_ends: Vec<i32>,
     methods_bytes: Vec<u8>,
     decoded: RefCell<Vec<Option<Rc<Method>>>>,
+    /// `searchedMethodIndex` and `cachedSelectors` of the selector search.
+    search: RefCell<(i64, std::collections::HashMap<i32, usize>)>,
 }
 
 impl Code {
@@ -49,6 +51,7 @@ impl Code {
             method_ends,
             methods_bytes,
             decoded: RefCell::new(vec![None; methods]),
+            search: RefCell::new((-1, std::collections::HashMap::new())),
         })
     }
 
@@ -117,20 +120,56 @@ impl Code {
         Ok(method)
     }
 
-    /// `getMethodBySelector`: a public method whose first instruction is
-    /// `MethodSelector(selector)`.
-    pub fn method_by_selector(&self, selector: i32) -> VmResult<usize> {
-        for index in 0..self.methods_length() {
-            let method = self.method(index)?;
-            if method.is_public
-                && let Some(first) = method.instrs.first()
-                && first.name() == "MethodSelector"
-                && first.operand == alephium_model::instr::Operand::Selector(selector)
-            {
-                return Ok(index);
+    /// The selector of a public method starting with `MethodSelector`.
+    fn selector(&self, index: usize) -> VmResult<Option<i32>> {
+        let method = self.method(index)?;
+        Ok(match method.instrs.first() {
+            Some(first) if method.is_public && first.name() == "MethodSelector" => {
+                match first.operand {
+                    alephium_model::instr::Operand::Selector(selector) => Some(selector),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+    }
+
+    /// `getMethodBySelector`: the method index and how many methods the
+    /// search went through (`methodSearched`, charged as gas); found
+    /// selectors are remembered for the code object's lifetime.
+    pub fn method_by_selector(&self, selector: i32) -> VmResult<(usize, u64)> {
+        if let Some(index) = self.search.borrow().1.get(&selector) {
+            return Ok((*index, 0));
+        }
+        let searched = self.search.borrow().0;
+        let mut index = usize::try_from(searched + 1).unwrap_or(0);
+        let mut found = false;
+        while !found && index < self.methods_length() {
+            match self.selector(index)? {
+                Some(at) => {
+                    self.search.borrow_mut().1.insert(at, index);
+                    if at == selector {
+                        found = true;
+                    } else {
+                        index += 1;
+                    }
+                }
+                None => index += 1,
             }
         }
-        fail(format!("no method with selector {selector}"))
+        let index_i64 = i64::try_from(index).unwrap_or(i64::MAX);
+        self.search.borrow_mut().0 = index_i64;
+        if found {
+            Ok((index, u64::try_from(index_i64 - searched).unwrap_or(0)))
+        } else {
+            fail(format!("invalid method selector {selector}"))
+        }
+    }
+
+    /// The methods' bytes, for `estimateContractLoadByteSize`.
+    #[must_use]
+    pub fn methods_bytes_len(&self) -> usize {
+        self.methods_bytes.len()
     }
 
     /// `Contract.initialStateHash`.

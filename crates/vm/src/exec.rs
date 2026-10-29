@@ -119,6 +119,8 @@ struct Ctx<'w, 'a, S: NodeSource> {
     gas_fee_paid: U256,
     events: Vec<Event>,
     sub_contracts: Vec<(Hash, Hash)>,
+    /// Gas left (`gasRemaining`).
+    gas: u64,
 }
 
 /// Runs the script of `tx`, whose inputs spend `prev_outputs`, on `world`
@@ -153,6 +155,7 @@ pub fn run_tx_script<S: NodeSource>(
         gas_fee_paid: U256::ZERO,
         events: Vec::new(),
         sub_contracts: Vec::new(),
+        gas: u64::MAX,
     };
     let methods: Rc<Vec<Rc<Method>>> =
         Rc::new(script.methods.iter().cloned().map(Rc::new).collect());
@@ -412,6 +415,15 @@ fn to_outputs(
 }
 
 impl<S: NodeSource> Ctx<'_, '_, S> {
+    /// `chargeGas`.
+    fn charge(&mut self, amount: u64) -> VmResult<()> {
+        self.gas = self
+            .gas
+            .checked_sub(amount)
+            .ok_or_else(|| Fail("out of gas".to_owned()))?;
+        Ok(())
+    }
+
     fn next_output_index(&self) -> usize {
         self.tx.unsigned.fixed_outputs.len() + self.generated_outputs.len()
     }
@@ -436,7 +448,8 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
             .any(|output| &output.lockup_script == lockup)
     }
 
-    fn unique_input_address(&self) -> VmResult<LockupScript> {
+    fn unique_input_address(&mut self) -> VmResult<LockupScript> {
+        self.charge(crate::gas::unique_address(self.prev_outputs.len()))?;
         let first = self
             .prev_outputs
             .first()
@@ -551,7 +564,20 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
         if self.block_list.contains(id) {
             return fail("contract load disallowed");
         }
-        let obj = Rc::new(RefCell::new(self.load_from_world(id)?));
+        let loaded = self.load_from_world(id)?;
+        let size = loaded
+            .imm_fields
+            .iter()
+            .map(crate::gas::estimate)
+            .sum::<usize>()
+            + loaded
+                .mut_fields
+                .iter()
+                .map(crate::gas::estimate)
+                .sum::<usize>()
+            + loaded.code.methods_bytes_len();
+        self.charge(crate::gas::contract_load(size))?;
+        let obj = Rc::new(RefCell::new(loaded));
         self.pool.insert(*id, Rc::clone(&obj));
         Ok(obj)
     }
@@ -572,6 +598,7 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
 
     /// `loadContractAssets`.
     fn load_contract_assets(&mut self, id: &Hash) -> VmResult<Balances> {
+        self.charge(crate::gas::TX_INPUT_BASE)?;
         let state = self
             .contract_state(id)?
             .ok_or_else(|| Fail(format!("no contract {}", id.to_hex())))?;
@@ -636,7 +663,7 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
         match &output {
             TxOutput::Asset(_) => {
                 self.generated_outputs.push(output);
-                Ok(())
+                self.charge(crate::gas::TX_OUTPUT_BASE)
             }
             TxOutput::Contract(contract) => {
                 let id = contract.contract_id;
@@ -680,6 +707,7 @@ impl<S: NodeSource> Ctx<'_, '_, S> {
         output: &TxOutput,
         index: usize,
     ) -> VmResult<()> {
+        self.charge(crate::gas::TX_OUTPUT_BASE)?;
         self.mark_flushed(id)?;
         let output_ref = self.output_ref(output, index)?;
         let mut state = self
@@ -1008,6 +1036,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
     }
 
     fn call_local(&mut self, index: usize) -> VmResult<()> {
+        self.ctx.charge(crate::gas::CALL)?;
         let obj = self.top()?.obj.clone();
         let method = obj.method(index)?;
         let balance = self.new_frame_balance(&obj, &method, index)?;
@@ -1019,11 +1048,16 @@ impl<S: NodeSource> Vm<'_, '_, S> {
 
     /// `callExternal` / `callExternalBySelector`.
     fn call_external(&mut self, by: Result<usize, i32>) -> VmResult<()> {
+        self.ctx.charge(crate::gas::CALL)?;
         let id = self.pop_contract_id()?;
         let contract = self.ctx.load_contract(&id)?;
         let index = match by {
             Ok(index) => index,
-            Err(selector) => contract.borrow().code.method_by_selector(selector)?,
+            Err(selector) => {
+                let (index, searched) = contract.borrow().code.method_by_selector(selector)?;
+                self.ctx.charge(searched * crate::gas::MID)?;
+                index
+            }
         };
         let method = contract.borrow().code.method(index)?;
         // `checkLength`: the return length, then the argument count.
@@ -1180,6 +1214,8 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             .map(|(id, obj)| (*id, obj.borrow().mut_fields.clone()))
             .collect();
         for (id, fields) in updated {
+            self.ctx
+                .charge(crate::gas::CONTRACT_STATE_UPDATE_BASE + crate::gas::fields(&fields))?;
             let mut state = self
                 .ctx
                 .contract_state(&id)?
@@ -1300,6 +1336,9 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                         self.post_frame()?;
                     }
                     _ => {
+                        if let Some(gas) = crate::gas::simple(instr.name()) {
+                            self.ctx.charge(gas)?;
+                        }
                         self.step(&instr)?;
                         self.top()?.pc += 1;
                     }
@@ -1482,7 +1521,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
     }
 
     /// `getCallAddress` of frame `index`.
-    fn call_address(&self, index: usize) -> VmResult<LockupScript> {
+    fn call_address(&mut self, index: usize) -> VmResult<LockupScript> {
         match self.frames[index].obj.contract_id() {
             Some(id) => Ok(p2c(id)),
             None => self.ctx.unique_input_address(),
@@ -1497,7 +1536,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
     }
 
     /// `getExternalCallerAddress`.
-    fn external_caller_address(&self) -> VmResult<LockupScript> {
+    fn external_caller_address(&mut self) -> VmResult<LockupScript> {
         let top = self.frames.len() - 1;
         let Some(id) = self.frames[top].obj.contract_id() else {
             return self.ctx.unique_input_address();
@@ -1529,11 +1568,17 @@ impl<S: NodeSource> Vm<'_, '_, S> {
         let (imm_fields, mut_fields, code) = if let Operand::BytePair(imm, mutable) = operand {
             let mut_fields = self.pop_n(usize::from(*mutable))?;
             let imm_fields = self.pop_n(usize::from(*imm))?;
+            self.ctx
+                .charge(crate::gas::fields(imm_fields.iter().chain(&mut_fields)))?;
             let code = map_entry_code(usize::from(*imm), usize::from(*mutable))?;
+            self.ctx
+                .charge(crate::gas::code_size(code.encode().len()))?;
             (imm_fields, mut_fields, Rc::new(code))
         } else {
             let mut_fields = self.pop_fields()?;
             let imm_fields = self.pop_fields()?;
+            self.ctx
+                .charge(crate::gas::fields(imm_fields.iter().chain(&mut_fields)))?;
             let code = if copy_create {
                 let id = self.pop_contract_id()?;
                 let obj = self.ctx.load_contract(&id)?;
@@ -1541,6 +1586,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             } else {
                 let bytes = self.pop_bytes()?;
                 let code = Code::decode(&bytes)?;
+                self.ctx.charge(crate::gas::code_size(bytes.len()))?;
                 if code.field_length > 0xff || code.methods_length() == 0 {
                     return fail("invalid contract code");
                 }
@@ -1561,6 +1607,8 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             let parent = self.self_id()?;
             let path = self.pop_bytes()?;
             let pre_image = [&parent.0[..], &path].concat();
+            self.ctx
+                .charge(crate::gas::hash(pre_image.len()) + crate::gas::hash(32))?;
             let id = with_group(Hash::blake2b(&Hash::blake2b(&pre_image).0), group);
             (id, Some(parent))
         } else {
@@ -1677,6 +1725,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             None
         };
         let bytes = self.pop_bytes()?;
+        self.ctx.charge(crate::gas::code_size(bytes.len()))?;
         let code = Code::decode(&bytes)?;
         if code.field_length > 0xff || code.methods_length() == 0 {
             return fail("invalid contract code");
@@ -1701,6 +1750,8 @@ impl<S: NodeSource> Vm<'_, '_, S> {
         if i32::try_from(imm_fields.len() + mut_fields.len()).ok() != Some(code.field_length) {
             return fail("invalid field length");
         }
+        self.ctx
+            .charge(crate::gas::fields(imm_fields.iter().chain(&mut_fields)))?;
         let Some(StoredState::Mutable {
             output_ref,
             immutable_hash,
@@ -1892,7 +1943,9 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 if !ok {
                     return fail(format!("{name} of {value:?}"));
                 }
-                self.push(Val::ByteVec(to_byte_vec(&value)))
+                let bytes = to_byte_vec(&value);
+                self.ctx.charge(crate::gas::to_byte(bytes.len()))?;
+                self.push(Val::ByteVec(bytes))
             }
             ("I256Add", _) => self.binary_i256(|x, y| x.checked_add(y).map(Val::I256)),
             ("I256Sub", _) => self.binary_i256(|x, y| x.checked_sub(y).map(Val::I256)),
@@ -1932,6 +1985,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             ("NumericSHR", _) => self.shift(false),
             ("I256Exp", _) => {
                 let exp = self.pop_u256()?;
+                self.ctx.charge(crate::gas::exp(byte_length(exp)))?;
                 let base = self.pop_i256()?;
                 let out =
                     arith::i256_pow(base, exp).ok_or_else(|| Fail("exp overflow".to_owned()))?;
@@ -1939,6 +1993,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("U256Exp", _) => {
                 let exp = self.pop_u256()?;
+                self.ctx.charge(crate::gas::exp(byte_length(exp)))?;
                 let base = self.pop_u256()?;
                 let out =
                     arith::u256_pow(base, exp).ok_or_else(|| Fail("exp overflow".to_owned()))?;
@@ -1946,6 +2001,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("U256ModExp", _) => {
                 let exp = self.pop_u256()?;
+                self.ctx.charge(crate::gas::exp(byte_length(exp)))?;
                 let base = self.pop_u256()?;
                 self.push(Val::U256(arith::u256_mod_pow(base, exp)))
             }
@@ -1973,19 +2029,25 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("U256ToString", _) => {
                 let value = self.pop_u256()?;
-                self.push(Val::ByteVec(value.to_string().into_bytes()))
+                let bytes = value.to_string().into_bytes();
+                self.ctx.charge(crate::gas::to_byte(bytes.len()))?;
+                self.push(Val::ByteVec(bytes))
             }
             ("I256ToString", _) => {
                 let value = self.pop_i256()?;
-                self.push(Val::ByteVec(value.to_string().into_bytes()))
+                let bytes = value.to_string().into_bytes();
+                self.ctx.charge(crate::gas::to_byte(bytes.len()))?;
+                self.push(Val::ByteVec(bytes))
             }
             ("BoolToString", _) => {
                 let value = self.pop_bool()?;
-                self.push(Val::ByteVec(if value {
+                let bytes = if value {
                     b"true".to_vec()
                 } else {
                     b"false".to_vec()
-                }))
+                };
+                self.ctx.charge(crate::gas::to_byte(bytes.len()))?;
+                self.push(Val::ByteVec(bytes))
             }
             (
                 "U256To1Byte" | "U256To2Byte" | "U256To4Byte" | "U256To8Byte" | "U256To16Byte"
@@ -1996,6 +2058,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 let value = self.pop_u256()?;
                 let bytes = fixed_size_bytes(value, size)
                     .ok_or_else(|| Fail("value too large".to_owned()))?;
+                self.ctx.charge(crate::gas::to_byte(size))?;
                 self.push(Val::ByteVec(bytes))
             }
             (
@@ -2008,6 +2071,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 if bytes.len() != size {
                     return fail("invalid bytes size");
                 }
+                self.ctx.charge(crate::gas::to_byte(size))?;
                 let mut array = [0u8; 32];
                 array[32 - size..].copy_from_slice(&bytes);
                 self.push(Val::U256(U256::from_be_bytes(array)))
@@ -2015,6 +2079,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             ("ByteVecEq" | "ByteVecNeq", _) => {
                 let x = self.pop_bytes()?;
                 let y = self.pop_bytes()?;
+                self.ctx.charge(crate::gas::bytes_eq(x.len()))?;
                 self.push(Val::Bool((x == y) == (name == "ByteVecEq")))
             }
             ("AddressEq" | "AddressNeq", _) => {
@@ -2030,6 +2095,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 let y = self.pop_bytes()?;
                 let mut x = self.pop_bytes()?;
                 x.extend(y);
+                self.ctx.charge(crate::gas::bytes_concat(x.len()))?;
                 self.push(Val::ByteVec(x))
             }
             ("ByteVecSlice", _) => {
@@ -2041,10 +2107,12 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 if begin > end || end > bytes.len() {
                     return fail("invalid slice");
                 }
+                self.ctx.charge(crate::gas::bytes_concat(end - begin))?;
                 self.push(Val::ByteVec(bytes[begin..end].to_vec()))
             }
             ("ByteVecToAddress", _) => {
                 let bytes = self.pop_bytes()?;
+                self.ctx.charge(crate::gas::to_byte(bytes.len()))?;
                 let lockup =
                     deserialize::<LockupScript>(&bytes).map_err(|error| Fail(error.to_string()))?;
                 self.push(Val::Address(lockup))
@@ -2057,12 +2125,15 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                 let n =
                     small_int(self.pop_u256()?).ok_or_else(|| Fail("encode length".to_owned()))?;
                 let values = self.pop_n(n)?;
-                self.push(Val::ByteVec(serialize(&values)))
+                let bytes = serialize(&values);
+                self.ctx.charge(crate::gas::bytes_concat(bytes.len()))?;
+                self.push(Val::ByteVec(bytes))
             }
             ("Zeros", _) => {
                 let size = small_int(self.pop_u256()?)
                     .filter(|size| *size <= 4096)
                     .ok_or_else(|| Fail("zeros size".to_owned()))?;
+                self.ctx.charge(crate::gas::bytes_eq(size))?;
                 self.push(Val::ByteVec(vec![0; size]))
             }
             ("IsAssetAddress" | "IsContractAddress", _) => {
@@ -2103,6 +2174,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("Blake2b" | "Keccak256" | "Sha256" | "Sha3", _) => {
                 let bytes = self.pop_bytes()?;
+                self.ctx.charge(crate::gas::hash(bytes.len()))?;
                 self.push(Val::ByteVec(crate::hashes::digest(name, &bytes)))
             }
             // The block says the script succeeded, so its signature checks
@@ -2195,6 +2267,7 @@ impl<S: NodeSource> Vm<'_, '_, S> {
             }
             ("Log1" | "Log2" | "Log3" | "Log4" | "Log5" | "Log6" | "Log7" | "Log8" | "Log9", _) => {
                 let n = usize::from(name.as_bytes()[3] - b'0');
+                self.ctx.charge(crate::gas::log(n))?;
                 let fields = self.pop_n(n)?;
                 let id = self.top()?.obj.contract_id();
                 self.ctx.write_log(id, fields, false);
@@ -2335,6 +2408,11 @@ impl<S: NodeSource> Vm<'_, '_, S> {
                     self.pop_contract_id()?
                 };
                 let pre_image = [&parent.0[..], &path].concat();
+                self.ctx.charge(
+                    crate::gas::bytes_concat(pre_image.len())
+                        + crate::gas::hash(pre_image.len())
+                        + crate::gas::hash(32),
+                )?;
                 let id = with_group(
                     Hash::blake2b(&Hash::blake2b(&pre_image).0),
                     self.ctx.block.group,
@@ -2461,6 +2539,11 @@ impl<S: NodeSource> Vm<'_, '_, S> {
         *slot = value;
         Ok(())
     }
+}
+
+/// `U256.byteLength`.
+fn byte_length(value: U256) -> usize {
+    (256 - value.leading_zeros() as usize).div_ceil(8)
 }
 
 fn byte_size(name: &str, prefix: &str) -> VmResult<usize> {
