@@ -21,3 +21,7 @@ Every commit passes `make check` (rustfmt, `cargo check`, `clippy -D warnings`, 
 ## 4. Verified against mainnet
 
 Compatibility evidence comes from the pinned official implementation (`UPSTREAM.toml`) generating mainnet vectors (`make m1-vectors`), and from the operator's synced official mainnet node (`make mainnet-check`). Nothing else counts as evidence.
+
+## 5. Tests take at most one minute
+
+Every test and check finishes within 60 seconds: `make check` as a whole, `make mainnet-check` as a whole, and any single test run by hand. A check that needs longer is shrunk, not kept. Few small checks beat many large ones; the node's own `depStateHash` check of every followed block is the standing proof against the network.
